@@ -9,6 +9,9 @@
 * The score, its components and the config version are stored with the event.
 
 The one writer of ``signal_events``, ``signal_event_evidence`` and ``signal_event_links``.
+``import_events`` records the signals an uploaded Account Summary states (workspace import,
+2026-11-03): one event per signal fact, keyed by what it says, scored 0 (the platform did not
+observe it) and typed from its words, so the Signals screen shows every signal of the file.
 
 GUARANTEE(test_one_event_is_one_event_and_evidence_attaches)
 """
@@ -52,6 +55,158 @@ class EventInput:
     source_tier: str
     via: Via
     detected_at: datetime
+
+
+@dataclass(frozen=True)
+class ImportedSignal:
+    """One signal stated by an uploaded file: the fact the import recorded and its words."""
+
+    fact_id: UUID
+    attribute_key: str
+    title: str
+    grade: str
+    bucket: int
+    detected_at: datetime
+    source_url: str | None = None
+    source_code: str | None = None
+
+
+_TYPE_WORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "leadership_change",
+        (
+            "cio",
+            "cto",
+            "ceo",
+            "cfo",
+            "chief",
+            "appoint",
+            "named",
+            "joins",
+            "hired as",
+            "head of",
+            "vp ",
+            "vice president",
+            "director",
+        ),  # fmt: skip
+    ),
+    (
+        "build_role_posting",
+        (
+            "hiring",
+            "posting",
+            "postings",
+            "recruit",
+            "vacanc",
+            "opening",
+            "role",
+            "engineer",
+            "administrator",
+            "developer",
+        ),  # fmt: skip
+    ),
+    ("funding_ma", ("acqui", "merger", "funding", "raised", "investment", "ipo", "divest")),
+    ("facility_expansion", ("plant", "facility", "factory", "office", "expan", "opens", "site")),
+    ("exec_speaking", ("keynote", "speaks", "speaking", "panel", "conference", "webinar")),
+    ("vendor_customer_story", ("customer story", "case study", "partner", "reseller", "go-live")),
+    (
+        "tech_detection",
+        (
+            "salesforce",
+            "sap",
+            "servicenow",
+            "veeva",
+            "tableau",
+            "crm",
+            "erp",
+            "platform",
+            "migrat",
+            "implement",
+            "upgrade",
+            "cloud",
+        ),  # fmt: skip
+    ),
+)
+
+
+def signal_type_of(text_value: str) -> str:
+    """The scoring vocabulary's type a signal's words point at (``other`` when none do)."""
+    lowered = f" {text_value.casefold()} "
+    for kind, words in _TYPE_WORDS:
+        if any(w in lowered for w in words):
+            return kind
+    return "news_event" if "news" in lowered or "announce" in lowered else "other"
+
+
+async def import_events(s: Any, account_id: UUID, items: list[ImportedSignal]) -> int:
+    """Record the signals of an uploaded file as events (see the module docstring); an event the
+    account already holds (same words) is left as is. Returns the events created."""
+    created = 0
+    for item in items:
+        title = " ".join(item.title.split())[:500]
+        if not title:
+            continue
+        grade = (
+            item.grade
+            if item.grade in ("confirmed", "probable", "hypothesis", "lead")
+            else ("hypothesis")
+        )
+        fingerprint = hashlib.sha256(
+            f"{account_id}:{item.attribute_key}:{title.casefold()}".encode()
+        ).hexdigest()
+        kind = signal_type_of(f"{item.attribute_key} {title}")
+        event_id = await _insert(
+            s,
+            EventInput(
+                account_id=account_id,
+                fingerprint=fingerprint,
+                signal_type=kind,
+                event_type=item.attribute_key.rsplit(".", 1)[-1][:80] or kind,
+                entity=title[:300],
+                title=title,
+                bucket=max(1, min(int(item.bucket), 3)),
+                grade=grade,
+                lead=grade == "lead",
+                sensitive=False,
+                fact_id=item.fact_id,
+                delta_item_id=None,
+                score=Score(total=0, components=(("imported", 0),), config_version="imported"),
+                source_url=item.source_url or "",
+                source_code=item.source_code,
+                source_tier="t3",
+                via="refresh",
+                detected_at=item.detected_at,
+            ),
+        )
+        if event_id is None:
+            continue
+        created += 1
+        if item.source_url:
+            await _evidence(
+                s,
+                event_id,
+                EventInput(
+                    account_id=account_id,
+                    fingerprint=fingerprint,
+                    signal_type=kind,
+                    event_type=kind,
+                    entity=title[:300],
+                    title=title,
+                    bucket=1,
+                    grade=grade,
+                    lead=grade == "lead",
+                    sensitive=False,
+                    fact_id=item.fact_id,
+                    delta_item_id=None,
+                    score=Score(total=0, components=(), config_version="imported"),
+                    source_url=item.source_url,
+                    source_code=item.source_code,
+                    source_tier="t3",
+                    via="refresh",
+                    detected_at=item.detected_at,
+                ),
+            )
+    return created
 
 
 @dataclass(frozen=True)

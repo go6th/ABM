@@ -32,6 +32,7 @@ class JobRecord:
     source_kind: str = "feed"  # feed | live_board | fact
     collected: date | None = None
     from_fact: bool = False  # a research fact, not a pipeline posting row
+    imported: bool = False  # a row of an uploaded workspace workbook (the owner's own record)
 
 
 @dataclass(frozen=True)
@@ -57,6 +58,8 @@ class PersonRecord:
     note: str = ""
     excluded: bool = False
     internal_only: bool = False
+    imported: bool = False  # a row of an uploaded workspace workbook: kept as the owner wrote it
+    meets_seniority: str = ""  # the workbook's own verdict ("Yes", "No", "No (not current)")
 
 
 @dataclass(frozen=True)
@@ -84,9 +87,22 @@ class TechRecord:
     first_seen: str = ""  # as stored (date or timestamp text)
     last_seen: str = ""
     source_url: str = ""
-    origin: str = "detection"  # detection | fact
+    origin: str = "detection"  # detection | fact | import | stack
     detected_domain: str = ""
     cross_check: str = ""
+    postings_count: int = 0  # postings naming it, as an uploaded stack or ranking sheet counted
+    source_label: str = ""  # where an uploaded row came from, when it carries no web address
+
+
+@dataclass(frozen=True)
+class TeamRecord:
+    """One team of an uploaded workspace (``platform_teams``): the teams feed's row."""
+
+    team: str
+    function: str = ""
+    location: str = ""
+    postings: int = 0
+    platforms: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -173,6 +189,7 @@ class CoverageRecord:
     last_run: date | None = None
     evidence_rows: int = 0
     source_codes: tuple[str, ...] = ()
+    proof_note: str = ""  # what an uploaded Account Summary said was done for the item
 
 
 @dataclass(frozen=True)
@@ -216,6 +233,7 @@ class RepairInput:
     people: list[PersonRecord] = field(default_factory=list)
     leadership: list[LeadershipRecord] = field(default_factory=list)
     tech: list[TechRecord] = field(default_factory=list)
+    teams: list[TeamRecord] = field(default_factory=list)
     articles: list[ArticleRecord] = field(default_factory=list)
     sources: list[SourceRecord] = field(default_factory=list)
     searches: list[SearchCall] = field(default_factory=list)

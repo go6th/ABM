@@ -141,12 +141,16 @@ async def materialize(
     tenant_id: UUID,
     run_id: UUID,
     now: datetime,
+    *,
+    force: bool = False,
 ) -> Materialized:
-    """The run's materialisation, building it on first use."""
+    """The run's materialisation, building it on first use. ``force`` builds it again from the
+    stored rows although it is current: the files of a run were rebuilt under fixed rules (the
+    operator's Rebuild files, 2026-11-06) and the web tables must show the same rows."""
     async with txn(tenant_id) as s:
         found = await _existing(s, run_id)
         wanted = await current_exclusion_hash(s)
-        if found is not None and is_current(found, wanted):
+        if found is not None and is_current(found, wanted) and not force:
             return found
         run: Any = (
             await s.execute(
@@ -170,7 +174,7 @@ async def materialize(
             {"r": str(run_id)},
         )
         found = await _existing(s, run_id)
-        if found is not None and is_current(found, wanted):
+        if found is not None and is_current(found, wanted) and not force:
             return found
         if found is not None:
             # a materialisation made under another exclusion list: replace it whole

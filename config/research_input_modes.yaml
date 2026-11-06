@@ -11,7 +11,8 @@ status: "proposal (limits and thresholds unmeasured)"
 upload:
   max_file_bytes: 21474836480        # 20 GiB (fallback; the platform setting wins)
   chunk_bytes: 33554432              # 32 MiB per browser chunk (a multiple of 256 KiB, as GCS needs)
-  upload_ttl_minutes: 2880           # a resumable session lives two days
+  upload_ttl_minutes: 1440           # a resumable session lives one day: the daily job marks an
+                                     # upload still unfinished after 24 hours abandoned (PR4)
   # accepted document types (detected from content, the name only confirms)
   # zip: a zip of these, read member by member by the archive parser (zip bomb, path traversal and
   # depth guards in config/research_files.yaml archives); owner request 2026-10-15
@@ -71,9 +72,15 @@ company:
     proton.me, protonmail.com, live.com, msn.com, gmx.com, yandex.com, mail.com]
   ambiguity_margin: 0.25             # top candidate must beat the second by this share of its score
   min_score: 2.0                     # e.g. a legal name plus a matching email domain
+  bind_min_confidence: 2.0           # an upload binds to (or proceeds on) an account at this score or more;
+                                     # below it, or no match, it waits as needs_account (PR5)
+  # an upload sent to an account is held when the file names another company; true also holds it
+  # when the file names no company or several (the strict rule; most workspace zips name none)
+  hold_unmatched_for_account: false
+  hold_mismatched_for_account: true  # false: an upload sent to an account is never held
 
 extraction:
-  task_kind: file_extract_facts      # registered in config/model_routing.yaml
+  task_kind: file_extract_facts      # registered in src/llm/route.py
   max_chars_per_call: 24000
   max_passages_per_call: 8
   categories: [platforms, incumbent_partners, programs, budget_cycles, objections, decisions,

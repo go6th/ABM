@@ -12,7 +12,7 @@ import { useOperatorApi } from "../useOperatorApi";
 import { ConsoleLoad } from "../ConsoleLoad";
 import { Pill } from "@/ui/design";
 
-type Editable = Pick<ConsoleDefaults, "research_limit_default" | "chat_limit_default" | "limit_reset" | "idle_expiry_days" | "fastest_schedule" | "credit_cap_per_pull" | "default_research_model" | "default_analysis_model" | "max_file_bytes" | "run_dollar_cap_usd" | "repeat_call_limit" | "stall_after_s"> & { enabled_models: string[] };
+type Editable = Pick<ConsoleDefaults, "research_limit_default" | "chat_limit_default" | "limit_reset" | "idle_expiry_days" | "fastest_schedule" | "credit_cap_per_pull" | "default_research_model" | "default_analysis_model" | "max_file_bytes" | "run_dollar_cap_usd" | "repeat_call_limit" | "stall_after_s" | "schedule_tick_max_starts" | "schedule_tick_max_per_tenant"> & { enabled_models: string[] };
 const GB = 1024 ** 3;
 
 function Row({ id, label, hint, children }: { id: string; label: string; hint?: string; children: React.ReactNode }) {
@@ -39,6 +39,8 @@ function Editor({ d, reload }: { d: ConsoleDefaults; reload: () => void }) {
     run_dollar_cap_usd: d.run_dollar_cap_usd,
     repeat_call_limit: d.repeat_call_limit,
     stall_after_s: d.stall_after_s,
+    schedule_tick_max_starts: d.schedule_tick_max_starts,
+    schedule_tick_max_per_tenant: d.schedule_tick_max_per_tenant,
   });
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
@@ -98,8 +100,14 @@ function Editor({ d, reload }: { d: ConsoleDefaults; reload: () => void }) {
         <Row id="stall" label="Stalled after" hint="A run with no progress this long is marked stalled; its owner is told and can resume it.">
           <span className="row-12">
             <input id="stall" className="input sm" type="number" min={1} max={1440} value={Math.round(v.stall_after_s / 60)} onChange={(e) => set("stall_after_s", Math.min(1440, Math.max(1, int(e.target.value))) * 60)} />
-            <span className="mut sm-text">minutes</span>
+            <span className="mut sm-text">minutes (default {Math.round(d.stall_after_s_default / 60)} minutes)</span>
           </span>
+        </Row>
+        <Row id="tick-starts" label="Scheduled refreshes started at once" hint="Each 15-minute tick starts at most this many scheduled refreshes; the rest wait for the next tick.">
+          <input id="tick-starts" className="input sm" type="number" min={1} max={1000} value={v.schedule_tick_max_starts} onChange={(e) => set("schedule_tick_max_starts", Math.min(1000, Math.max(1, int(e.target.value))))} />
+        </Row>
+        <Row id="tick-client" label="Per client per tick" hint="No client gets more of a tick than this. Cannot exceed the tick's own number.">
+          <input id="tick-client" className="input sm" type="number" min={1} max={v.schedule_tick_max_starts} value={v.schedule_tick_max_per_tenant} onChange={(e) => set("schedule_tick_max_per_tenant", Math.min(v.schedule_tick_max_starts, Math.max(1, int(e.target.value))))} />
         </Row>
       </section>
       <section className="card pad stack-14" aria-labelledby="files-title">

@@ -1,5 +1,6 @@
 // Tenant isolation and the client screens: a member of workspace A sees only A's accounts, the
-// Ask screen answers from the workspace, and the removed screens redirect home.
+// Ask screen answers from the workspace, the sidebar lists the live screens, and the screens
+// removed from the product are gone (their redirect stubs were deleted, fix prompt B task 5).
 import { expect, test } from "@playwright/test";
 import { noSeriousA11y, signIn } from "./helpers";
 
@@ -34,14 +35,27 @@ test("ask answers from the workspace and keeps the thread in Recent", async ({ p
   await expect(page.locator(".q").getByText("Summarize our account notes", { exact: true })).toBeVisible();
   await page.getByRole("link", { name: "New chat" }).click();
   await expect(page.getByRole("heading", { name: "Ask about your accounts" })).toBeVisible();
-  await expect(page.getByRole("navigation", { name: "Workspace" }).getByRole("link", { name: "Summarize our account notes" })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Recent chats" }).getByRole("link", { name: "Summarize our account notes" })).toBeVisible();
 });
 
-test("removed screens redirect to Ask", async ({ page }) => {
+test("removed screens are gone", async ({ page }) => {
   await signIn(page, "acme-a", "user-a", "seller");
-  for (const path of ["/alerts", "/audit", "/usage", "/settings", "/settings/connectors", "/downloads", "/chat"]) {
-    await page.goto(path);
-    await expect(page).toHaveURL(/\/(\?.*)?$/);
+  for (const path of ["/alerts", "/audit", "/usage", "/settings", "/settings/connectors", "/downloads", "/chat", "/runs"]) {
+    const response = await page.goto(path);
+    expect(response?.status(), path).toBe(404);
+  }
+});
+
+test("the sidebar lists the live screens a seller can open", async ({ page }) => {
+  await signIn(page, "acme-a", "user-a", "seller");
+  await page.goto("/accounts");
+  const nav = page.getByRole("navigation", { name: "Main" });
+  for (const name of ["Ask", "Accounts", "Research", "New research", "Schedules"]) {
+    await expect(nav.getByRole("link", { name, exact: true })).toBeVisible();
+  }
+  // admin-only screens are not offered to a seller
+  for (const name of ["Teammates", "Support access"]) {
+    await expect(nav.getByRole("link", { name, exact: true })).toHaveCount(0);
   }
 });
 

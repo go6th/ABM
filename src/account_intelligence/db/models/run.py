@@ -55,10 +55,15 @@ class Run(UuidPkMixin, TimestampMixin, Base):
             "parent_run_id",
             postgresql_where=text("parent_run_id IS NOT NULL"),
         ),
+        Index("ix_runs_tenant_owner", "tenant_id", "owner_user_id"),
     )
 
     tenant_id: Mapped[UUID] = mapped_column(
         ForeignKey("tenants.id"), server_default=text("app_tenant()")
+    )
+    # private workspaces (migration 0063): the acting user's row unless the code says otherwise
+    owner_user_id: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("app_user()")
     )
     account_id: Mapped[UUID]
     run_type: Mapped[str] = mapped_column(Text)

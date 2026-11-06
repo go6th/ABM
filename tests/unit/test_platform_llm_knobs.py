@@ -98,7 +98,7 @@ async def test_the_port_passes_the_knobs_through() -> None:
 
 def test_a_credit_balance_400_is_a_terminal_typed_error() -> None:
     from llm.adapters.anthropic_api import map_error
-    from llm.errors import NEVER_FALLBACK, ProviderCreditsExhausted
+    from llm.errors import ProviderCreditsExhausted
 
     response = httpx.Response(
         400,
@@ -109,4 +109,7 @@ def test_a_credit_balance_400_is_a_terminal_typed_error() -> None:
         "Your credit balance is too low to access the Anthropic API.", response=response, body=None
     )
     assert isinstance(map_error(exc), ProviderCreditsExhausted)
-    assert "ProviderCreditsExhausted" in NEVER_FALLBACK
+    # terminal: the graph ends the run partial with a code instead of retrying
+    from agents.graph import model_failure_code
+
+    assert model_failure_code(map_error(exc)) == "model_credits_exhausted"

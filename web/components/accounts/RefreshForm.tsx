@@ -193,6 +193,7 @@ export function RefreshForm({ view, initialTopic }: { view: RefreshOptions; init
       {asking && !hit && !none ? (
         <UsageProceed
           usage={usage}
+          gaps={scope === "people" || scope === "full" ? view.gaps : []}
           what={topicOn ? "This research" : "This refresh"}
           busy={busy}
           message={message}

@@ -1,5 +1,9 @@
 # Model routing guide (D-48, D-51)
 
+> **Superseded 2026-11-03 (ADR-0113).** `config/model_routing.yaml`, the D-48 Router and
+> `scripts/check_routing_governance.py` were removed; the one routing table is `src/llm/route.py`
+> over `config/models.yaml`. This file is kept as history.
+
 * **Call a model** only through `RunDeps.model(task_kind, system, user)` with a task kind registered
   in `config/model_routing.yaml` and `src/llm/tasks.py` (a static test scans every call site).
 * **Task kinds and tiers.** Extraction and classification: `extractor`; planning, synthesis,

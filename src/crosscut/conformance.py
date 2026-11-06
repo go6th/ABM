@@ -1,7 +1,7 @@
 """Section 11 conformance (preflight): every requirement in ``config/section11_spec.yaml`` is
 evaluated against evidence in the repository and the live catalog. All evidence present: Done
 (with the proof); some: Partial; none: Missing; a declared ``blocked_by`` owner that is absent:
-Blocked-by-dependency. One pass, no writes.
+Blocked-by-dependency; an empty evidence list (nothing checks it): Missing. One pass, no writes.
 
 GUARANTEE(test_the_conformance_checker_finds_planted_gaps)
 """
@@ -145,6 +145,8 @@ def evaluate(
         blocked = req.get("blocked_by")
         if blocked and not (root / blocked).exists():
             status = "Blocked-by-dependency"
+        elif not evs:  # nothing checks it: never Done by default (ADR-0122)
+            status = "Missing"
         elif not miss:
             status = "Done"
         elif have:

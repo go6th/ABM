@@ -16,6 +16,7 @@ import asyncio
 import json
 from collections.abc import Callable, Sequence
 from contextlib import AbstractAsyncContextManager
+from dataclasses import dataclass
 from datetime import UTC, datetime, time
 from functools import partial
 from uuid import UUID
@@ -46,6 +47,131 @@ _POSTING = (
     " :status_source, :text_ref, :sha, :complete, :full, :class, :lanes, :platforms, :title_only,"
     " :weak, :undated, :hostile, :last_seen, :seniority, :new_since_previous)"
 )
+
+
+_IMPORTED_POSTING = (
+    "INSERT INTO job_postings (tenant_id, account_id, run_id, posting_key, row_json, status,"
+    " window_bucket, url, other_urls, title, location, posted_at, first_seen, status_source,"
+    " text_ref, text_sha256, text_complete, full_text_read, posting_class, lanes, platforms,"
+    " title_only, weak_key, undated, hostile, last_seen, seniority, new_since_previous,"
+    " entity_tag, summary_read, locations, merged_count)"
+    " VALUES (:tenant, :account, :run, :key,"
+    " CAST(:row AS jsonb), :status, :bucket, :url, :urls, :title, :location, :posted, :first,"
+    " :status_source, :text_ref, :sha, :complete, :full, :class, :lanes, :platforms, :title_only,"
+    " :weak, :undated, :hostile, :last_seen, :seniority, :new_since_previous,"
+    " :entity_tag, :summary_read, :locations, :merged_count)"
+    " ON CONFLICT (tenant_id, run_id, posting_key) DO NOTHING"
+)
+
+
+@dataclass(frozen=True)
+class ImportedPosting:
+    """One posting of an uploaded workspace workbook, ready to store (workspace import phase 2):
+    the ``Posting`` the native tables keep, plus what only the workbook carried."""
+
+    posting: Posting
+    entity_tag: str | None = None
+    summary_read: str | None = None
+    locations: tuple[str, ...] = ()
+    merged_count: int = 0
+
+
+async def import_postings(
+    s: AsyncSession,
+    tenant_id: UUID,
+    account_id: UUID,
+    run_id: UUID,
+    items: Sequence[ImportedPosting],
+) -> int:
+    """Store the postings of an uploaded workspace workbook under the file-import run
+    (``job_postings`` with its sentences and classification, pass 0), the same way a research's
+    postings are stored; a posting the run already holds is left as it is. Returns the rows
+    written. The job pipeline's own writer is ``PgPostingRepo.save_run``; this one takes no
+    pipeline record and needs no payload store."""
+    written = 0
+    for item in items:
+        p = item.posting
+        res = await s.execute(
+            text(_IMPORTED_POSTING),
+            {
+                "tenant": tenant_id,
+                "account": account_id,
+                "run": run_id,
+                "key": p.posting_key,
+                "row": p.model_dump_json(),
+                "status": p.status,
+                "bucket": p.window_bucket,
+                # an archive record of the owner's sheet may have no address (migration 0111)
+                "url": p.url or None,
+                "urls": list(p.urls),
+                "title": p.title,
+                "location": p.location,
+                "posted": p.posted_at,
+                "first": p.first_seen_at,
+                "status_source": p.status_source,
+                "text_ref": p.text_ref,
+                "sha": p.text_sha256,
+                "complete": p.text_complete,
+                "full": p.full_text_read,
+                "class": p.posting_class,
+                "lanes": list(p.lanes),
+                "platforms": list(p.platforms),
+                "title_only": p.title_only,
+                "weak": p.weak_key,
+                "undated": p.window_bucket == "undated",
+                "hostile": p.hostile,
+                "last_seen": p.last_seen,
+                "seniority": p.seniority,
+                "new_since_previous": p.new_since_previous,
+                "entity_tag": item.entity_tag,
+                "summary_read": item.summary_read,
+                "locations": list(item.locations),
+                "merged_count": item.merged_count,
+            },
+        )
+        if not res.rowcount:  # type: ignore[attr-defined]
+            continue
+        written += 1
+        for sentence in p.sentences:
+            await s.execute(
+                text(
+                    "INSERT INTO job_posting_platform_sentences (tenant_id, run_id,"
+                    " posting_key, platform, sentence, start_offset, end_offset,"
+                    " span_sha256, pass_no) VALUES (:t, :r, :k, :p, :s, :a, :b, :h, 0)"
+                ),
+                {
+                    "t": tenant_id,
+                    "r": run_id,
+                    "k": p.posting_key,
+                    "p": sentence.platform,
+                    "s": sentence.text[:2000],
+                    "a": sentence.start,
+                    "b": sentence.end,
+                    "h": sentence.sha256,
+                },
+            )
+        if p.classification is not None:
+            c = p.classification
+            await s.execute(
+                text(
+                    "INSERT INTO job_posting_classifications (tenant_id, run_id,"
+                    " posting_key, posting_class, classified_by, reason, rule_id,"
+                    " evidence_sentence, second_pass_label, pass_no)"
+                    " VALUES (:t, :r, :k, :c, :by, :why, :rule, :ev, :second, 0)"
+                ),
+                {
+                    "t": tenant_id,
+                    "r": run_id,
+                    "k": p.posting_key,
+                    "c": c.label,
+                    "by": c.classified_by,
+                    "why": c.reason,
+                    "rule": c.rule_id,
+                    "ev": c.evidence_sentence,
+                    "second": c.second_pass_label,
+                },
+            )
+    return written
 
 
 def _when(value: str) -> datetime:

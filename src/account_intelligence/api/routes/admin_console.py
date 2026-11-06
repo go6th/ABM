@@ -12,6 +12,16 @@
 * ``GET /clients/{tenant_id}``, ``PUT /clients/{tenant_id}`` and ``POST
   /clients/{tenant_id}/invite``: A3, limits per user, features, 6th Library publications, and a
   new invite link while the client's admin has not accepted.
+* ``GET`` and ``POST /clients/{tenant_id}/people-consent``: A3, the client's people data consent
+  (G8, D-97), read and recorded by an operator at the client's request. A client admin grants
+  it in the app (``/v1/settings/people-consent``), but no client admin could sign in until the
+  client's SSO with multi-factor sign-in is connected (a password admin session is refused), so
+  people research could not be switched on at all (staging 2026-11-06). The record names the
+  operator, and both audit logs carry it.
+* ``POST /clients/{tenant_id}/rebuild-files`` {domain}: A3, build one account's files again
+  from its newest delivered run's stored rows (no provider call, no model call, no credit) and
+  materialise its web tables again, after a fix to the build rules: the files of a finished run
+  otherwise keep the rows the old rules gave them (staging 2026-11-06, Olympus).
 * ``GET /users`` and ``POST /users/{tenant_id}/terminate`` or ``/re-enable``: A4, every user's
   counts and access; ending access keeps history and signs the user out everywhere.
 * ``GET /runs``: A6, credits by purpose this month, the isolation check and the newest jobs.
@@ -46,7 +56,9 @@ from account_intelligence.api.policy import OperatorRole, operator_route, regist
 from account_intelligence.api.team_invites import invite_member
 from account_intelligence.api.tenant_plane import plane_of
 from account_intelligence.config import CONFIG_DIR, SKILL_PACKAGE_DIR
-from account_intelligence.db.session import tenant_txn, untenanted_session
+from account_intelligence.connectors.spend_guard import STALL_AFTER_S_DEFAULT
+from account_intelligence.db.session import tenant_txn
+from account_intelligence.db.system_scope import untenanted_session
 from account_intelligence.replica import admin as A
 from account_intelligence.replica import isolation
 from account_intelligence.replica import library as L
@@ -69,6 +81,9 @@ for _m, _p, _audit, _tenant in (
     ("POST", "/clients", "admin", "none"),
     ("GET", "/clients/{tenant_id}", "read", "operator_target"),
     ("PUT", "/clients/{tenant_id}", "admin", "operator_target"),
+    ("GET", "/clients/{tenant_id}/people-consent", "read", "operator_target"),
+    ("POST", "/clients/{tenant_id}/people-consent", "admin", "operator_target"),
+    ("POST", "/clients/{tenant_id}/rebuild-files", "admin", "operator_target"),
     ("POST", "/clients/{tenant_id}/invite", "admin", "operator_target"),
     ("POST", "/clients/{tenant_id}/users", "admin", "operator_target"),
     ("GET", "/users", "read", "none"),
@@ -530,6 +545,126 @@ async def change_client(
     return await _detail(tenant_id, now)
 
 
+class ConsentChange(BaseModel):
+    """A3 People data consent: record it for the client (``accept`` true) or withdraw it."""
+
+    model_config = ConfigDict(extra="forbid")
+    accept: bool
+
+
+@router.get("/clients/{tenant_id}/people-consent", response_model=C.PeopleConsent)
+async def client_people_consent(
+    tenant_id: UUID, request: Request, who: StaffIdentity = Depends(require_staff)
+) -> dict[str, Any]:
+    """A3: the client's people data consent, as the client's own settings page shows it."""
+    from account_intelligence.api.routes.settings import _consent_json
+
+    await _known(tenant_id)
+    return await _consent_json(tenant_id)
+
+
+@router.post("/clients/{tenant_id}/people-consent", response_model=C.PeopleConsent)
+async def set_client_people_consent(
+    tenant_id: UUID,
+    body: ConsentChange,
+    request: Request,
+    who: StaffIdentity = Depends(require_staff),
+) -> dict[str, Any]:
+    """A3: record (or withdraw) the client's people data consent to the current text version.
+    The insert-only record names the operator (``operator:<staff id>``) as the one who recorded
+    it; a withdrawal is a newer row, as in the app."""
+    from account_intelligence.api.routes.settings import _consent_json, _consent_text
+    from agents.adapters import PgConsentStore
+
+    await _known(tenant_id)
+    scope, _, _, version = _consent_text()
+    if not version:
+        raise APIProblem(
+            409,
+            "consent_text_not_approved",
+            "No consent text to accept",
+            "The people data consent text has no approved version yet.",
+        )
+    now = plane_of(request).clock.now()
+    await PgConsentStore().record(
+        tenant_id,
+        f"operator:{who.staff_id}",
+        version,
+        frozenset({scope}),
+        now,
+        revoked=not body.accept,
+    )
+    action = "people_consent.granted" if body.accept else "people_consent.withdrawn"
+    async with tenant_txn(tenant_id) as s:
+        await _client_audit(s, request, who, action)
+    await _op_audit(request, who, action, str(tenant_id))
+    return await _consent_json(tenant_id)
+
+
+class RebuildFiles(BaseModel):
+    """A3 Rebuild files: the account, by its domain."""
+
+    model_config = ConfigDict(extra="forbid")
+    domain: str = Field(min_length=3, max_length=253, pattern=r"^[a-z0-9][a-z0-9.-]*\.[a-z]{2,}$")
+
+
+@router.post("/clients/{tenant_id}/rebuild-files", response_model=C.FilesRebuilt)
+async def rebuild_files(
+    tenant_id: UUID,
+    body: RebuildFiles,
+    request: Request,
+    who: StaffIdentity = Depends(require_staff),
+) -> dict[str, Any]:
+    """A3: build the account's files again from its newest delivered run and refresh its web
+    tables. Reads stored rows only; a build the rules refuse leaves the old files in place."""
+    from account_intelligence.replica import sheets as SH
+    from views import materialize
+
+    await _known(tenant_id)
+    container = request.app.state.container
+    builder = getattr(container, "builder", None)
+    if builder is None or getattr(builder, "reader", None) is None:
+        raise APIProblem(503, "not_configured", "Not available", "The file builder is off.")
+    async with tenant_txn(tenant_id) as s:
+        account = await s.scalar(
+            text("SELECT id FROM accounts WHERE domain = :d AND deleted_at IS NULL"),
+            {"d": body.domain},
+        )
+        run = await SH.delivered_run(s, UUID(str(account))) if account is not None else None
+        imported = await SH.imported_run(s, run) if run is not None else False
+    if run is None:
+        raise APIProblem(404, "not_found", "Not found", "No delivered files for that account.")
+    if imported:
+        raise APIProblem(
+            409, "imported", "Uploaded files", "An uploaded workspace is shown as it was uploaded."
+        )
+    result = await builder.build_all(str(tenant_id), str(run))
+    rows: dict[str, int] = {}
+    if result.status == "complete":
+        done = await materialize.materialize(
+            tenant_txn,
+            builder.reader,
+            builder.cfg,
+            builder.grading,
+            tenant_id,
+            run,
+            plane_of(request).clock.now(),
+            force=True,
+        )
+        rows = {str(k): int(v) for k, v in done.counts.items()}
+    action = "files.rebuilt" if result.status == "complete" else "files.rebuild_refused"
+    async with tenant_txn(tenant_id) as s:
+        await _client_audit(s, request, who, action)
+    await _op_audit(request, who, action, str(tenant_id))
+    return {
+        "run_id": str(run),
+        "status": result.status,
+        "reason": result.reason,
+        "files": sorted({d.kind for d in result.deliverables}),
+        "rows": rows,
+    }
+
+
 @router.get("/users", response_model=C.ConsoleUsers)
 async def users(request: Request, who: StaffIdentity = Depends(require_staff)) -> dict[str, Any]:
     """A4: every user's counts and access, across clients."""
@@ -810,7 +945,9 @@ async def _defaults(request: Request) -> dict[str, Any]:
         "run_dollar_cap_usd": float(d["run_dollar_cap_usd"]),
         "repeat_call_limit": int(d["repeat_call_limit"]),
         "stall_after_s": int(d["stall_after_s"]),
-        "model_router_on": getattr(request.app.state.container, "router", None) is not None,
+        "stall_after_s_default": STALL_AFTER_S_DEFAULT,
+        "schedule_tick_max_starts": int(d["schedule_tick_max_starts"]),
+        "schedule_tick_max_per_tenant": int(d["schedule_tick_max_per_tenant"]),
         "skill_version": _skill_version(),
         "skill_installed": SKILL_DIR.is_dir(),
         "admins": _admins(),
@@ -846,6 +983,9 @@ class DefaultsChange(BaseModel):
     run_dollar_cap_usd: float | None = Field(default=None, ge=0.1, le=10_000)
     repeat_call_limit: int | None = Field(default=None, ge=1, le=50)
     stall_after_s: int | None = Field(default=None, ge=60, le=86_400)
+    # the scheduled-refresh tick's ceilings (ADR-0108): starts per tick, and per client per tick
+    schedule_tick_max_starts: int | None = Field(default=None, ge=1, le=1000)
+    schedule_tick_max_per_tenant: int | None = Field(default=None, ge=1, le=1000)
 
 
 @router.put("/defaults", response_model=C.ConsoleDefaults)
@@ -862,6 +1002,19 @@ async def change_defaults(
             422, "unknown_model", "Unknown model", "Choose from the listed models."
         ) from None
     async with untenanted_session() as plain:
+        if "schedule_tick_max_starts" in values or "schedule_tick_max_per_tenant" in values:
+            current = await S.defaults(plain)
+            starts = values.get("schedule_tick_max_starts", current["schedule_tick_max_starts"])
+            per = values.get(
+                "schedule_tick_max_per_tenant", current["schedule_tick_max_per_tenant"]
+            )
+            if int(per) > int(starts):
+                raise APIProblem(
+                    422,
+                    "tick_ceiling_invalid",
+                    "Per-client ceiling too high",
+                    "A client's starts per tick cannot exceed the tick's starts.",
+                )
         enabled, research, analysis = await M.platform_policy(plain)
         enabled = tuple(values.get("enabled_models", enabled))
         for default in (

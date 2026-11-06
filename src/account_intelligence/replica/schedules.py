@@ -13,24 +13,34 @@ month, and the scheduler tick that starts due refreshes from the client's credit
   research left the refresh is skipped this cycle and the owner is told
   (``research_limit_reached``). Either way the account's next refresh moves on by its cadence,
   so a used-up limit never piles up jobs.
+* One tick is bounded (fix prompt A 2026-11-03, ADR-0108): at most
+  ``platform_defaults.schedule_tick_max_starts`` starts (default 10, scheduled refreshes and
+  promoted waiting jobs together) and at most ``schedule_tick_max_per_tenant`` (default 3) for one
+  client. Due accounts are taken round robin across clients, each client's oldest first
+  (``fair_order``). An account over the ceiling is not touched: it keeps its next refresh and is
+  due again on the next tick; a waiting job over the ceiling stays waiting.
 * The tick starts nothing unless ``RESEARCH_AUTOMATIC_STARTS=on`` (``runs.start_guard``, owner's
   rule 2026-11-05: nothing paid starts without a person saying yes twice). Only the scheduler
   makes waiting jobs, so the promotion below is off with it.
 
 GUARANTEE(test_a_due_refresh_with_no_research_left_is_skipped_and_the_owner_told)
+GUARANTEE(test_25_due_accounts_start_at_most_10_per_tick_and_3_per_tenant)
 """
 
 from __future__ import annotations
 
 import math
-from collections.abc import Awaitable, Callable
+from collections import Counter
+from collections.abc import Awaitable, Callable, Sequence
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
 from uuid import UUID
 
 from sqlalchemy import text
 
-from account_intelligence.db.session import tenant_txn, untenanted_session
+from account_intelligence.db.session import tenant_txn
+from account_intelligence.db.system_scope import untenanted_session
 from account_intelligence.replica import credits as CR
 from account_intelligence.replica import limits as LIM
 from account_intelligence.replica.notifications import notify
@@ -148,18 +158,82 @@ async def set_cadence(session: Any, account_id: UUID, cadence: str, now: datetim
 Start = Callable[[UUID, UUID], Awaitable[None]]
 
 
+@dataclass
+class StartBudget:
+    """How many runs one tick may still start: overall and per client."""
+
+    max_starts: int
+    max_per_tenant: int
+    started: int = 0
+    per_tenant: Counter[UUID] = field(default_factory=Counter)
+
+    def __post_init__(self) -> None:
+        if self.max_starts < 1 or self.max_per_tenant < 1:
+            raise ValueError("a tick ceiling must be at least 1")
+
+    @property
+    def exhausted(self) -> bool:
+        """No start is left for anyone in this tick."""
+        return self.started >= self.max_starts
+
+    def room(self, tenant_id: UUID) -> int:
+        """Starts this client may still have in this tick."""
+        return max(
+            0,
+            min(self.max_starts - self.started, self.max_per_tenant - self.per_tenant[tenant_id]),
+        )
+
+    def take(self, tenant_id: UUID) -> None:
+        """Count one start for the client (a start without room is a bug, never silent)."""
+        if self.room(tenant_id) < 1:
+            raise RuntimeError("schedule tick start over its ceiling")
+        self.started += 1
+        self.per_tenant[tenant_id] += 1
+
+
+def fair_order(due: Sequence[tuple[UUID, UUID]]) -> list[tuple[UUID, UUID]]:
+    """Round robin across clients: every client's first due account, then every second one, and
+    so on; each client's own order (oldest due first, as the lookup returns them) is kept."""
+    rank: Counter[UUID] = Counter()
+    keyed = []
+    for position, (tenant_id, account_id) in enumerate(due):
+        keyed.append((rank[tenant_id], position, (tenant_id, account_id)))
+        rank[tenant_id] += 1
+    return [row for _, _, row in sorted(keyed)]
+
+
+async def tick_bounds(session: Any) -> StartBudget:
+    """The tick's ceilings from ``platform_defaults`` (migration 0098)."""
+    row = (
+        await session.execute(
+            text(
+                "SELECT schedule_tick_max_starts, schedule_tick_max_per_tenant"
+                " FROM platform_defaults WHERE id = 1"
+            )
+        )
+    ).one()
+    return StartBudget(int(row[0]), int(row[1]))
+
+
 async def tick(now: datetime, start: Start) -> dict[str, int]:
-    """Start every due scheduled refresh the pools can cover; queue the rest as waiting."""
+    """Start the due scheduled refreshes the pools can cover, within the tick's ceilings; queue
+    the rest as waiting. Accounts over the ceiling are left due for the next tick."""
     from account_intelligence.runs.start_guard import automatic_starts_allowed
 
     if not automatic_starts_allowed():
         return {"started": 0, "waiting": 0, "promoted": 0, "deferred": 0}
     async with untenanted_session() as plain:
-        due = (
-            await plain.execute(text("SELECT * FROM due_scheduled_refreshes(:n)"), {"n": now})
-        ).all()
-    started = waiting = 0
-    for tenant_id, account_id in due:
+        rows = await plain.execute(text("SELECT * FROM due_scheduled_refreshes(:n)"), {"n": now})
+        due = fair_order([(r.tenant_id, r.account_id) for r in rows])
+        budget = await tick_bounds(plain)
+    started = waiting = deferred = 0
+    for index, (tenant_id, account_id) in enumerate(due):
+        if budget.exhausted:
+            deferred += len(due) - index
+            break
+        if budget.room(tenant_id) < 1:
+            deferred += 1
+            continue
         job: tuple[UUID, str] | None = None
         async with tenant_txn(tenant_id) as s:
             acct = (
@@ -230,6 +304,7 @@ async def tick(now: datetime, start: Start) -> dict[str, int]:
             continue
         if job[1] == "queued":
             started += 1
+            budget.take(tenant_id)
             await start(tenant_id, job[0])
         else:
             waiting += 1
@@ -241,9 +316,13 @@ async def tick(now: datetime, start: Start) -> dict[str, int]:
         )
     promoted = 0
     for tenant_id in tenants:
+        room = budget.room(tenant_id)
+        if room < 1:
+            continue  # its waiting jobs stay waiting until a tick has room
         async with tenant_txn(tenant_id) as s:
-            queued = await CR.promote_waiting(s, now)
+            queued = await CR.promote_waiting(s, now, limit=room)
         for job_id in queued:
             promoted += 1
+            budget.take(tenant_id)
             await start(tenant_id, job_id)
-    return {"started": started, "waiting": waiting, "promoted": promoted}
+    return {"started": started, "waiting": waiting, "promoted": promoted, "deferred": deferred}

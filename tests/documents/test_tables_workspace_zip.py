@@ -24,7 +24,7 @@ from account_intelligence.db.session import tenant_txn
 from documents import tables as T
 from tests.conftest import _make_account
 from tests.documents import workspace_zip
-from tests.documents.world import doc_row, service, upload
+from tests.documents.world import admin, doc_row, service, upload
 
 pytestmark = [pytest.mark.requires_postgres, pytest.mark.asyncio]
 
@@ -57,6 +57,44 @@ async def test_the_zip_is_synthetic_and_stable() -> None:
     assert f"holdings/deliverables/{workspace_zip.JOBS_FILE}" in names
     assert "holdings/RESTORE.md" in names and any(n.startswith("holdings/data/") for n in names)
     assert workspace_zip.ACCOUNT_DOMAIN.endswith(".example")
+
+
+async def test_a_zip_uploaded_unbound_keeps_its_tables_when_the_account_is_confirmed(
+    tenant_a: UUID, tmp_path: Path
+) -> None:
+    """Uploaded with no account, parsed, then confirmed: the passages AND the table store move
+    to the account, so Ask lists the tables (2026-11-04: staging's UCB zip came this way, its
+    passages were found and its 57 tables never were, so every count question went to search)."""
+    svc = service(tmp_path)
+    done = await upload(svc, tenant_a, workspace_zip.ZIP_NAME, workspace_zip.workspace_zip_bytes())
+    doc = UUID(done["document_id"])
+    assert await svc.process(tenant_a, doc) == "needs_account"  # unbound: waits for the account
+    account = _make_account(tenant_a, f"holdings-{uuid4().hex[:6]}.example")
+    await svc.confirm_company(tenant_a, [doc], account)
+    assert await svc.process(tenant_a, doc) == "indexed"
+
+    async with tenant_txn(tenant_a, user="user-1") as s:
+        found = await T.list_tables(s, [account])
+    jobs = next(t for t in found if t.table.endswith(workspace_zip.JOBS_TABLE))
+    assert jobs.row_count == 644
+    strict = await _run(tenant_a, jobs, where=STRICT[:1], limit=100)
+    assert strict["row_count"] == workspace_zip.SALESFORCE_ROWS
+    unbound = admin(
+        "SELECT (SELECT count(*) FROM document_tables WHERE document_id = %s AND account_id IS"
+        " NULL), (SELECT count(*) FROM document_table_rows WHERE document_id = %s AND account_id"
+        " IS NULL), (SELECT count(*) FROM document_members WHERE document_id = %s AND account_id"
+        " IS NULL)",
+        str(doc),
+        str(doc),
+        str(doc),
+    )
+    assert unbound == [(0, 0, 0)]
+    # a document bound before the fix kept unbound tables: they count under its account
+    admin("UPDATE document_tables SET account_id = NULL WHERE document_id = %s", str(doc))
+    async with tenant_txn(tenant_a, user="user-1") as s:
+        legacy = await T.list_tables(s, [account])
+    assert {t.id for t in legacy} == {t.id for t in found}
+    assert all(t.account_id == account for t in legacy)
 
 
 async def test_the_synthetic_workspace_zip_jobs_sheet_queries_to_the_known_truth(

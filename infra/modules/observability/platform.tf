@@ -49,6 +49,8 @@ locals {
     runs_stalled           = { event = "runs.stalled", doc = "Runs marked stalled by the worker sweeper" }
     runs_worker_lost       = { event = "runs.swept", doc = "Runs ended worker_lost by the sweeper" }
     sweep_failed           = { event = "runs.sweep_failed", doc = "The worker's orphan sweep failed" }
+    # sign-in let through without the shared Redis bucket (identity.rate_limit, ADR-0125)
+    rate_limit_degraded = { event = "rate_limit_degraded", doc = "Sign-in allowed without the shared Redis rate limit" }
   }
   uptime = {
     web = { path = "/healthz", doc = "web answers through the load balancer" }
@@ -206,19 +208,25 @@ resource "google_monitoring_alert_policy" "task_backlog" {
 resource "google_monitoring_alert_policy" "sql" {
   for_each = {
     cpu = {
-      metric = "cloudsql.googleapis.com/database/cpu/utilization", above = 0.8,
+      metric = "cloudsql.googleapis.com/database/cpu/utilization", above = 0.8, duration = "900s", period = "300s",
       doc    = "CPU above 80% for 15 minutes: check Query Insights, then the tier."
     }
+    # saturation (ADR-0131): the 1-core instance saturated under a paid-call fan-out on
+    # 2026-11-01 well inside the 15-minute window above; this pages after 5 minutes
+    saturation = {
+      metric = "cloudsql.googleapis.com/database/cpu/utilization", above = 0.8, duration = "300s", period = "60s",
+      doc    = "Database saturated: CPU above 80% for 5 minutes. Check in-flight ledger claims (config/parallel.yaml worker.max_in_flight_claims) and the tier rule in ADR-0131."
+    }
     disk = {
-      metric = "cloudsql.googleapis.com/database/disk/utilization", above = 0.8,
+      metric = "cloudsql.googleapis.com/database/disk/utilization", above = 0.8, duration = "900s", period = "300s",
       doc    = "Disk above 80% (autoresize grows it; this is the cost and runaway-growth signal)."
     }
     memory = {
-      metric = "cloudsql.googleapis.com/database/memory/utilization", above = 0.9,
+      metric = "cloudsql.googleapis.com/database/memory/utilization", above = 0.9, duration = "900s", period = "300s",
       doc    = "Memory above 90% for 15 minutes."
     }
     connections = {
-      metric = "cloudsql.googleapis.com/database/postgresql/num_backends", above = floor(var.sql_max_connections * 0.8),
+      metric = "cloudsql.googleapis.com/database/postgresql/num_backends", above = floor(var.sql_max_connections * 0.8), duration = "900s", period = "300s",
       doc    = "Connections above 80% of max_connections: instances x pool size (docs/deploy/ARCHITECTURE.md)."
     }
   }
@@ -231,9 +239,9 @@ resource "google_monitoring_alert_policy" "sql" {
       filter          = "metric.type=\"${each.value.metric}\" AND ${local.sql_db}"
       comparison      = "COMPARISON_GT"
       threshold_value = each.value.above
-      duration        = "900s"
+      duration        = each.value.duration
       aggregations {
-        alignment_period     = "300s"
+        alignment_period     = each.value.period
         per_series_aligner   = each.key == "connections" ? "ALIGN_MAX" : "ALIGN_MEAN"
         cross_series_reducer = "REDUCE_MAX"
       }
@@ -316,6 +324,7 @@ resource "google_monitoring_alert_policy" "event" {
     runs_stalled           = { severity = "page", runbook = "stuck-runs.md", window = "0s" }
     runs_worker_lost       = { severity = "ticket", runbook = "stuck-runs.md", window = "0s" }
     sweep_failed           = { severity = "page", runbook = "stuck-runs.md", window = "1800s" }
+    rate_limit_degraded    = { severity = "page", runbook = "sso-outage.md", window = "0s" }
   }
   project      = var.project_id
   display_name = "${var.name} ${replace(each.key, "_", " ")}"

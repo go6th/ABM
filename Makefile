@@ -16,7 +16,7 @@ MIGRATION_ENV = MIGRATOR_DATABASE_URL="$(MIGRATOR_DATABASE_URL)" \
 .DEFAULT_GOAL := help
 .PHONY: help install up replica-up replica-down down reset emulators db-shell migrate migration run fmt lint types test check \
 	test-isolation static infra-fmt infra-validate image build smoke deploy-staging obs-verify \
-	seed e2e contract wiring scan verify doctor up-deps env-check load-smoke backup-restore fuzz \
+	seed e2e contract wiring security-checks verify doctor up-deps env-check load-smoke backup-restore fuzz \
 	infra-test logs clean verify-wiring smoke-live release-check load-staging mutation mutation-report
 
 help: ## Show available targets
@@ -187,11 +187,14 @@ contract: ## Check OpenAPI, generated client, policy catalog, and static wiring 
 wiring: ## Regenerate the static frontend/backend wiring inventory
 	$(UV) run --frozen python scripts/wiring_audit.py
 
-scan: ## Run secret, client-output, and canary-related security regression tests
-	$(TEST_ENV) $(UV) run --frozen pytest tests/crosscut/test_x5_security.py tests/phase4/test_ws10_gates.py -q
+security-checks: ## Real security checks: gitleaks (when installed), npm audit, client-output gates, isolation suite (ADR-0122)
+	@if command -v gitleaks >/dev/null 2>&1; then gitleaks git . --config .gitleaks.toml --redact --no-banner --exit-code 1; \
+	  else echo "security-checks: gitleaks not installed here, secret scan SKIPPED (CI job secret-scan runs it)"; fi
+	npm --prefix web audit --omit=dev --audit-level=high
+	$(TEST_ENV) $(UV) run --frozen pytest tests/phase4/test_ws10_gates.py tests/isolation -q
 
 verify: ## Run local quality, contract, isolation, test, Terraform, and build checks
-	$(MAKE) lint types static contract test-isolation scan obs-verify
+	$(MAKE) lint types static contract security-checks obs-verify
 	$(TEST_ENV) $(UV) run --frozen pytest -m "not eval and not live"
 	npm --prefix web run lint
 	npm --prefix web test

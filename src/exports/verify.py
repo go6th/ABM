@@ -47,7 +47,7 @@ from account_intelligence.safety.client_output import load_patterns, scrub_text
 from account_intelligence.safety.prefilter import cannot_match
 from exports.config import provider_hosts, registrable
 from exports.ooxml import strip_cached_values
-from exports.policy import leak_hits
+from exports.policy import client_scrub, leak_hits
 from exports.ports import CheckResult, PdfRenderPort
 
 W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
@@ -758,6 +758,8 @@ def scrub_member(text: str, restricted: Sequence[str], marker: str) -> tuple[str
     For the run's own records (pull log, searches, detections), which may mention what a client
     file may not print: the member stays in the zip, scrubbed, and the zip scans clean."""
     text, n = scrub_text(text, restricted, marker)
+    text, guarded = client_scrub(text, marker)
+    n += guarded
     pattern = _tool_url()
     if pattern is not None and "://" in text:
         text, hosts = pattern.subn(marker, text)

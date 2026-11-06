@@ -31,6 +31,11 @@ variable "clamav_image" {
 }
 variable "db_tier" {
   type = string
+  # Proposed tier (ADR-0131, not applied): the sizing rule is database cores >=
+  # ceil(max_in_flight_claims / 4) per worker instance at full fan-out. With
+  # config/parallel.yaml worker.max_in_flight_claims = 4 the current "db-custom-1-3840" holds one
+  # instance's claims; for more than one worker instance fanning out at once, or a limit of 8,
+  # use "db-custom-2-7680" (2 vCPU, 7.5 GiB).
 }
 variable "db_availability" {
   type        = string
@@ -62,8 +67,14 @@ variable "llm_access" {
   type = string
 }
 variable "research_caps" {
+  type = string
+  # back on 2026-11-03 (fix prompt A): staging ran uncapped from 2026-10-21; turning it off again
+  # needs a tfvars override and is caught by tests/unit/test_caps_default_on.py for the default
+  default = "on"
+}
+variable "token_guard" {
   type    = string
-  default = "off" # owner decision 2026-10-21: staging runs without research caps for now
+  default = "on"
 }
 variable "moonshot_enabled" {
   type    = bool
@@ -84,17 +95,23 @@ variable "maildrive" {
   })
   default = { google_client_id = "", microsoft_client_id = "" }
 }
+# IRREVERSIBLE (ADR-0125): `true` locks the audit-archive bucket's 7-year retention policy. Once
+# applied, the lock can NEVER be removed or shortened, the bucket cannot be deleted until every
+# object has aged 7 years, and the project cannot be deleted while it holds objects. The owner
+# applies this deliberately, after reading the plan line `is_locked = false -> true`.
 variable "archive_lock" {
   type    = bool
-  default = false
+  default = true
 }
 variable "secret_versions" {
   type    = map(string)
   default = {}
 }
 variable "workload_alerts_enabled" {
-  type    = bool
-  default = false
+  type = bool
+  # on by default for staging (ADR-0131): application metrics have shipped since 2026-10-15
+  # (obs.export), and the run-path alerts are what shows a saturated claim path first
+  default = true
 }
 variable "monthly_budget_usd" {
   type = number
@@ -144,6 +161,7 @@ module "stack" {
   worker_gpu              = var.worker_gpu
   llm_access              = var.llm_access
   research_caps           = var.research_caps
+  token_guard             = var.token_guard
   moonshot_enabled        = var.moonshot_enabled
   moonshot_api            = var.moonshot_api
   maildrive               = var.maildrive

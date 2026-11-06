@@ -24,7 +24,7 @@ import yaml
 
 from account_intelligence.config import CONFIG_DIR
 from account_intelligence.db.enums import normalize_key
-from account_intelligence.dev_limits import UNCAPPED, research_uncapped
+from account_intelligence.dev_limits import UNCAPPED, breadth_follows_source
 from jobs.config import load_jobs_config
 from jobs.errors import ConfigError as JobsConfigError
 from people.errors import ConfigError
@@ -35,7 +35,9 @@ _BREADTH_CAPS = (
     "max_pages_per_source",
     "max_profiles_per_run",
     "max_posts_per_person",
-    "mention_queries_per_person",
+    # not ``mention_queries_per_person``: it is how many query variants one name is tried with, a
+    # retry bound and not breadth. Lifted, a name with no match was searched up to a million
+    # times, each a paid people search (found 2026-11-05; staging ran so with the caps off)
     "mention_run_cap",
     "max_extractor_calls",
 )
@@ -135,6 +137,9 @@ class PeopleConfig:
     allowed_profile_fields: frozenset[str]
     internal_only_providers: frozenset[str]
     geography: str
+    # ADR-0025 narrowed (2026-11-06): internal-only people are listed in the People List and the
+    # web tables, and left out of the workspace zip only
+    internal_listed_in_files: bool = False
     caps: dict[str, float] = field(default_factory=dict)
     config_hash: str = ""
     # the default level of a title with no level cue, and the rule that names it
@@ -244,7 +249,9 @@ def _tuple_map(value: Any) -> dict[str, tuple[str, ...]]:
     return {str(k): tuple(str(x) for x in (v or [])) for k, v in (value or {}).items()}
 
 
-def _build(scope: dict[str, Any], rubric: dict[str, Any], directory: Path) -> PeopleConfig:
+def _build(
+    scope: dict[str, Any], rubric: dict[str, Any], directory: Path, lifted: bool
+) -> PeopleConfig:
     for name in ("levels_in_scope", "excluded_title_terms", "merge_keys", "geography"):
         if name not in scope:
             raise ConfigError(f"people_scope.yaml has no {name}")
@@ -352,7 +359,7 @@ def _build(scope: dict[str, Any], rubric: dict[str, Any], directory: Path) -> Pe
     for name, cap in rubric["caps"].items():
         _provenance(cap, f"cap {name}")
         caps[str(name)] = float(cap["value"])
-    if research_uncapped():  # caps off: every person, profile and post (dev_limits)
+    if lifted:  # breadth follows the source: every person, profile and post (dev_limits)
         caps.update({k: float(UNCAPPED) for k in _BREADTH_CAPS})
     return PeopleConfig(
         levels_in_scope=levels,
@@ -371,9 +378,7 @@ def _build(scope: dict[str, Any], rubric: dict[str, Any], directory: Path) -> Pe
         title_fallback=str(fallback["value"]),
         level_words={k: v for k, v in _tuple_map(words).items() if k != "status"},
         association_functions=tuple(str(f) for f in association["functions"]),
-        technologies_per_lane=(
-            UNCAPPED if research_uncapped() else int(association["technologies_per_lane"])
-        ),
+        technologies_per_lane=(UNCAPPED if lifted else int(association["technologies_per_lane"])),
         tenure_buckets=buckets,
         alumni_aliases=_tuple_map(alumni.get("aliases")),
         profile_url=ProfileUrlRule(
@@ -384,6 +389,7 @@ def _build(scope: dict[str, Any], rubric: dict[str, Any], directory: Path) -> Pe
         ),
         allowed_profile_fields=frozenset(str(f) for f in fields["allowed"]),
         internal_only_providers=frozenset(str(p) for p in internal["value"]),
+        internal_listed_in_files=bool(internal.get("listed_in_files", False)),
         geography=str(scope["geography"]["value"]),
         caps=caps,
         default_level=default_level,
@@ -400,17 +406,29 @@ def _build(scope: dict[str, Any], rubric: dict[str, Any], directory: Path) -> Pe
 
 
 @lru_cache(maxsize=4)
-def load_people_config(directory: Path | None = None) -> PeopleConfig:
-    """Load and validate all people configuration; ``ConfigError`` on anything wrong."""
+def load_people_config(directory: Path | None = None, *, configured: bool = False) -> PeopleConfig:
+    """Load and validate all people configuration; ``ConfigError`` on anything wrong.
+    ``configured`` keeps the configured caps (the generated documents show the configuration,
+    not this process's lifted breadth)."""
     base = directory or CONFIG_DIR
     scope, s_raw = _load(base / "people_scope.yaml")
     rubric, r_raw = _load(base / "people_rubric.yaml")
     lanes_raw = (base / "job_lanes.yaml").read_bytes()
     try:
-        cfg = _build(scope, rubric, base)
+        cfg = _build(scope, rubric, base, not configured and breadth_follows_source())
     except (KeyError, TypeError, ValueError) as exc:
         raise ConfigError(f"invalid people configuration: {exc!r}") from exc
     digest = hashlib.sha256(s_raw + b"\0" + r_raw + b"\0" + lanes_raw).hexdigest()
     from dataclasses import replace
 
     return replace(cfg, config_hash=digest)
+
+
+def internal_people_sql(alias: str = "p") -> str:
+    """The SQL condition a people query adds for internal-only records (ADR-0025): ``true`` when
+    the rubric lists them in the files and the web tables (``listed_in_files``, owner decision
+    2026-11-06), else the filter that keeps them out. One place, so the People List, the web
+    sheet, the account counts and Ask agree on who is shown."""
+    if load_people_config().internal_listed_in_files:
+        return "true"
+    return f"NOT coalesce({alias}.internal_only, false)"

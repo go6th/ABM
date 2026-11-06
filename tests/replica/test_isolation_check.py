@@ -14,7 +14,8 @@ from typing import Any
 import psycopg
 import pytest
 
-from account_intelligence.db.session import tenant_txn, untenanted_session
+from account_intelligence.db.session import tenant_txn
+from account_intelligence.db.system_scope import untenanted_session
 from account_intelligence.replica import isolation
 from tests.conftest import ADMIN_DSN
 from tests.phase3.conftest import make_app, new_tenant

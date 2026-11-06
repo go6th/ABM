@@ -28,10 +28,13 @@ npm run e2e                 # Playwright (needs the stack: make e2e)
 | | `/accounts/[domain]/[sheet]` | the deep-dive sheets (people, jobs, technology, news, sources) with CSV and Excel download | `/v1/accounts/{domain}/sheets/{sheet}`, `…/csv`, `…/xlsx` |
 | | `/accounts/[domain]/refresh`, `/accounts/[domain]/files` | Refresh from web (scopes, estimate); the account's uploaded files | `/v1/accounts/{domain}/refresh`, `/v1/credits`, `/v1/documents/*` |
 | | `/research/new` | New research: company name or upload a file | `/v1/research`, `/v1/research/estimate`, `/v1/documents/uploads`, `…/complete`, `…/confirm-company`, `…/estimate` |
-| | `/runs`, `/runs/[run_id]` | research runs and one run's steps | `/v1/runs`, `/v1/runs/{run_id}`, `…/progress`, `…/events`, `…/collected` |
-| | `/schedules`, `/alerts`, `/chat`, `/downloads`, `/usage`, `/mail-and-drive`, `/model-preferences`, `/support-access` | the remaining client screens | the route of the same name |
-| | `/settings/**` | tenant settings: users, security, SSO, connectors, CRM, alerts, model key, support | `/v1/settings`, `/v1/users`, `/v1/sso`, `/v1/connectors`, `/v1/crm` |
-| `operator` | `/operator/login`, `/operator/**` | the 6th console: clients, users, runs, spend, cost, library, defaults, support, view-as | `/operator/v1/*` through the BFF routes under `app/api/operator/*` (Google OIDC) |
+| | `/runs/[run_id]` | one run's steps (there is no runs index screen) | `/v1/runs/{run_id}`, `…/progress`, `…/events`, `…/collected` |
+| | `/research` (live board), `/chats`, `/schedules`, `/team`, `/mail-and-drive`, `/model-preferences`, `/support-access` | the remaining client screens | the route of the same name |
+
+The `/alerts`, `/chat`, `/downloads`, `/runs` index, `/usage`, `/settings/**` and `/audit` screens
+were removed (their redirect stubs too, fix prompt B); `docs/handover/` describes the product as
+it is.
+| `operator` | `/operator/login`, `/operator/**` | the 6th console: clients, users, runs, library, defaults, view-as (`/operator/cost`, `spend`, `support`, `tenants` only redirect to `/operator`) | `/operator/v1/*` through the BFF routes under `app/api/operator/*` (Google OIDC) |
 | probes | `/healthz`, `/readyz` | liveness; readiness that also asks the API | |
 
 ## Folders

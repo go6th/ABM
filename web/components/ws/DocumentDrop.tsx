@@ -9,19 +9,24 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import { m } from "@/lib/messages";
 import { ACCEPT, STAGE_TEXT, fileSize, folderFiles, isWorking, progressLine, refuseReason, stageOf, stageTone, type Stage } from "@/lib/documents";
-import { uploadDocument } from "@/lib/upload";
+import { uploadDocument, type Audience } from "@/lib/upload";
 import { forgetPaused, pausedUploads, type Saved } from "@/lib/upload-store";
 import { Status } from "@/ui/primitives";
 import { cellText } from "@/lib/render";
 import type { DocumentStatus, DriveFile } from "@/lib/gen/api.gen";
 import { DRIVE_LABEL, DriveChooser, type DriveSource } from "./DriveChooser";
+import { AccountPicker } from "./AccountPicker";
+import { WorkspaceCompanyPrompt, workspaceOf } from "./WorkspaceCompanyPrompt";
 
 export interface DropItem { key: string; name: string; size: number; stage: Stage; message: string | null; doc: DocumentStatus | null; sent: number; driveId?: string; driveSource?: DriveSource }
 
 const POLL_MS = 2000;
 
-export function DocumentDrop({ accountId = null, onChange, disabled = false, initialDrive = false, refresh = 0 }: {
+export function DocumentDrop({ accountId = null, onChange, disabled = false, initialDrive = false, refresh = 0, picker = true }: {
   accountId?: string | null;
+  // show the account picker under a file the server holds as "Needs account" (a new research
+  // confirms the company in its own panel instead)
+  picker?: boolean;
   onChange: (docs: DocumentStatus[]) => void;
   disabled?: boolean;
   initialDrive?: boolean;
@@ -33,6 +38,8 @@ export function DocumentDrop({ accountId = null, onChange, disabled = false, ini
   const [paused, setPaused] = useState<Saved[]>([]);
   const [over, setOver] = useState(false);
   const [drive, setDrive] = useState(initialDrive);
+  // owner-only files are stored for the owner and admins and never read into findings
+  const [ownerOnly, setOwnerOnly] = useState(false);
   const input = useRef<HTMLInputElement | null>(null);
   const folder = useRef<HTMLInputElement | null>(null);
   const [skipped, setSkipped] = useState<string[]>([]);
@@ -91,7 +98,8 @@ export function DocumentDrop({ accountId = null, onChange, disabled = false, ini
       const controller = new AbortController();
       aborts.current.set(key, controller);
       try {
-        const id = await uploadDocument(file, accountId, (sent) => update(key, { sent }), controller.signal);
+        const audience: Audience = ownerOnly ? "owner_only" : "client";
+        const id = await uploadDocument(file, accountId, (sent) => update(key, { sent }), controller.signal, audience);
         const doc = await api<DocumentStatus>("GET", `/v1/documents/${id}/status`);
         update(key, { doc, stage: stageOf(doc), message: doc.message ?? null });
       } catch (error) {
@@ -105,7 +113,7 @@ export function DocumentDrop({ accountId = null, onChange, disabled = false, ini
         aborts.current.delete(key);
       }
     }
-  }, [accountId, update]);
+  }, [accountId, ownerOnly, update]);
 
   const addFromDrive = useCallback(async (file: DriveFile, source: DriveSource) => {
     counter.current += 1;
@@ -148,6 +156,14 @@ export function DocumentDrop({ accountId = null, onChange, disabled = false, ini
     }
   };
 
+  const reload = async (it: DropItem) => {
+    if (!it.doc) return;
+    try {
+      const doc = await api<DocumentStatus>("GET", `/v1/documents/${it.doc.document_id}/status`);
+      update(it.key, { doc, stage: stageOf(doc), message: doc.message ?? null });
+    } catch { /* the next refresh tries again */ }
+  };
+
   const drop = (saved: Saved) => {
     forgetPaused(saved);
     setPaused((prev) => prev.filter((p) => p.documentId !== saved.documentId));
@@ -188,6 +204,10 @@ export function DocumentDrop({ accountId = null, onChange, disabled = false, ini
           }}
         />
       </div>
+      <label className="check small">
+        <input type="checkbox" checked={ownerOnly} disabled={disabled} onChange={(e) => setOwnerOnly(e.target.checked)} />
+        Owner only: visible to you and admins, never read into findings
+      </label>
       {skipped.length ? (
         <p className="small muted" role="status">
           {skipped.length} file{skipped.length === 1 ? " was" : "s were"} left out of the folder because their type is not supported: {skipped.slice(0, 5).join(", ")}{skipped.length > 5 ? ` and ${skipped.length - 5} more` : ""}.
@@ -228,6 +248,7 @@ export function DocumentDrop({ accountId = null, onChange, disabled = false, ini
                         : fileSize(it.size)}
                       {reading ? `. ${reading}` : ""}
                       {it.doc?.passages ? `. ${it.doc.passages.toLocaleString()} passages` : ""}
+                      {it.doc?.audience === "owner_only" ? ". Owner only" : ""}
                       {it.message ? `. ${it.message}` : ""}
                     </span>
                   </div>
@@ -240,6 +261,13 @@ export function DocumentDrop({ accountId = null, onChange, disabled = false, ini
                   <progress className="upload-bar" max={Math.max(it.size, 1)} value={it.sent} aria-label={`Upload of ${it.name}`} />
                 ) : it.doc && it.doc.parts_total > 1 && it.stage === "parsing" ? (
                   <progress className="upload-bar" max={it.doc.parts_total} value={it.doc.parts_done} aria-label={`Reading ${it.name}`} />
+                ) : null}
+                {picker && it.doc && it.stage === "needs_account" ? (
+                  workspaceOf(it.doc) ? (
+                    <WorkspaceCompanyPrompt doc={it.doc} ws={workspaceOf(it.doc)!} onDone={() => void reload(it)} />
+                  ) : (
+                    <AccountPicker doc={it.doc} disabled={disabled} onConfirmed={() => void reload(it)} />
+                  )
                 ) : null}
                 {it.doc?.parts_failed.length ? (
                   <ul className="part-fails" aria-label={`Parts of ${it.name} that could not be read`}>

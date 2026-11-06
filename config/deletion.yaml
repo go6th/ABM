@@ -33,6 +33,12 @@ erase:
   - job_postings
   - tech_detections
   - tech_stack_items
+  - platform_teams
+  - news_events
+  - person_comments
+  - org_connections
+  - research_notes
+  - pull_log_calls
   - link_archive
   - chunks
   - abm_distill_outputs
@@ -56,6 +62,9 @@ erase:
   - digest_runs
   - document_deletions
   - document_parts
+  - document_members
+  - import_run_parts
+  - import_runs
   - document_passages
   - document_redactions
   - document_table_rows
@@ -245,6 +254,12 @@ account_purge:
     - job_postings
     - tech_detections
     - tech_stack_items
+    - platform_teams
+    - news_events
+    - person_comments
+    - org_connections
+    - research_notes
+    - pull_log_calls
     - link_archive
     - chunks
     - abm_distill_outputs
@@ -262,6 +277,9 @@ account_purge:
     - crm_mappings
     - document_deletions
     - document_parts
+    - import_run_parts
+    - import_runs
+    - document_members
     - document_passages
     - document_redactions
     - document_table_rows

@@ -4,9 +4,9 @@ source-level re-read of every Confirmed claim).
 
 1. Each Confirmed fact's stored source text is the run's own stored record whose ``source_ref``
    the evidence cites (the grading engine's ``RunSource``; never refetched).
-2. ``verify.claims.verify`` re-reads it blind (router task kind ``source_reread``, judge tier,
-   with the generator's family excluded; without a router the legacy port under the judge tier,
-   whose independence is the grading engine's own ``judge_profile_ok`` check).
+2. ``verify.claims.verify`` re-reads it blind (task kind ``source_reread``, judge tier, whose
+   model never equals the extractor's: ``RunDeps.chosen_model`` and the run-start check of
+   G12, ``grading.integration.judge_profile_ok``).
 3. Every finding is an insert-only ``verifier_findings`` row (V10); a non-confirmed outcome
    supersedes the fact with the G12-capped claim through ``grading.repo.supersede`` (a new row
    and a grade event, actor ``verifier``, V3). Nothing here edits a value or upgrades a grade.
@@ -40,53 +40,25 @@ PROMPTS = __import__("pathlib").Path(__file__).resolve().parent / "prompts"
 PROMPT = "source_reread.v2"
 
 
-async def generator_family(deps: Any) -> str | None:
-    """The family of the candidate that extracted this run's claims (from the call ledger)."""
-    async with deps.txn(deps.tenant_id) as s:
-        family: Any = (
-            await s.execute(
-                text(
-                    "SELECT family FROM llm_calls WHERE run_id = :r AND task_kind ="
-                    " 'extract_facts' ORDER BY id LIMIT 1"
-                ),
-                {"r": deps.run_id},
-            )
-        ).scalar_one_or_none()
-    return None if family is None else str(family)
-
-
 def source_block(source_text: str) -> str:
     """The stored source as the cached block that opens a re-read's user turn (identical bytes
     for every claim read from it, so the cache hits)."""
     return f"<source>\n{source_text}\n</source>"
 
 
-def _ask(deps: Any, family: str | None) -> claims_mod.Ask:
-    prompt_text, prompt_hash = load(PROMPT, PROMPTS)
+def _ask(deps: Any) -> claims_mod.Ask:
+    prompt_text, _ = load(PROMPT, PROMPTS)
 
     async def ask(question: str, source_text: str) -> claims_mod.Reread:
-        if deps.router is None:
-            result = await deps.model(
-                "source_reread",
-                prompt_text,
-                json.dumps({"question": question}),
-                schema=claims_mod.Reread.model_json_schema(),
-                cached_user=source_block(source_text),
-            )
-            parsed = claims_mod.Reread.model_validate_json(result.text)
-            return parsed
-        from llm.models import Scope
-
-        routed = await deps.router(deps).call(
+        result = await deps.model(
             "source_reread",
             prompt_text,
-            prompt_hash,
-            {"question": question, "source": source_text},
-            claims_mod.Reread,
-            Scope(deps.tenant_id, deps.run_id, generator_family=family),
+            json.dumps({"question": question}),
+            schema=claims_mod.Reread.model_json_schema(),
+            cached_user=source_block(source_text),
         )
-        out: claims_mod.Reread = routed.output
-        return out
+        parsed = claims_mod.Reread.model_validate_json(result.text)
+        return parsed
 
     return ask
 
@@ -125,19 +97,17 @@ async def verify_confirmed(
         )
     if not todo:
         return {}
-    family = await generator_family(deps) if deps.router is not None else None
-    independent = legacy_independent if deps.router is None else True
     findings = await claims_mod.verify(
         [t[2] for t in todo],
-        _ask(deps, family),
+        _ask(deps),
         vcfg.max_claims_per_run,
         vcfg.max_source_chars,
-        independent,
+        legacy_independent,
     )
     by_key = {f.key: f for f in findings}
     counts: dict[str, int] = {}
     _, prompt_hash = load(PROMPT, PROMPTS)
-    alias = "router" if deps.router is not None else "legacy_judge"
+    alias = "legacy_judge"  # the recorded verifier alias of every finding (one model port)
     for fact_id, claim, _ in todo:
         f = by_key[str(fact_id)]
         counts[f"verify_{f.outcome}"] = counts.get(f"verify_{f.outcome}", 0) + 1

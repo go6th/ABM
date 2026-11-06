@@ -42,7 +42,7 @@ without a database; `large_file` tests need `RF_LARGE_FILE=1`.
 | `jobs/`, `people/`, `spend/`, `parallel/`, `llm/`, `verify/`, `evals/` | the pipelines, credit cap, scheduler, model routing, verifiers, the eval harness | the package of the same name |
 | `phase3/` | the tenant plane: identity, sessions, roles, metering, admin, support, pilot (WS0 to WS10) | `identity/`, `tenancy/`, `admin/`, `metering/`, `pilot/` |
 | `phase4/` | automation and signals: refresh, alerts, monitors, CRM, Open Door, governance, DR | `refresh/`, `alerts/`, `signals/`, `crm_writeback/`, `opendoor/` |
-| `crosscut/` | roadmap section 11: conformance, data model spec, contracts, quality, privacy, security, unit cost, metrics, registers | `crosscut/` and the small packages |
+| `crosscut/` | roadmap section 11: conformance, data model spec, contracts, quality, privacy; `test_no_stub_evidence.py` keeps the retired stubs out (ADR-0122) | `crosscut/` and the small packages |
 | `obs/` | the telemetry contract, metrics export, alert rendering | `obs/` |
 | `isolation/` | cross-tenant probes against every tenant object (the matrix in `isolation/matrix/`); a hard gate | the database |
 | `db/`, `integration/`, `ops/` | data layer, scratch-database integration, backup and restore | migrations, `db/` |

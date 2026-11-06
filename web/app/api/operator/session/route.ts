@@ -1,8 +1,10 @@
 import { cookies } from "next/headers";
+import { serverlessAuth } from "@/lib/serverless-auth";
 import { NextRequest, NextResponse } from "next/server";
 import { isSameOriginRouteRequest } from "@/lib/same-origin";
 import { OperatorSession } from "@/lib/gen/api.gen";
 import { googleOperatorOidcConfig, operatorApiOrigin, operatorOAuthCookieNames } from "@/lib/operator-oidc";
+import { mintOperatorSession, revokeOperatorSession } from "@/lib/operator-session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,7 +26,7 @@ async function verifyToken(token: string): Promise<{ staff_id: string; role: str
     if (!apiOrigin) return null;
     const reply = await fetch(new URL("/operator/v1/session", apiOrigin), {
       method: "GET",
-      headers: { Accept: "application/json", Authorization: `Bearer ${token}` },
+      headers: { ...(await serverlessAuth(apiOrigin)), Accept: "application/json", Authorization: `Bearer ${token}` },
       cache: "no-store",
       redirect: "manual",
     });
@@ -77,22 +79,28 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   if (!sessionResult) return problem(401, "invalid_staff_token", "Staff sign-in could not be verified.");
   if (!sessionResult.mfa_fresh) return problem(403, "step_up_required", "A recent staff MFA sign-in is required.");
+  // the cookie holds an opaque console session minted from the token, never the token (ADR-0111)
+  const minted = await mintOperatorSession(token);
+  if (!minted) return problem(401, "session_refused", "Staff sign-in could not be completed.");
 
   const response = NextResponse.json(
     { authenticated: true, staff_id: sessionResult.staff_id, role: sessionResult.role },
     { headers: { "Cache-Control": "no-store" } },
   );
-  response.cookies.set(sessionCookieName(), token, {
+  response.cookies.set(sessionCookieName(), minted.token, {
     httpOnly: true,
     secure: googleOperatorOidcConfig()?.secureCookies ?? process.env.NODE_ENV === "production",
     sameSite: "strict",
     path: "/",
+    expires: minted.expiresAt,
   });
   return response;
 }
 
 export async function DELETE(request: NextRequest): Promise<NextResponse> {
   if (!isSameOriginRouteRequest(request)) return problem(403, "origin_refused", "The request origin could not be verified.");
+  const current = (await cookies()).get(sessionCookieName())?.value;
+  if (current) await revokeOperatorSession(current);
   const response = NextResponse.json({ signed_out: true }, { headers: { "Cache-Control": "no-store" } });
   response.cookies.set(sessionCookieName(), "", {
     httpOnly: true,

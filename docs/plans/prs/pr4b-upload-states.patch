@@ -1,0 +1,1463 @@
+diff --git a/docs/deploy/RUNBOOK.md b/docs/deploy/RUNBOOK.md
+index 7e4f564..038923e 100644
+--- a/docs/deploy/RUNBOOK.md
++++ b/docs/deploy/RUNBOOK.md
+@@ -174,8 +174,9 @@ What Terraform adds (`infra/modules/gcs`, wired in `infra/stack/main.tf`):
+   versioning off, the same CMEK key and labels as the documents bucket (plus `purpose=upload-quarantine`),
+   CORS for the web origin (PUT, POST, GET; headers Content-Type, Content-Range, x-goog-resumable,
+   x-goog-hash, Range), lifecycle: delete after 1 day (and abort incomplete multipart uploads after 1 day);
+-* IAM on that bucket only: api service account `objectCreator` + `objectViewer` (open a resumable
+-  session, read object metadata for the size and CRC32C check), worker service account `objectUser`
++* IAM on that bucket only: api service account `objectUser` through the `quarantine_create` binding, plus `objectViewer` (open a
++  resumable session, read object metadata for the size and CRC32C check, delete the object when `complete`
++  finds a mismatch), worker service account `objectUser`
+   (read, delete). The worker already has `objectUser` on the documents bucket, so it can copy into it;
+   no new right there;
+ * env var `QUARANTINE_BUCKET` on the api and worker Cloud Run services; output `buckets.quarantine`;
+@@ -197,6 +198,8 @@ export GOOGLE_BILLING_PROJECT=abmgenerator USER_PROJECT_OVERRIDE=true
+   -target=module.stack.module.gcs.google_storage_bucket_iam_member.quarantine_process \
+   -target=module.stack.module.cloud_run
+ /snap/bin/terraform apply quarantine.tfplan
++# PR4 part B also adds the Cloud Scheduler job ai-staging-documents-abandon (daily 02:20 UTC, POST
++# /tasks/documents-abandon on the worker): add -target=module.stack.module.scheduler to the plan
+ ```
+ 
+ (The environment root wraps the stack as `module.stack`.) Terraform ignores image and traffic, so applying does
+diff --git a/docs/plans/ingestion-hardening-pr4b.md b/docs/plans/ingestion-hardening-pr4b.md
+new file mode 100644
+index 0000000..4ced7f1
+--- /dev/null
++++ b/docs/plans/ingestion-hardening-pr4b.md
+@@ -0,0 +1,5 @@
++# PR4 part B: quarantine store, size and CRC32C check, scan_failed, abandoned uploads (2026-11-04)
++
++Part B puts part A's pieces to work. With `QUARANTINE_BUCKET` set the container gives `DocumentService` a second store: `start_upload` opens the resumable session in the quarantine bucket, `_scan` reads from it, copies a clean file into the documents bucket's content-addressed `raw_key` (server-side between two GCS buckets, streamed otherwise) and deletes it from quarantine; a document created before the bucket existed is found in the documents store as a fallback. `POST /v1/documents/{id}/complete` takes an optional `{size_bytes, crc32c}` body (`DocumentCompleteBody`, contract and web client regenerated); `complete` compares the stored object's size and CRC32C (GCS metadata; the local store computes it with `research_files/crc32c.py`) with what the browser reported, rejects `size_mismatch` / `checksum_mismatch` and deletes the object; a missing checksum skips only the checksum, and `import_file` computes its own while spooling. An unreachable scanner now gives the new status `scan_failed` (never read, quarantine object kept, `reject_reason scan_unavailable` kept for the message); the 5-minute sweep scans it again up to 3 attempts in all (`documents.scan_attempts`), then it stays `scan_failed` with "Upload it again later". `awaiting_upload` rows older than 24 h become `abandoned` through `documents.service.mark_abandoned`, run daily by the new worker route `/tasks/documents-abandon` and a Cloud Scheduler tick `documents-abandon` (02:20 UTC). Migration `0109_upload_states` (down_revision 0106) adds the two states, the counter, and relaxes `ck_documents_rejected_reason` (a reason is required on `rejected` and `scan_failed`, allowed on no other status). The trigger stays `complete` -> Cloud Tasks (decision Q5, no Pub/Sub); the sweep is documented as the safety net in `documents/service.py`. Terraform: the api's quarantine binding `quarantine_create` becomes `objectUser` (the api deletes the object on a mismatch) and the scheduler tick is added; nothing is applied.
++
++Staging verification: (1) apply Terraform per `docs/deploy/RUNBOOK.md` section 2.1a with `-target=module.stack.module.scheduler` added: the plan shows the IAM role change on `quarantine_create["api"]` and one new Scheduler job `ai-staging-documents-abandon`; (2) deploy api and worker, run migration 0109 (health `EXPECTED_REVISION` is 0109); (3) upload a small file in the browser: the network tab shows the session on `storage.googleapis.com/upload/...ai-staging-quarantine`, the complete call carries `size_bytes` and `crc32c`, and after the scan the object is gone from `gs://ai-staging-quarantine` and present under `tenants/<tenant>/raw/<sha256>` in the documents bucket; (4) forge a mismatch (call complete with a wrong `crc32c` by curl with a dev token): the document is `rejected`, reason `checksum_mismatch`, and the quarantine object is deleted; (5) scale the clamav service down or point `CLAMD_HOST` at nothing on a throwaway revision: the upload ends `scan_failed` ("could not be reached ... will be tried again"), the quarantine object stays, and after the scanner is back the next sweep scans and reads it; after three failures it stays `scan_failed`; (6) start an upload and never send bytes, backdate `created_at` by 25 h in the database (or wait), run `gcloud scheduler jobs run ai-staging-documents-abandon`, and the row is `abandoned`.
+diff --git a/infra/modules/gcs/main.tf b/infra/modules/gcs/main.tf
+index 0ec0926..9906ef2 100644
+--- a/infra/modules/gcs/main.tf
++++ b/infra/modules/gcs/main.tf
+@@ -206,10 +206,12 @@ resource "google_storage_bucket" "quarantine" {
+   depends_on = [google_kms_crypto_key_iam_member.gcs]
+ }
+ 
++# objectUser, not objectCreator: when complete finds a size or checksum mismatch the api deletes the
++# object it just received (PR4 part B)
+ resource "google_storage_bucket_iam_member" "quarantine_create" {
+   for_each = var.quarantine_creators
+   bucket   = google_storage_bucket.quarantine.name
+-  role     = "roles/storage.objectCreator"
++  role     = "roles/storage.objectUser"
+   member   = "serviceAccount:${each.value}"
+ }
+ 
+diff --git a/infra/modules/gcs/tests.tftest.hcl b/infra/modules/gcs/tests.tftest.hcl
+index 97775cd..1805288 100644
+--- a/infra/modules/gcs/tests.tftest.hcl
++++ b/infra/modules/gcs/tests.tftest.hcl
+@@ -80,7 +80,7 @@ run "quarantine_bucket" {
+     error_message = "resumable upload headers allowed, Range and x-goog-hash exposed"
+   }
+   assert {
+-    condition     = google_storage_bucket_iam_member.quarantine_create["api"].role == "roles/storage.objectCreator" && google_storage_bucket_iam_member.quarantine_view["api"].role == "roles/storage.objectViewer" && google_storage_bucket_iam_member.quarantine_process["worker"].role == "roles/storage.objectUser"
++    condition     = google_storage_bucket_iam_member.quarantine_create["api"].role == "roles/storage.objectUser" && google_storage_bucket_iam_member.quarantine_view["api"].role == "roles/storage.objectViewer" && google_storage_bucket_iam_member.quarantine_process["worker"].role == "roles/storage.objectUser"
+     error_message = "api creates and reads metadata; worker reads and deletes"
+   }
+   assert {
+diff --git a/infra/stack/main.tf b/infra/stack/main.tf
+index 42409d4..3437c4e 100644
+--- a/infra/stack/main.tf
++++ b/infra/stack/main.tf
+@@ -808,14 +808,15 @@ module "scheduler" {
+   # 2026-11-03 (ADR-0132): neither route was ever built, so data retention is NOT enforced by a
+   # scheduled job (the sweeper's jobs are listed in runs/sweeper.py) and no alert digest is sent.
+   http_ticks = {
+-    schedules-tick  = { schedule = "*/15 * * * *", path = "/tasks/schedules-tick", deadline = "300s", paused = false }
+-    isolation-check = { schedule = "0 2 * * *", path = "/tasks/isolation-check", deadline = "1800s", paused = false }
+-    access-expiry   = { schedule = "30 3 * * *", path = "/tasks/access-expiry", deadline = "900s", paused = false }
+-    maildrive-sync  = { schedule = "5 * * * *", path = "/tasks/maildrive-sync", deadline = "900s", paused = false }
+-    sweep           = { schedule = "*/5 * * * *", path = "/tasks/sweep", deadline = "300s", paused = false }
+-    audit-verify    = { schedule = "15 4 * * *", path = "/tasks/audit-verify", deadline = "1800s", paused = false }
+-    notify-relay    = { schedule = "*/5 * * * *", path = "/tasks/notify-relay", deadline = "300s", paused = false }
+-    metrics         = { schedule = "*/2 * * * *", path = "/tasks/metrics", deadline = "120s", paused = false }
++    schedules-tick    = { schedule = "*/15 * * * *", path = "/tasks/schedules-tick", deadline = "300s", paused = false }
++    isolation-check   = { schedule = "0 2 * * *", path = "/tasks/isolation-check", deadline = "1800s", paused = false }
++    documents-abandon = { schedule = "20 2 * * *", path = "/tasks/documents-abandon", deadline = "900s", paused = false }
++    access-expiry     = { schedule = "30 3 * * *", path = "/tasks/access-expiry", deadline = "900s", paused = false }
++    maildrive-sync    = { schedule = "5 * * * *", path = "/tasks/maildrive-sync", deadline = "900s", paused = false }
++    sweep             = { schedule = "*/5 * * * *", path = "/tasks/sweep", deadline = "300s", paused = false }
++    audit-verify      = { schedule = "15 4 * * *", path = "/tasks/audit-verify", deadline = "1800s", paused = false }
++    notify-relay      = { schedule = "*/5 * * * *", path = "/tasks/notify-relay", deadline = "300s", paused = false }
++    metrics           = { schedule = "*/2 * * * *", path = "/tasks/metrics", deadline = "120s", paused = false }
+   }
+   depends_on = [module.cloud_run]
+ }
+diff --git a/migrations/0109_upload_states.down.sql b/migrations/0109_upload_states.down.sql
+new file mode 100644
+index 0000000..9e81cfb
+--- /dev/null
++++ b/migrations/0109_upload_states.down.sql
+@@ -0,0 +1,14 @@
++-- Undo migration 0109: the two states become rejected rows and the counter goes.
++UPDATE documents SET status = 'rejected', reject_reason = COALESCE(reject_reason, 'not_uploaded')
++ WHERE status IN ('scan_failed', 'abandoned');
++
++ALTER TABLE documents DROP CONSTRAINT ck_documents_rejected_reason;
++ALTER TABLE documents ADD CONSTRAINT ck_documents_rejected_reason
++   CHECK ((status = 'rejected') = (reject_reason IS NOT NULL));
++
++ALTER TABLE documents DROP CONSTRAINT ck_documents_status;
++ALTER TABLE documents ADD CONSTRAINT ck_documents_status CHECK (status IN ('awaiting_upload',
++   'quarantined', 'scanning', 'rejected', 'parsing', 'parsed', 'indexing', 'indexed', 'failed'));
++
++ALTER TABLE documents DROP CONSTRAINT ck_documents_scan_attempts;
++ALTER TABLE documents DROP COLUMN scan_attempts;
+diff --git a/migrations/0109_upload_states.sql b/migrations/0109_upload_states.sql
+new file mode 100644
+index 0000000..607dc53
+--- /dev/null
++++ b/migrations/0109_upload_states.sql
+@@ -0,0 +1,22 @@
++-- Migration 0109 (2026-11-04, ingestion hardening PR4 part B): two new document states and a
++-- scan attempt counter.
++--
++-- scan_failed: the malware scanner could not be reached. The file is not clean and not infected;
++-- it stays in quarantine, is never read, and the sweeper scans it again (at most three attempts in
++-- all). Its reject_reason ('scan_unavailable') is kept for the message shown to the user.
++-- abandoned: an upload still awaiting its bytes 24 hours after it began; the daily job marks it
++-- and deletes whatever object it left in quarantine.
++-- reject_reason is now allowed on rejected and scan_failed rows only, and required on both.
++
++ALTER TABLE documents ADD COLUMN scan_attempts integer NOT NULL DEFAULT 0;
++ALTER TABLE documents ADD CONSTRAINT ck_documents_scan_attempts CHECK (scan_attempts >= 0);
++
++ALTER TABLE documents DROP CONSTRAINT ck_documents_status;
++ALTER TABLE documents ADD CONSTRAINT ck_documents_status CHECK (status IN ('awaiting_upload',
++   'quarantined', 'scanning', 'rejected', 'scan_failed', 'abandoned', 'parsing', 'parsed',
++   'indexing', 'indexed', 'failed'));
++
++ALTER TABLE documents DROP CONSTRAINT ck_documents_rejected_reason;
++ALTER TABLE documents ADD CONSTRAINT ck_documents_rejected_reason CHECK (
++   (status NOT IN ('rejected', 'scan_failed') OR reject_reason IS NOT NULL)
++   AND (reject_reason IS NULL OR status IN ('rejected', 'scan_failed')));
+diff --git a/migrations/versions/0109_upload_states.py b/migrations/versions/0109_upload_states.py
+new file mode 100644
+index 0000000..7954a1b
+--- /dev/null
++++ b/migrations/versions/0109_upload_states.py
+@@ -0,0 +1,26 @@
++"""Document states scan_failed and abandoned, and documents.scan_attempts (2026-11-04, PR4 part B).
++
++Revision ID: 0109
++Revises: 0106
++"""
++
++from pathlib import Path
++
++from alembic import op
++
++revision = "0109"
++down_revision = "0106"
++branch_labels = None
++depends_on = None
++
++
++def upgrade() -> None:
++    """Add the counter and widen the status and reason checks."""
++    sql = Path(__file__).resolve().parents[1] / "0109_upload_states.sql"
++    op.execute(sql.read_text())
++
++
++def downgrade() -> None:
++    """Turn the new states into rejected rows and restore the checks."""
++    sql = Path(__file__).resolve().parents[1] / "0109_upload_states.down.sql"
++    op.execute(sql.read_text())
+diff --git a/src/account_intelligence/api/main.py b/src/account_intelligence/api/main.py
+index e870884..568c304 100644
+--- a/src/account_intelligence/api/main.py
++++ b/src/account_intelligence/api/main.py
+@@ -225,6 +225,14 @@ async def _sweep_documents(app: FastAPI) -> None:
+         datetime.now(UTC),
+         orphan_after_s=load_documents_config().parsing.orphan_after_s,
+     )
++    # files whose malware scan could not run are scanned again (bounded attempts)
++    from documents.service import retry_failed_scans
++
++    await retry_failed_scans(
++        datetime.now(UTC),
++        container.scheduler,
++        idle_s=load_documents_config().parsing.orphan_after_s,
++    )
+     # documents indexed before the deliverable import existed get their rows read, a few per
+     # pass (documents.deliverables, 2026-10-16)
+     from documents.deliverables import backfill_imports
+diff --git a/src/account_intelligence/api/routes/documents.py b/src/account_intelligence/api/routes/documents.py
+index 71906a6..3ca68a3 100644
+--- a/src/account_intelligence/api/routes/documents.py
++++ b/src/account_intelligence/api/routes/documents.py
+@@ -5,7 +5,9 @@
+   to object storage, sent in ``chunk_bytes`` chunks (``protocol: resumable``), or, only where the
+   store has none, ``PUT /v1/documents/{id}/content`` with a one-time token. Bytes land in
+   quarantine; a file never passes through the web app.
+-* ``POST /v1/documents/{id}/complete``: size checked; the scan is enqueued. Nothing is parsed
++* ``POST /v1/documents/{id}/complete`` ``{size_bytes?, crc32c?}``: the stored object's size and
++  CRC32C are checked against what the browser reported (a mismatch rejects the document); the
++  scan is enqueued. Nothing is parsed
+   before the scan passed.
+ * ``GET /v1/documents/drive-files?source=&q=``: the caller's own Google Drive (``source``
+   ``google_drive``, the default) or OneDrive (``onedrive``) files a research can read (Mail and
+@@ -68,6 +70,16 @@ class UploadStart(BaseModel):
+     audience: Literal["client", "owner_only"] = "client"
+ 
+ 
++class DocumentCompleteBody(BaseModel):
++    """What the browser reports about the file it sent (both optional): its size and its CRC32C
++    (base64 of the 4 big-endian bytes, the form Cloud Storage keeps). The API compares them with
++    the stored object. No tenant field."""
++
++    model_config = ConfigDict(extra="forbid")
++    size_bytes: int | None = Field(default=None, ge=0)
++    crc32c: str | None = Field(default=None, max_length=12)
++
++
+ DriveSource = Literal["google_drive", "onedrive"]
+ 
+ 
+@@ -343,13 +355,23 @@ async def upload_content(
+ 
+ @router.post("/{document_id}/complete", response_model=C.DocumentStatus)
+ async def complete(
+-    document_id: UUID, request: Request, ident: Identity = Depends(require_role(*UPLOADERS))
++    document_id: UUID,
++    request: Request,
++    body: DocumentCompleteBody | None = None,
++    ident: Identity = Depends(require_role(*UPLOADERS)),
+ ) -> dict[str, Any]:
+-    """Check what arrived and enqueue the scan."""
++    """Check what arrived (its size and CRC32C against what the browser reported) and enqueue
++    the scan. The body is optional: without a checksum only the size declared at the start is
++    checked."""
+     from documents.service import DocumentError
+ 
+     try:
+-        out = await _docs(request).complete(ident.tenant_id, document_id)
++        out = await _docs(request).complete(
++            ident.tenant_id,
++            document_id,
++            declared_size=body.size_bytes if body else None,
++            declared_crc32c=body.crc32c if body else None,
++        )
+     except DocumentError as error:
+         raise _problem(error) from None
+     async with tenant_txn(ident.tenant_id) as s:
+diff --git a/src/account_intelligence/api/routes/file_runs.py b/src/account_intelligence/api/routes/file_runs.py
+index 404f475..64d4335 100644
+--- a/src/account_intelligence/api/routes/file_runs.py
++++ b/src/account_intelligence/api/routes/file_runs.py
+@@ -54,7 +54,7 @@ async def _documents(s: Any, body: Any) -> tuple[Any, list[Any]]:
+         raise APIProblem(
+             404, "document_not_found", "Document not found", "A document was not found."
+         )
+-    bad = [d for d in docs if d.status in ("rejected", "failed")]
++    bad = [d for d in docs if d.status in ("rejected", "failed", "scan_failed", "abandoned")]
+     if bad:
+         raise APIProblem(
+             422,
+diff --git a/src/account_intelligence/api/routes/tasks.py b/src/account_intelligence/api/routes/tasks.py
+index 3ba9cdf..9aee365 100644
+--- a/src/account_intelligence/api/routes/tasks.py
++++ b/src/account_intelligence/api/routes/tasks.py
+@@ -11,6 +11,8 @@
+ * ``POST /tasks/access-expiry``: warns idle users and ends the access of those past their client's
+   idle days (``replica.access``).
+ * ``POST /tasks/isolation-check``: the nightly isolation check (``replica.isolation``).
++* ``POST /tasks/documents-abandon``: the daily job that ends uploads never finished
++  (``documents.service.mark_abandoned``).
+ 
+ Private workspaces (migration 0063): every task starts as a system job, which is all a tick
+ needs (it reads identifiers across one client's users). A task about one run, document or
+@@ -558,6 +560,24 @@ async def metrics_tick(
+ _DROPS_SENT: dict[str, int] = {}  # this instance's drops already counted on the metric
+ 
+ 
++@router.post("/documents-abandon")
++async def documents_abandon(
++    request: Request, authorization: str | None = Header(default=None)
++) -> dict[str, Any]:
++    """The daily abandoned-upload job (Cloud Scheduler, 02:20): documents still awaiting their
++    bytes 24 hours after they began are marked ``abandoned`` and their quarantine object is
++    deleted."""
++    await _authorise(request, authorization)
++    from datetime import UTC, datetime
++
++    from account_intelligence.db.system_scope import untenanted_session
++    from documents.service import mark_abandoned
++
++    docs = getattr(request.app.state.container, "documents", None)
++    marked = await mark_abandoned(untenanted_session, datetime.now(UTC), service=docs)
++    return {"abandoned": marked}
++
++
+ @router.post("/isolation-check")
+ async def isolation_check(
+     request: Request, authorization: str | None = Header(default=None)
+diff --git a/src/account_intelligence/app/container.py b/src/account_intelligence/app/container.py
+index c39878b..2d70211 100644
+--- a/src/account_intelligence/app/container.py
++++ b/src/account_intelligence/app/container.py
+@@ -546,7 +546,13 @@ def build_container(env: Mapping[str, str] | None = None) -> Container:
+     container.extras["maildrive_apps"] = maildrive_apps(env)
+     blobs = local_blob_store(env.get("PAYLOAD_DIR"))
+     container.documents = document_service(
+-        blobs, container.scheduler, clock, env, app_env, payloads=container.payloads
++        blobs,
++        container.scheduler,
++        clock,
++        env,
++        app_env,
++        payloads=container.payloads,
++        quarantine=local_quarantine_store(env.get("QUARANTINE_DIR")),
+     )
+     container.documents.analysis = _auto_analysis(container)
+     # the pre-delivery gate for both input modes (``documents.gate``): without it no run could
+@@ -573,8 +579,10 @@ def document_service(
+     env: Mapping[str, str],
+     app_env: str,
+     payloads: Any | None = None,
++    quarantine: Any | None = None,
+ ) -> Any:
+-    """Uploaded documents (input mode "file"): quarantine, scan, sandboxed parse, index."""
++    """Uploaded documents (input mode "file"): quarantine, scan, sandboxed parse, index.
++    ``quarantine`` is the quarantine bucket's store (None: quarantine is a prefix of ``blobs``)."""
+     from documents.config import load_config
+     from documents.embed import HashingEmbedder
+     from documents.scan import scanner_for
+@@ -610,6 +618,7 @@ def document_service(
+         index_seconds_per_request=600.0 if app_env in CLOUD_ENVS else None,
+         semantic=semantic,
+         payloads=payloads,
++        quarantine=quarantine,
+     )
+ 
+ 
+@@ -632,6 +641,20 @@ def local_blob_store(payload_dir: str | None) -> Any:
+     return LocalBlobStore(root)
+ 
+ 
++def local_quarantine_store(quarantine_dir: str | None) -> Any | None:
++    """A separate quarantine directory when ``QUARANTINE_DIR`` names one (a local directory is the
++    local "bucket"; the development object store serves one root, so the compose files leave it
++    unset and quarantine stays a prefix of the documents store). None without one."""
++    if not quarantine_dir:
++        return None
++    from pathlib import Path
++
++    from research_files.blobstore import LocalBlobStore
++
++    Path(quarantine_dir).mkdir(parents=True, exist_ok=True)
++    return LocalBlobStore(quarantine_dir)
++
++
+ def hermetic_fake_model(env: Mapping[str, str]) -> FakeModel:
+     """The deterministic fake model selected by ``LLM_FAKE=hermetic`` (dev and test only); the
+     scenario is a file name under ``config/hermetic/fake_model`` (default ``happy``)."""
+@@ -753,8 +776,19 @@ def _cloud(env: Mapping[str, str], app_env: str, spec: WorkflowSpec) -> Containe
+         # the instance's memory first (Cloud Run has no disk)
+         raise RuntimeMisconfigured("BLOB_MOUNT_DIR is required for the worker in the cloud")
+     built.extras["maildrive_apps"] = maildrive_apps(env)
++    quarantine_bucket = env.get("QUARANTINE_BUCKET")
+     built.documents = document_service(
+-        blobs, scheduler, clock, env, app_env, payloads=getattr(built, "payloads", None)
++        blobs,
++        scheduler,
++        clock,
++        env,
++        app_env,
++        payloads=getattr(built, "payloads", None),
++        # uploads wait in their own bucket (one-day delete rule); unset: a prefix of the documents
++        # bucket, as before (Terraform sets it on the api and the worker)
++        quarantine=GcsBlobStore(gcs.Client(project=project), quarantine_bucket)
++        if quarantine_bucket
++        else None,
+     )
+     built.documents.analysis = _auto_analysis(built)
+     built.gate = delivery_gate(built.payloads, built.documents)
+diff --git a/src/account_intelligence/config.py b/src/account_intelligence/config.py
+index a56a8ae..a6d00b2 100644
+--- a/src/account_intelligence/config.py
++++ b/src/account_intelligence/config.py
+@@ -297,6 +297,16 @@ class Settings(BaseSettings):
+         " worker in the cloud.",
+         component="worker",
+     )
++    quarantine_bucket: str | None = var(
++        purpose="GCS bucket where uploads wait for their scan (one-day delete rule, set by"
++        " Terraform). Unset: quarantine is a prefix of the payload bucket.",
++        component="api, worker",
++    )
++    quarantine_dir: str | None = var(
++        purpose="Separate local directory for quarantined uploads (a local bucket). Unset in the"
++        " compose files: the development object store serves one root.",
++        component="api, worker",
++    )
+     payload_bucket: str | None = var(
+         purpose="GCS bucket for raw payloads and exports (per-tenant prefixes).",
+         required_in=CLOUD,
+diff --git a/src/documents/coverage.py b/src/documents/coverage.py
+index f06192f..356d097 100644
+--- a/src/documents/coverage.py
++++ b/src/documents/coverage.py
+@@ -85,7 +85,7 @@ async def coverage(session: Any, accounts: Sequence[UUID]) -> list[dict[str, Any
+             "type": str(d.detected_type or ""),
+             "passages": int(c.get("passages") or d.passages or 0),
+         }
+-        if d.status in ("rejected", "failed"):
++        if d.status in ("rejected", "failed", "scan_failed", "abandoned"):
+             code = str(d.reject_reason or d.stop_detail or "")
+             entry["why"] = MESSAGES["empty"] if code == "parse:empty" else MESSAGES.get(code, "")
+         if read or c.get("skipped"):
+diff --git a/src/documents/filemap.py b/src/documents/filemap.py
+index ea93c42..ad6393c 100644
+--- a/src/documents/filemap.py
++++ b/src/documents/filemap.py
+@@ -132,6 +132,8 @@ STATES = {
+     "parsed": "read, still being indexed",
+     "indexing": "still being indexed",
+     "rejected": "rejected and not read",
++    "scan_failed": "not read: the malware scanner could not be reached",
++    "abandoned": "the upload was never finished",
+     "failed": "could not be read",
+ }
+ 
+diff --git a/src/documents/repo.py b/src/documents/repo.py
+index fb1babe..794c443 100644
+--- a/src/documents/repo.py
++++ b/src/documents/repo.py
+@@ -24,7 +24,8 @@ _COLS = (
+     "id, account_id, name, declared_bytes, size_bytes, declared_type, detected_type, sha256,"
+     " quarantine_key, upload_token_sha256, object_key, status, reject_reason, stop_detail,"
+     " redaction_tier, authoritative, detected_company, passages, redactions, uploaded_by,"
+-    " upload_expires_at, created_at, updated_at, parts_total, indexed_through, audience"
++    " upload_expires_at, created_at, updated_at, parts_total, indexed_through, audience,"
++    " scan_attempts"
+ )
+ PART_SPAN = 10_000_000  # passage numbers per part: part n writes n * PART_SPAN + 1, + 2, ...
+ # a text column is multi-valued (a cell holds "a, b; c" items) when a fifth or more of its
+@@ -156,6 +157,66 @@ async def reject(s: AsyncSession, document_id: UUID, reason: str, detail: str |
+     )
+ 
+ 
++async def begin_scan(s: AsyncSession, document_id: UUID) -> None:
++    """Move a document to ``scanning`` and count the attempt (``scan_attempts``)."""
++    await s.execute(
++        text(
++            "UPDATE documents SET status = 'scanning', scan_attempts = scan_attempts + 1,"
++            " updated_at = now() WHERE id = :d"
++        ),
++        {"d": document_id},
++    )
++
++
++async def scan_failed(s: AsyncSession, document_id: UUID, detail: str | None) -> None:
++    """End a scan attempt ``scan_failed``: the scanner could not be reached, so the file is
++    neither clean nor infected. It is never read; its quarantine object is kept for a retry."""
++    await s.execute(
++        text(
++            "UPDATE documents SET status = 'scan_failed', reject_reason = 'scan_unavailable',"
++            " stop_detail = :dt, lease_owner = NULL, lease_expires_at = NULL,"
++            " updated_at = now() WHERE id = :d"
++        ),
++        {"d": document_id, "dt": (detail or None) and detail[:600]},
++    )
++
++
++async def requeue_scans(
++    s: AsyncSession, tenant_id: UUID, idle_before: datetime, max_attempts: int, limit: int
++) -> list[UUID]:
++    """``scan_failed`` documents of one client that have waited since ``idle_before`` and have
++    attempts left go back to ``quarantined`` (their reason is cleared); their ids."""
++    rows = await s.execute(
++        text(
++            "UPDATE documents SET status = 'quarantined', reject_reason = NULL, stop_detail = NULL,"
++            " updated_at = now() WHERE id IN (SELECT id FROM documents WHERE tenant_id = :t"
++            " AND status = 'scan_failed' AND scan_attempts < :m AND updated_at < :b"
++            " ORDER BY updated_at, id LIMIT :l FOR UPDATE SKIP LOCKED)"
++            " AND tenant_id = :t RETURNING id"
++        ),
++        {"t": tenant_id, "m": max_attempts, "b": idle_before, "l": limit},
++    )
++    return [UUID(str(r.id)) for r in rows.all()]
++
++
++async def abandon_stale(
++    s: AsyncSession, tenant_id: UUID, started_before: datetime, limit: int
++) -> list[tuple[UUID, str]]:
++    """``awaiting_upload`` documents of one client that began before ``started_before`` become
++    ``abandoned`` (their upload token is dropped); ``(id, quarantine_key)`` of each."""
++    rows = await s.execute(
++        text(
++            "UPDATE documents SET status = 'abandoned', upload_token_sha256 = NULL,"
++            " updated_at = now() WHERE id IN (SELECT id FROM documents WHERE tenant_id = :t"
++            " AND status = 'awaiting_upload' AND created_at < :b"
++            " ORDER BY created_at, id LIMIT :l FOR UPDATE SKIP LOCKED)"
++            " AND tenant_id = :t RETURNING id, quarantine_key"
++        ),
++        {"t": tenant_id, "b": started_before, "l": limit},
++    )
++    return [(UUID(str(r.id)), str(r.quarantine_key)) for r in rows.all()]
++
++
+ async def claim(
+     s: AsyncSession, document_id: UUID, owner: str, ttl_s: int, statuses: Sequence[str]
+ ) -> Any:
+diff --git a/src/documents/service.py b/src/documents/service.py
+index 51077d6..472408a 100644
+--- a/src/documents/service.py
++++ b/src/documents/service.py
+@@ -2,9 +2,10 @@
+ 
+ ::
+ 
+-    start_upload -> chunks straight to object storage (a resumable session; the API's
++    start_upload -> chunks straight to the quarantine bucket (a resumable session; the API's
+                     token-checked content route only where the store has none)
+-      -> complete (size checked; status quarantined; processing enqueued)
++      -> complete (size and CRC32C checked against what the browser reported; status
++         quarantined; processing enqueued on Cloud Tasks)
+       -> process: type check from content -> malware scan -> sha256 -> promote out of quarantine
+          into the raw file store (0078: one object per tenant and sha256 — a re-upload of the
+          same bytes registers no second copy; a changed file is a new hash, so a superseded
+@@ -22,8 +23,23 @@
+   (``retry_part``). Every step renews its lease while it runs. Nothing holds the whole file, all
+   its passages, or all its vectors in memory.
+ 
+-* Nothing is parsed before the scan passed; a wrong type, an oversized file, an infected file or
+-  an unavailable scanner ends ``rejected`` with the reason, and the parser never sees the bytes.
++* Where the upload goes (PR4 part B, 2026-11-04): with ``QUARANTINE_BUCKET`` set the container
++  gives the service a second store (``quarantine``), a separate bucket with a one-day delete
++  rule. Uploads wait there, the scan reads from there, and a clean file is copied into the
++  documents store under its content-addressed ``raw_key`` and then removed from quarantine.
++  Without one, quarantine is a prefix of the documents store (local development, and documents
++  created before the bucket existed: an object not found in the quarantine store is looked for in
++  the documents store). ``complete`` is the trigger: it compares the stored object's size and
++  CRC32C (storage metadata; a missing browser checksum skips only the checksum) with what the
++  browser reported, rejects ``size_mismatch`` / ``checksum_mismatch`` and deletes the object,
++  and only then enqueues the scan on Cloud Tasks. No Pub/Sub. ``sweep_documents`` (every five
++  minutes) is the safety net for a lost task, a dead worker, and for ``scan_failed`` files, which
++  it scans again (``retry_failed_scans``, at most ``SCAN_ATTEMPTS`` attempts in all).
++  ``mark_abandoned`` (daily) ends ``awaiting_upload`` rows older than 24 hours ``abandoned``.
++* Nothing is parsed before the scan passed; a wrong type, an oversized file or an infected file
++  ends ``rejected`` with the reason, and the parser never sees the bytes. A scanner that cannot
++  be reached is not a verdict: the document is ``scan_failed`` (fail closed, never read, its
++  quarantine object kept for the retry), not ``rejected`` and never clean.
+ * Audio is accepted only when a transcription vendor is configured; today it is rejected with a
+   clear message.
+ * A document uploaded without an account stops at ``parsed`` with the detected company; the
+@@ -70,7 +86,8 @@ from documents.sandbox import ParsedUnit, SandboxFailed, parse_in_sandbox, plan_
+ from documents.scan import ScanPort
+ from documents.shapes import ShapeLog
+ from obs.logging import log_context, logger
+-from research_files.blobstore import BlobMissing, BlobStore, PartTooLarge
++from research_files import crc32c as crc
++from research_files.blobstore import BlobMissing, BlobStore, PartTooLarge, copy_between
+ from research_files.detect import by_name, detect
+ 
+ _log = logger(__name__)
+@@ -99,6 +116,13 @@ def _doc_logged(fn: _F) -> _F:
+ TxnFactory = Callable[[UUID], AbstractAsyncContextManager[AsyncSession]]
+ _NAME = re.compile(r"[^\w .()\-]+")
+ ACTIVE = ("quarantined", "scanning", "parsing", "indexing")
++# scan attempts in all (the first included) before a file stays ``scan_failed``
++SCAN_ATTEMPTS = 3
++SCAN_GIVEN_UP = (
++    "The malware scanner could not be reached; the file was not read. Upload it again later."
++)
++ABANDONED = "The upload was never finished, so it was discarded. Upload the file again."
++ABANDON_AFTER = timedelta(hours=24)
+ MESSAGES = {
+     "too_large": "The file is larger than the per-file limit.",
+     "wrong_type": "The file type is not supported, or its content does not match its name.",
+@@ -108,9 +132,13 @@ MESSAGES = {
+     ),
+     "infected": "The malware scan found a threat; the file was removed and never opened.",
+     "scan_unavailable": (
+-        "The malware scan could not run, so the file was not opened. Try again later."
++        "The malware scanner could not be reached; the file was not read. It will be tried again."
+     ),
+     "size_mismatch": "The uploaded size does not match the declared size. Upload it again.",
++    "checksum_mismatch": (
++        "The uploaded file does not match what the browser sent (its checksum differs)."
++        " Upload it again."
++    ),
+     "not_uploaded": "No file arrived for this upload. Upload it again.",
+     "empty": "The file has no readable content.",
+     "parts_failed": "Some parts of the file could not be read. Try those parts again.",
+@@ -250,6 +278,9 @@ class DocumentService:
+     # the model analysis an indexed upload gets by itself (``app.auto_analysis.start`` bound to
+     # the container; None in tests of the service alone): called as (tenant_id, document_id)
+     analysis: Any | None = None
++    # the quarantine bucket's store (``QUARANTINE_BUCKET``); None: quarantine is a prefix of
++    # ``blobs``, as it was before the bucket existed
++    quarantine: BlobStore | None = None
+ 
+     def __post_init__(self) -> None:
+         self.cfg = self.cfg or load_config()
+@@ -263,6 +294,29 @@ class DocumentService:
+ 
+     # ------------------------------------------------------------------ upload
+ 
++    @property
++    def _incoming(self) -> BlobStore:
++        """Where new uploads wait for their scan."""
++        return self.quarantine or self.blobs
++
++    async def _holding(self, key: str) -> BlobStore:
++        """The store that holds a quarantined object: the quarantine store, else (a document
++        created before the bucket existed) the documents store. Neither: the quarantine
++        store, which then answers ``BlobMissing``."""
++        if self.quarantine is None:
++            return self.blobs
++        if await self.quarantine.exists(key):
++            return self.quarantine
++        if await self.blobs.exists(key):
++            return self.blobs
++        return self.quarantine
++
++    async def _drop_quarantined(self, key: str) -> None:
++        """Remove a quarantined object from wherever it is (no error when absent)."""
++        await self._incoming.delete(key)
++        if self.quarantine is not None:
++            await self.blobs.delete(key)
++
+     def declared_type(self, name: str) -> str:
+         """The type a name declares; ``DocumentError`` when it is not accepted."""
+         kind = by_name(name)
+@@ -330,7 +384,7 @@ class DocumentService:
+             if audience != "client":
+                 await repo.set_audience(s, doc_id, audience)
+         content_type = mime or "application/octet-stream"
+-        session = await self.blobs.resumable_upload(qkey, size, content_type, origin)
++        session = await self._incoming.resumable_upload(qkey, size, content_type, origin)
+         url = session or f"/v1/documents/{doc_id}/content?token={token}"
+         return {
+             "document_id": str(doc_id),
+@@ -363,7 +417,7 @@ class DocumentService:
+         if row.upload_expires_at < self.clock.now():
+             raise DocumentError("upload_expired", "This upload target has expired.")
+         try:
+-            size, _ = await self.blobs.write_stream(
++            size, _ = await self._incoming.write_stream(
+                 row.quarantine_key, chunks, max_bytes=int(row.declared_bytes)
+             )
+         except PartTooLarge:
+@@ -392,40 +446,65 @@ class DocumentService:
+         started = await self.start_upload(tenant_id, user, name, size, mime, account_id)
+         doc_id = UUID(started["document_id"])
+ 
++        checksum = 0
++
+         async def chunks() -> AsyncIterator[bytes]:
+-            """The file read in bounded pieces."""
++            """The file read in bounded pieces, its CRC32C taken as it goes."""
++            nonlocal checksum
+             with path.open("rb") as source:
+                 # LOOP(import spool): cap=size / chunk_bytes reads; exit=end of the spool file
+                 while block := source.read(self.c.upload.chunk_bytes):
++                    checksum = crc.extend(checksum, block)
+                     yield block
+ 
+         try:
+-            await self.blobs.write_stream(
++            await self._incoming.write_stream(
+                 quarantine_key(tenant_id, doc_id), chunks(), max_bytes=size
+             )
+         except PartTooLarge:
+             raise DocumentError("size_mismatch") from None
+-        return await self.complete(tenant_id, doc_id)
++        return await self.complete(
++            tenant_id, doc_id, declared_size=size, declared_crc32c=crc.to_base64(checksum)
++        )
+ 
+-    async def complete(self, tenant_id: UUID, document_id: UUID) -> dict[str, Any]:
+-        """Check what arrived (its size, from storage metadata: a large file is never read in
+-        the request) and enqueue the scan, which also hashes it. Nothing is parsed here."""
++    async def complete(
++        self,
++        tenant_id: UUID,
++        document_id: UUID,
++        *,
++        declared_size: int | None = None,
++        declared_crc32c: str | None = None,
++    ) -> dict[str, Any]:
++        """Check what arrived and enqueue the scan, which also hashes it. Nothing is parsed here.
++        The object's size and CRC32C come from storage metadata (a large file is never read in
++        the request, except in the local store, which has no metadata). ``declared_size`` and
++        ``declared_crc32c`` are what the browser reported: a difference ends the document
++        ``rejected`` (``size_mismatch`` / ``checksum_mismatch``) and removes the object. A
++        missing checksum (an older browser, a server-side import that did not pass one) skips
++        only the checksum; the size is always checked against the size declared at the start."""
+         async with self.txn(tenant_id) as s:
+             row = await repo.get(s, document_id, lock=True)
+             if row is None:
+                 raise DocumentError("not_found", "The document was not found.")
+             if row.status != "awaiting_upload":
+                 return self._view(row)
++            held = await self._holding(row.quarantine_key)
+             try:
+-                size = await self.blobs.size(row.quarantine_key)
++                size = await held.size(row.quarantine_key)
+             except BlobMissing:
+                 raise DocumentError("not_uploaded") from None
+-            if size != row.declared_bytes:
+-                await repo.reject(s, document_id, "size_mismatch", None)
+-                await self.blobs.delete(row.quarantine_key)
++            reason = None
++            if size != row.declared_bytes or (declared_size is not None and size != declared_size):
++                reason = "size_mismatch"
+             elif size > await self.max_file_bytes(s):
+-                await repo.reject(s, document_id, "too_large", None)
+-                await self.blobs.delete(row.quarantine_key)
++                reason = "too_large"
++            elif declared_crc32c and not await self._same_checksum(
++                held, row.quarantine_key, declared_crc32c, tenant_id
++            ):
++                reason = "checksum_mismatch"
++            if reason is not None:
++                await repo.reject(s, document_id, reason, None)
++                await self._drop_quarantined(row.quarantine_key)
+             else:
+                 await repo.set_status(
+                     s, document_id, "quarantined", size_bytes=size, upload_token_sha256=None
+@@ -435,10 +514,22 @@ class DocumentService:
+             await self.scheduler.enqueue_document(tenant_id, document_id)
+         return self._view(row)
+ 
+-    def _hash(self, key: str) -> tuple[int, str]:
++    async def _same_checksum(
++        self, held: BlobStore, key: str, declared: str, tenant_id: UUID
++    ) -> bool:
++        """Whether the stored object's CRC32C is the one the browser reported. Storage that holds
++        no checksum for the object cannot confirm or refute it: logged, then accepted (the scan
++        hashes the bytes again)."""
++        stored = await held.crc32c(key)
++        if not stored:
++            _log.warning("documents.crc32c_unavailable", extra={"tenant_id": str(tenant_id)})
++            return True
++        return secrets.compare_digest(stored, declared)
++
++    def _hash(self, store: BlobStore, key: str) -> tuple[int, str]:
+         digest = hashlib.sha256()
+         size = 0
+-        with self.blobs.open(key) as reader:
++        with store.open(key) as reader:
+             # LOOP(hash uploaded document): cap=size / 1 MiB reads; exit=end of object
+             while block := reader.read(1 << 20):
+                 digest.update(block)
+@@ -568,9 +659,10 @@ class DocumentService:
+     @_doc_logged
+     async def _scan(self, tenant_id: UUID, row: Any) -> str:
+         async with self.txn(tenant_id) as s:
+-            await repo.set_status(s, row.id, "scanning")
++            await repo.begin_scan(s, row.id)
++        held = await self._holding(row.quarantine_key)
+         try:
+-            reader = self.blobs.open(row.quarantine_key)
++            reader = held.open(row.quarantine_key)
+         except BlobMissing:
+             async with self.txn(tenant_id) as s:
+                 await repo.reject(s, row.id, "not_uploaded", None)
+@@ -580,11 +672,18 @@ class DocumentService:
+             reason = self._type_problem(kind, row.declared_type)
+             reader.seek(0)
+             verdict = None if reason else await self.scanner.scan(reader)
+-        if reason is None and verdict is not None:
+-            if verdict.result == "infected":
+-                reason = "infected"
+-            elif verdict.result != "clean":
+-                reason = "scan_unavailable"
++        if reason is None and verdict is not None and verdict.result == "unavailable":
++            # not a verdict: fail closed without reading the file, keep it for the retry
++            async with self.txn(tenant_id) as s:
++                await repo.scan_failed(s, row.id, verdict.engine)
++                await self._audit(s, "document.scan_failed", row.id, "error")
++            _log.warning(
++                "documents.scan_failed",
++                extra={"tenant_id": str(tenant_id), "engine": verdict.engine},
++            )
++            return "scan_failed"
++        if reason is None and verdict is not None and verdict.result != "clean":
++            reason = "infected" if verdict.result == "infected" else "scan_unavailable"
+         if reason is not None:
+             detail = (
+                 f"{verdict.engine}:{verdict.signature}"
+@@ -594,18 +693,21 @@ class DocumentService:
+             async with self.txn(tenant_id) as s:
+                 await repo.reject(s, row.id, reason, detail)
+                 await self._audit(s, "document.reject", row.id, "denied")
+-            if reason != "scan_unavailable":
+-                await self.blobs.delete(row.quarantine_key)
++            await self._drop_quarantined(row.quarantine_key)
+             return "rejected"
+-        size, sha = await asyncio.to_thread(self._hash, row.quarantine_key)
++        size, sha = await asyncio.to_thread(self._hash, held, row.quarantine_key)
+         async with self.txn(tenant_id) as s:
+             existing = await repo.raw_file(s, sha)
+         if existing is None:
+             target = raw_key(tenant_id, sha)
+-            await self.blobs.move(row.quarantine_key, target)
++            if held is self.blobs:
++                await self.blobs.move(row.quarantine_key, target)
++            else:  # the quarantine bucket: copy into the documents bucket, then empty it
++                await copy_between(held, row.quarantine_key, self.blobs, target, size)
++                await held.delete(row.quarantine_key)
+         else:  # the same bytes were stored before: one copy serves both documents
+             target = str(existing.object_key)
+-            await self.blobs.delete(row.quarantine_key)
++            await held.delete(row.quarantine_key)
+         async with self.txn(tenant_id) as s:
+             await repo.register_raw_file(s, sha, size, target, row.id)
+             await repo.set_status(
+@@ -1154,7 +1256,7 @@ class DocumentService:
+             marked = await mark_document_facts(s, document_id, row.account_id)
+             await repo.record_deletion(s, row, chunks, marked, user)
+         if row.quarantine_key:
+-            await self.blobs.delete(row.quarantine_key)
++            await self._drop_quarantined(row.quarantine_key)
+         if row.object_key:
+             # the raw object is shared by every document of the tenant with the same sha256
+             # (0078): delete it, and its registry row, only when this was the last one
+@@ -1271,7 +1373,23 @@ class DocumentService:
+             "awaiting_upload": "uploading", "quarantined": "scanning", "scanning": "scanning",
+             "parsing": "parsing", "parsed": "parsed", "indexing": "indexing",
+             "indexed": "indexed", "rejected": "failed", "failed": "failed",
++            "scan_failed": "failed", "abandoned": "failed",
+         }[row.status]  # fmt: skip
++        reason = row.reject_reason or (row.stop_detail if row.status == "failed" else None)
++        if row.status == "scan_failed":
++            message: str | None = (
++                SCAN_GIVEN_UP
++                if int(getattr(row, "scan_attempts", 0) or 0) >= SCAN_ATTEMPTS
++                else MESSAGES["scan_unavailable"]
++            )
++        elif row.status == "abandoned":
++            reason, message = "abandoned", ABANDONED
++        elif row.reject_reason:
++            message = MESSAGES.get(row.reject_reason)
++        elif row.stop_detail == "parts_failed":
++            message = MESSAGES["parts_failed"]
++        else:
++            message = "The file could not be read." if row.status == "failed" else None
+         company = row.detected_company or {}
+         return {
+             "document_id": str(row.id),
+@@ -1282,14 +1400,8 @@ class DocumentService:
+             "declared_type": row.declared_type,
+             "detected_type": row.detected_type,
+             "size_bytes": row.size_bytes if row.size_bytes is not None else row.declared_bytes,
+-            "reason": row.reject_reason or (row.stop_detail if row.status == "failed" else None),
+-            "message": MESSAGES.get(row.reject_reason or "")
+-            if row.reject_reason
+-            else (
+-                MESSAGES["parts_failed"]
+-                if row.stop_detail == "parts_failed"
+-                else ("The file could not be read." if row.status == "failed" else None)
+-            ),
++            "reason": reason,
++            "message": message,
+             "passages": row.passages or (parts or {}).get("passages", 0),
+             "parts_total": int(row.parts_total or 0),
+             "parts_done": int((parts or {}).get("done", 0)),
+@@ -1357,3 +1469,77 @@ async def sweep_documents(
+     for tenant_id, document_id in found:
+         await scheduler.enqueue_document(tenant_id, document_id)
+     return [d for _, d in found]
++
++
++async def retry_failed_scans(
++    now: datetime, scheduler: Any, *, idle_s: float, limit: int = 50, tenant_id: UUID | None = None
++) -> list[UUID]:
++    """Files whose scan could not run (``scan_failed``) are scanned again, per client, once
++    they have waited ``idle_s`` since the last attempt and have fewer than ``SCAN_ATTEMPTS``
++    attempts; after the last attempt they stay ``scan_failed``. Each goes back to
++    ``quarantined`` and its task is enqueued. ``tenant_id`` limits the pass to one client."""
++    from account_intelligence.db.session import tenant_txn
++
++    idle_before = now - timedelta(seconds=idle_s)
++    requeued: list[tuple[UUID, UUID]] = []
++    # LOOP(scan retry clients): cap=every client once per pass, `limit` documents each;
++    # exit=last client
++    for tenant in await _tenants(tenant_id):
++        async with tenant_txn(tenant, system=True) as s:
++            for document_id in await repo.requeue_scans(
++                s, tenant, idle_before, SCAN_ATTEMPTS, limit
++            ):
++                requeued.append((tenant, document_id))
++    for tenant, document_id in requeued:
++        await scheduler.enqueue_document(tenant, document_id)
++    return [d for _, d in requeued]
++
++
++async def mark_abandoned(
++    sessions: Callable[[], AbstractAsyncContextManager[AsyncSession]],
++    now: datetime,
++    *,
++    service: DocumentService | None = None,
++    tenant_id: UUID | None = None,
++    limit: int = 500,
++) -> int:
++    """The daily job: ``awaiting_upload`` documents that began more than 24 hours ago become
++    ``abandoned`` and whatever object they left in quarantine is deleted (the bucket's own
++    one-day rule is the backstop). Per client, inside that client's transaction, every statement
++    naming the client; ``tenant_id`` limits the pass to one client. ``sessions`` opens the
++    cross-client session that lists the clients; ``service`` is the document service that holds
++    the stores (without it only the rows change). Returns how many documents were marked."""
++    from account_intelligence.db.session import tenant_txn
++
++    cutoff = now - ABANDON_AFTER
++    marked = 0
++    # LOOP(abandon clients): cap=every client once per pass, `limit` documents each;
++    # exit=last client
++    for tenant in await _tenants(tenant_id, sessions):
++        async with tenant_txn(tenant, system=True) as s:
++            gone = await repo.abandon_stale(s, tenant, cutoff, limit)
++        marked += len(gone)
++        if service is not None:
++            # LOOP(abandon objects): cap=`limit` per client; exit=documents exhausted
++            for _, key in gone:
++                await service._drop_quarantined(key)  # noqa: SLF001 - the service's own stores
++    return marked
++
++
++async def _tenants(
++    only: UUID | None,
++    sessions: Callable[[], AbstractAsyncContextManager[AsyncSession]] | None = None,
++) -> list[UUID]:
++    """The clients to visit: the one named, else every client (the operator overview lists them
++    by identifier)."""
++    if only is not None:
++        return [only]
++    from sqlalchemy import text
++
++    if sessions is None:
++        from account_intelligence.db.system_scope import untenanted_session
++
++        sessions = untenanted_session
++    async with sessions() as plain:
++        rows = await plain.execute(text("SELECT tenant_id FROM operator_tenant_overview()"))
++        return [UUID(str(r.tenant_id)) for r in rows]
+diff --git a/src/research_files/blobstore.py b/src/research_files/blobstore.py
+index 468e12a..83d9457 100644
+--- a/src/research_files/blobstore.py
++++ b/src/research_files/blobstore.py
+@@ -83,6 +83,12 @@ class BlobStore(Protocol):
+         """The object's size in bytes (``BlobMissing`` when absent)."""
+         ...
+ 
++    async def crc32c(self, key: str) -> str:
++        """The object's CRC32C as base64 of the 4 big-endian bytes, the form Cloud Storage keeps
++        in its metadata (computed streaming where the store has none; ``BlobMissing`` when
++        absent)."""
++        ...
++
+ 
+ class LocalBlobStore:
+     """See the module docstring."""
+@@ -193,6 +199,18 @@ class LocalBlobStore:
+         except FileNotFoundError:
+             raise BlobMissing(key) from None
+ 
++    async def crc32c(self, key: str) -> str:
++        """Computed by reading the file in 1 MiB blocks (a local directory has no metadata)."""
++        from research_files.crc32c import crc32c_of
++
++        def compute() -> str:
++            with self.open(key) as reader:
++                return crc32c_of(reader)
++
++        import asyncio
++
++        return await asyncio.to_thread(compute)
++
+     async def delete(self, key: str) -> None:
+         """Unlink."""
+         self.path(key).unlink(missing_ok=True)
+@@ -335,6 +353,15 @@ class GcsBlobStore:
+             raise BlobMissing(key)
+         return int(blob.size)
+ 
++    async def crc32c(self, key: str) -> str:
++        """The object's CRC32C from its metadata (nothing is read)."""
++        import asyncio
++
++        blob = await asyncio.to_thread(self.bucket.get_blob, key)
++        if blob is None:
++            raise BlobMissing(key)
++        return str(blob.crc32c or "")
++
+     async def delete_prefix(self, prefix: str) -> int:
+         """Delete every object under the prefix."""
+         import asyncio
+@@ -343,3 +370,26 @@ class GcsBlobStore:
+         for blob in blobs:
+             await asyncio.to_thread(blob.delete)
+         return len(blobs)
++
++
++async def copy_between(
++    source: BlobStore, source_key: str, target: BlobStore, target_key: str, size: int
++) -> None:
++    """Copy one object from one store to another (the clean upload leaving the quarantine
++    bucket for the documents bucket). Two Cloud Storage buckets copy server side; anything else
++    streams in ``COPY_BUFFER`` blocks, so no file is ever held in memory."""
++    if isinstance(source, GcsBlobStore) and isinstance(target, GcsBlobStore):
++        import asyncio
++
++        blob = source.bucket.blob(source_key)
++        await asyncio.to_thread(source.bucket.copy_blob, blob, target.bucket, target_key)
++        return
++
++    async def blocks() -> AsyncIterator[bytes]:
++        """The source object in bounded blocks."""
++        with source.open(source_key) as reader:
++            # LOOP(blob copy between stores): cap=object size / COPY_BUFFER reads; exit=end
++            while block := reader.read(COPY_BUFFER):
++                yield block
++
++    await target.write_stream(target_key, blocks(), max_bytes=size)
+diff --git a/src/research_files/crc32c.py b/src/research_files/crc32c.py
+new file mode 100644
+index 0000000..443eff3
+--- /dev/null
++++ b/src/research_files/crc32c.py
+@@ -0,0 +1,76 @@
++"""CRC32C (Castagnoli) of an object, in the form Cloud Storage reports it.
++
++Cloud Storage keeps a ``crc32c`` for every object: the base64 of the checksum's 4 big-endian
++bytes. The browser computes the same value over the file before it sends it (``web/lib/crc32c.ts``)
++and ``DocumentService.complete`` compares it with what storage holds. The local object store has
++no such metadata, so ``crc32c_of`` computes it streaming in 1 MiB blocks.
++
++The compiled ``google_crc32c`` (a dependency of google-cloud-storage) is used when it imports;
++otherwise a small table-driven pure-Python version gives the same answer, slower.
++
++GUARANTEE(test_crc32c_known_vectors_match_the_standard_check_value)
++"""
++
++from __future__ import annotations
++
++import base64
++from collections.abc import Callable
++from typing import IO
++
++_POLY = 0x82F63B78  # reflected Castagnoli polynomial
++BLOCK = 1 << 20  # 1 MiB
++
++
++def _table() -> tuple[int, ...]:
++    out = []
++    for n in range(256):
++        c = n
++        for _ in range(8):
++            c = (c >> 1) ^ _POLY if c & 1 else c >> 1
++        out.append(c)
++    return tuple(out)
++
++
++_TABLE = _table()
++
++
++def update(crc: int, data: bytes) -> int:
++    """Continue a checksum over more bytes (start with 0); the unsigned 32-bit value."""
++    c = ~crc & 0xFFFFFFFF
++    table = _TABLE
++    for byte in data:
++        c = table[(c ^ byte) & 0xFF] ^ (c >> 8)
++    return ~c & 0xFFFFFFFF
++
++
++def to_base64(crc: int) -> str:
++    """The 4 big-endian bytes of a checksum as base64 (Cloud Storage's own form)."""
++    return base64.b64encode(crc.to_bytes(4, "big")).decode("ascii")
++
++
++def _extend() -> Callable[[int, bytes], int]:
++    """The compiled extender when it is installed, else the table version."""
++    try:
++        import google_crc32c
++
++        extender: Callable[[int, bytes], int] = google_crc32c.extend
++        return extender
++    except ImportError:  # pragma: no cover - google-cloud-storage always brings it
++        return update
++
++
++extend = _extend()
++
++
++def crc32c_of(reader: IO[bytes]) -> str:
++    """The checksum (base64) of everything ``reader`` yields from its current position."""
++    crc = 0
++    # LOOP(crc32c read): cap=object size / 1 MiB reads; exit=end of stream
++    while block := reader.read(BLOCK):
++        crc = extend(crc, block)
++    return to_base64(crc)
++
++
++def crc32c_of_bytes(data: bytes) -> str:
++    """The checksum (base64) of a byte string."""
++    return to_base64(update(0, data))
+diff --git a/src/tenancy/catalog.py b/src/tenancy/catalog.py
+index 76b1a63..04a9ef3 100644
+--- a/src/tenancy/catalog.py
++++ b/src/tenancy/catalog.py
+@@ -123,6 +123,10 @@ JOBS: dict[str, str] = {
+     " inside tenant_txn",
+     "document_sweep": "documents.service.sweep_documents: identifiers from documents_orphaned,"
+     " then the document task per tenant and document, inside tenant_txn",
++    "scan_retry": "documents.service.retry_failed_scans: client identifiers from"
++    " operator_tenant_overview, then per client inside tenant_txn (system scope, tenant_id stated)",
++    "document_abandon": "documents.service.mark_abandoned: client identifiers from"
++    " operator_tenant_overview, then per client inside tenant_txn (system scope, tenant_id stated)",
+     "part_sweep": "documents.service.sweep_documents: identifiers from document_parts_orphaned,"
+     " then the document task per tenant and document, inside tenant_txn",
+     "stall_sweep": "runs.sweeper.mark_stalled: identifiers from runs_stalled, then per tenant and"
+diff --git a/tests/documents/test_documents_db.py b/tests/documents/test_documents_db.py
+index 9fb5665..5b02f57 100644
+--- a/tests/documents/test_documents_db.py
++++ b/tests/documents/test_documents_db.py
+@@ -149,14 +149,15 @@ async def test_oversized_wrong_type_and_audio_are_refused_before_upload(
+     assert bad_token.value.code == "upload_closed"
+ 
+ 
+-async def test_an_unavailable_scanner_rejects_without_parsing(
++async def test_an_unavailable_scanner_fails_the_scan_without_parsing(
+     tenant_a: UUID, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+ ) -> None:
+     called = _never_parse(monkeypatch)
+     svc = service(tmp_path, scanner=UnavailableScanner())
+     done = await upload(svc, tenant_a, "notes.txt", b"plain notes\n")
+     doc = UUID(done["document_id"])
+-    assert await svc.process(tenant_a, doc) == "rejected"
++    assert await svc.process(tenant_a, doc) == "scan_failed"  # not rejected, not clean
++    assert doc_row(doc)["status"] == "scan_failed"
+     assert doc_row(doc)["reject_reason"] == "scan_unavailable" and called == []
+     # kept in quarantine for a later retry, never promoted
+     assert (tmp_path / f"quarantine/tenants/{tenant_a}/{doc}/raw").exists()
+diff --git a/tests/documents/test_upload_hardening_db.py b/tests/documents/test_upload_hardening_db.py
+new file mode 100644
+index 0000000..7a91a27
+--- /dev/null
++++ b/tests/documents/test_upload_hardening_db.py
+@@ -0,0 +1,232 @@
++"""Upload hardening, part B (2026-11-04): the size and CRC32C check at complete, the quarantine
++store, scan_failed with bounded retries, and the daily abandoned-upload job. SYNTHETIC files."""
++
++from __future__ import annotations
++
++from datetime import UTC, datetime, timedelta
++from pathlib import Path
++from urllib.parse import parse_qs, urlparse
++from uuid import UUID
++
++import pytest
++
++from account_intelligence.db.session import SessionLocal
++from documents.scan import StructureGuard
++from documents.service import (
++    SCAN_ATTEMPTS,
++    DocumentService,
++    mark_abandoned,
++    quarantine_key,
++    raw_key,
++    retry_failed_scans,
++)
++from research_files.crc32c import crc32c_of_bytes
++from tests.documents.world import admin, doc_row, service
++from tests.fakes.scanner import DownScanner, FakeClamd
++
++pytestmark = [pytest.mark.requires_postgres, pytest.mark.asyncio]
++NOTES = b"notes about Northwind\n"
++
++
++async def _send(svc: DocumentService, tenant: UUID, data: bytes, name: str = "notes.txt") -> UUID:
++    """Start an upload and put its bytes through the token route; not yet completed."""
++    started = await svc.start_upload(tenant, "user-1", name, len(data), None, None)
++    token = parse_qs(urlparse(started["upload_url"]).query)["token"][0]
++
++    async def body() -> object:
++        yield data
++
++    await svc.receive(tenant, UUID(started["document_id"]), token, body())  # type: ignore[arg-type]
++    return UUID(started["document_id"])
++
++
++def _scan_attempts(doc: UUID) -> int:
++    return int(admin("SELECT scan_attempts FROM documents WHERE id = %s", doc)[0][0])
++
++
++# ----------------------------------------------------------------------- complete: size and CRC32C
++
++
++async def test_a_wrong_checksum_rejects_and_deletes_the_object(
++    tenant_a: UUID, tmp_path: Path
++) -> None:
++    svc = service(tmp_path)
++    doc = await _send(svc, tenant_a, NOTES)
++    key = tmp_path / quarantine_key(tenant_a, doc)
++    assert key.exists()
++    done = await svc.complete(
++        tenant_a, doc, declared_size=len(NOTES), declared_crc32c=crc32c_of_bytes(b"other bytes")
++    )
++    assert done["status"] == "rejected" and done["reason"] == "checksum_mismatch"
++    assert "checksum" in done["message"]
++    assert not key.exists() and svc.scheduler.documents == []
++
++
++async def test_a_right_checksum_or_none_goes_on_to_the_scan(tenant_a: UUID, tmp_path: Path) -> None:
++    svc = service(tmp_path)
++    right = await _send(svc, tenant_a, NOTES)
++    done = await svc.complete(
++        tenant_a, right, declared_size=len(NOTES), declared_crc32c=crc32c_of_bytes(NOTES)
++    )
++    assert done["status"] == "quarantined"
++    # an older browser sends no checksum: the checksum is skipped, the size still checked
++    none = await _send(svc, tenant_a, NOTES)
++    assert (await svc.complete(tenant_a, none))["status"] == "quarantined"
++    assert svc.scheduler.documents == [(tenant_a, right), (tenant_a, none)]
++
++
++async def test_a_wrong_declared_size_rejects_and_deletes_the_object(
++    tenant_a: UUID, tmp_path: Path
++) -> None:
++    svc = service(tmp_path)
++    doc = await _send(svc, tenant_a, NOTES)
++    done = await svc.complete(
++        tenant_a, doc, declared_size=len(NOTES) + 1, declared_crc32c=crc32c_of_bytes(NOTES)
++    )
++    assert done["status"] == "rejected" and done["reason"] == "size_mismatch"
++    assert not (tmp_path / quarantine_key(tenant_a, doc)).exists()
++
++
++# ----------------------------------------------------------------------- the quarantine store
++
++
++async def test_the_quarantine_store_receives_the_upload_and_is_emptied_after_the_scan(
++    tenant_a: UUID, tmp_path: Path
++) -> None:
++    docs, quarantine = tmp_path / "docs", tmp_path / "quarantine"
++    svc = service(docs, quarantine=quarantine)
++    doc = await _send(svc, tenant_a, NOTES)
++    qkey = quarantine_key(tenant_a, doc)
++    assert (quarantine / qkey).exists() and not (docs / qkey).exists()
++    await svc.complete(
++        tenant_a, doc, declared_size=len(NOTES), declared_crc32c=crc32c_of_bytes(NOTES)
++    )
++    assert await svc.process(tenant_a, doc) == "parsed"
++    sha = admin("SELECT sha256 FROM documents WHERE id = %s", doc)[0][0]
++    assert (docs / raw_key(tenant_a, sha)).read_bytes() == NOTES
++    assert not (quarantine / qkey).exists() and not (docs / qkey).exists()
++
++
++async def test_a_document_created_before_the_bucket_is_read_from_the_documents_store(
++    tenant_a: UUID, tmp_path: Path
++) -> None:
++    docs, quarantine = tmp_path / "docs", tmp_path / "quarantine"
++    old = service(docs)  # no quarantine store: the old prefix of the documents store
++    doc = await _send(old, tenant_a, NOTES)
++    await old.complete(tenant_a, doc)
++    assert (docs / quarantine_key(tenant_a, doc)).exists()
++    new = service(docs, quarantine=quarantine)
++    assert await new.process(tenant_a, doc) == "parsed"
++    assert not (docs / quarantine_key(tenant_a, doc)).exists()
++
++
++async def test_a_mismatch_in_the_quarantine_store_deletes_it_there(
++    tenant_a: UUID, tmp_path: Path
++) -> None:
++    svc = service(tmp_path / "docs", quarantine=tmp_path / "quarantine")
++    doc = await _send(svc, tenant_a, NOTES)
++    done = await svc.complete(tenant_a, doc, declared_crc32c=crc32c_of_bytes(b"x"))
++    assert done["reason"] == "checksum_mismatch"
++    assert not (tmp_path / "quarantine" / quarantine_key(tenant_a, doc)).exists()
++
++
++# ----------------------------------------------------------------------- scan_failed
++
++
++async def test_a_scanner_that_is_down_gives_scan_failed_and_the_file_is_never_read(
++    tenant_a: UUID, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
++) -> None:
++    def boom(*args: object, **kwargs: object) -> None:
++        raise AssertionError("a file that was not scanned must never reach the parser")
++
++    monkeypatch.setattr("documents.service.parse_in_sandbox", boom)
++    monkeypatch.setattr("documents.service.plan_in_sandbox", boom)
++    svc = service(tmp_path, scanner=DownScanner())
++    doc = await _send(svc, tenant_a, NOTES)
++    await svc.complete(tenant_a, doc)
++    assert await svc.process(tenant_a, doc) == "scan_failed"
++    row = doc_row(doc)
++    assert row["status"] == "scan_failed" and row["reject_reason"] == "scan_unavailable"
++    assert (tmp_path / quarantine_key(tenant_a, doc)).exists()  # kept for the retry
++    view = await svc.status(tenant_a, doc)
++    assert view["stage"] == "failed" and "will be tried again" in view["message"]
++    assert _scan_attempts(doc) == 1
++
++
++async def test_the_sweep_stops_retrying_after_the_last_attempt(
++    tenant_a: UUID, tmp_path: Path
++) -> None:
++    svc = service(tmp_path, scanner=DownScanner())
++    doc = await _send(svc, tenant_a, NOTES)
++    await svc.complete(tenant_a, doc)
++    later = datetime.now(UTC) + timedelta(hours=1)
++    for attempt in range(1, SCAN_ATTEMPTS + 1):
++        assert await svc.process(tenant_a, doc) == "scan_failed"
++        assert _scan_attempts(doc) == attempt
++        retried = await retry_failed_scans(later, svc.scheduler, idle_s=60, tenant_id=tenant_a)
++        assert retried == ([doc] if attempt < SCAN_ATTEMPTS else [])
++    assert doc_row(doc)["status"] == "scan_failed"
++    view = await svc.status(tenant_a, doc)
++    assert view["message"].endswith("Upload it again later.")
++    assert (tmp_path / quarantine_key(tenant_a, doc)).exists()
++
++
++async def test_when_the_scanner_is_back_a_retry_scans_and_reads_the_file(
++    tenant_a: UUID, tmp_path: Path
++) -> None:
++    svc = service(tmp_path, scanner=DownScanner())
++    doc = await _send(svc, tenant_a, NOTES)
++    await svc.complete(tenant_a, doc)
++    assert await svc.process(tenant_a, doc) == "scan_failed"
++    svc.scanner = StructureGuard(FakeClamd())
++    # too soon after the last attempt: not yet
++    assert (
++        await retry_failed_scans(datetime.now(UTC), svc.scheduler, idle_s=3600, tenant_id=tenant_a)
++        == []
++    )
++    later = datetime.now(UTC) + timedelta(hours=2)
++    assert await retry_failed_scans(later, svc.scheduler, idle_s=3600, tenant_id=tenant_a) == [doc]
++    assert doc_row(doc)["status"] == "quarantined" and doc_row(doc)["reject_reason"] is None
++    assert await svc.process(tenant_a, doc) == "parsed"
++    assert _scan_attempts(doc) == 2
++
++
++async def test_an_infected_file_is_rejected_not_scan_failed(tenant_a: UUID, tmp_path: Path) -> None:
++    from documents.scan import EICAR
++
++    svc = service(tmp_path)
++    doc = await _send(svc, tenant_a, EICAR)
++    await svc.complete(tenant_a, doc)
++    assert await svc.process(tenant_a, doc) == "rejected"
++    assert doc_row(doc)["status"] == "rejected" and doc_row(doc)["reject_reason"] == "infected"
++    assert not (tmp_path / quarantine_key(tenant_a, doc)).exists()
++
++
++# ----------------------------------------------------------------------- abandoned uploads
++
++
++async def test_the_daily_job_abandons_old_awaiting_uploads_only(
++    tenant_a: UUID, tenant_b: UUID, tmp_path: Path
++) -> None:
++    svc = service(tmp_path)
++    old = await _send(svc, tenant_a, NOTES)  # bytes arrived, complete never called
++    fresh = await _send(svc, tenant_a, NOTES)
++    other = await _send(svc, tenant_b, NOTES)  # another client's old row
++    admin(
++        "UPDATE documents SET created_at = now() - interval '25 hours' WHERE id = ANY(%s)",
++        [old, other],
++    )
++    now = datetime.now(UTC)
++    assert await mark_abandoned(SessionLocal, now, service=svc, tenant_id=tenant_a) == 1
++    assert doc_row(old)["status"] == "abandoned"
++    assert doc_row(fresh)["status"] == "awaiting_upload"
++    assert doc_row(other)["status"] == "awaiting_upload"  # a call scoped to tenant A leaves B alone
++    assert not (tmp_path / quarantine_key(tenant_a, old)).exists()
++    assert (tmp_path / quarantine_key(tenant_a, fresh)).exists()
++    view = await svc.status(tenant_a, old)
++    assert view["stage"] == "failed" and view["reason"] == "abandoned"
++    # every client: the other client's old row is found by the overview and abandoned too
++    assert await mark_abandoned(SessionLocal, now, service=svc) >= 1
++    assert doc_row(other)["status"] == "abandoned" and doc_row(fresh)["status"] == "awaiting_upload"
++    # idempotent
++    assert await mark_abandoned(SessionLocal, now, service=svc, tenant_id=tenant_a) == 0
+diff --git a/tests/documents/world.py b/tests/documents/world.py
+index 02c184f..738276b 100644
+--- a/tests/documents/world.py
++++ b/tests/documents/world.py
+@@ -39,7 +39,9 @@ class Clock:
+         return datetime.now(UTC)
+ 
+ 
+-def service(root: Path, scanner: ScanPort | None = None) -> DocumentService:
++def service(
++    root: Path, scanner: ScanPort | None = None, quarantine: Path | None = None
++) -> DocumentService:
+     cfg = load_config()
+     return DocumentService(
+         tenant_txn,
+@@ -51,6 +53,8 @@ def service(root: Path, scanner: ScanPort | None = None) -> DocumentService:
+         cfg,
+         # the research payload store (posting texts and archive copies of an imported workspace)
+         payloads=MemoryPayloadStore(),
++        # a separate quarantine directory stands for the quarantine bucket
++        quarantine=LocalBlobStore(quarantine) if quarantine is not None else None,
+     )
+ 
+ 
+diff --git a/tests/isolation/matrix/matrix.yaml b/tests/isolation/matrix/matrix.yaml
+index 4a73187..c0eb250 100644
+--- a/tests/isolation/matrix/matrix.yaml
++++ b/tests/isolation/matrix/matrix.yaml
+@@ -900,6 +900,7 @@ routes:
+   POST /tasks/maildrive-sync: {probe: machine, body: {}}
+   POST /tasks/access-expiry: {probe: machine, body: {}}
+   POST /tasks/isolation-check: {probe: machine, body: {}}
++  POST /tasks/documents-abandon: {probe: machine, body: {}}
+   POST /tasks/sweep: {probe: machine, body: {}}
+   POST /tasks/audit-verify: {probe: machine, body: {}}
+   POST /tasks/notify-relay: {probe: machine, body: {}}
+@@ -944,6 +945,8 @@ jobs:
+   orphan_sweep: {via: runs_orphaned, proof: tests/system/test_durable_runs.py}
+   document_sweep: {via: documents_orphaned, proof: tests/documents/test_documents_db.py}
+   part_sweep: {via: document_parts_orphaned, proof: tests/documents/test_parts.py}
++  scan_retry: {via: tenant_txn, proof: tests/documents/test_upload_hardening_db.py}
++  document_abandon: {via: tenant_txn, proof: tests/documents/test_upload_hardening_db.py}
+   stall_sweep: {via: runs_stalled, proof: tests/replica/test_resume_research.py}
+   stuck_scan: {via: tenant_txn, proof: tests/obs/test_obs_db.py}
+   cost_rollup: {via: tenant_txn, proof: tests/obs/test_obs_db.py}
+diff --git a/tests/research_files/test_crc32c.py b/tests/research_files/test_crc32c.py
+new file mode 100644
+index 0000000..184dee7
+--- /dev/null
++++ b/tests/research_files/test_crc32c.py
+@@ -0,0 +1,28 @@
++"""CRC32C in the form Cloud Storage reports it (base64 of the 4 big-endian bytes)."""
++
++from __future__ import annotations
++
++import io
++
++from research_files import crc32c
++from research_files.crc32c import crc32c_of, crc32c_of_bytes, update
++
++
++def test_crc32c_known_vectors_match_the_standard_check_value() -> None:
++    # the CRC-32C check value of "123456789" is 0xE3069283
++    assert update(0, b"123456789") == 0xE3069283
++    assert crc32c_of_bytes(b"123456789") == "4waSgw=="
++    assert crc32c_of_bytes(b"") == "AAAAAA=="
++    # 32 zero bytes (RFC 3720 test vector): 0x8A9136AA
++    assert update(0, bytes(32)) == 0x8A9136AA
++    assert crc32c_of_bytes(bytes(32)) == "ipE2qg=="
++
++
++def test_streaming_in_blocks_equals_one_pass_and_the_compiled_extender() -> None:
++    data = bytes(range(256)) * 9000  # more than two 1 MiB blocks
++    assert crc32c_of(io.BytesIO(data)) == crc32c_of_bytes(data)
++    pieces = 0
++    for i in range(0, len(data), 100_000):
++        pieces = update(pieces, data[i : i + 100_000])
++    assert crc32c.to_base64(pieces) == crc32c_of_bytes(data)
++    assert crc32c.extend(0, data) == update(0, data)

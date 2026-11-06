@@ -14,6 +14,10 @@
   stands out and the simplest way to sharpen it follow the narrative rule above; a lane meaning
   also names the lane of a fact it cites and labels its interpretation ("Our interpretation:");
   how this could be wrong is about the evidence itself and follows the claim checks only;
+* a figure in a claim must be written as in the value or event date of a fact the claim cites
+  (``unregistered_number``, the same B6 rule the Summary applies over the cited rows): a run on
+  staging lost all of "what stands out" and two caveats to figures the model worked out itself
+  (2026-11-04); a claim that breaks a rule the model can mend is re-asked once, with the reasons;
 * a narrative that is still empty after the one re-ask is made of the first-call questions
   (question-form sentences citing the same facts): the Summary always has an honest opening,
   and what may not be stated is asked (PRD: a Probable, Hypothesis or Lead "becomes a question").
@@ -35,7 +39,8 @@ from agents.guards import Role, for_audience, restates_grade
 from agents.ports import AgentModel, RunContext
 from agents.runtime import call_agent
 from agents.schemas import Claim, DistillInput, DistillOutput, LaneClaim, StoredFact
-from exports.config import ContentRules, load_export_config
+from exports.config import ContentRules, default_export_config
+from exports.numbers import unregistered
 from exports.policy import authored_violations
 
 # the longest narrative made from questions when no narrative sentence survived
@@ -50,7 +55,7 @@ def _content_rules() -> ContentRules:
     checked against, so a claim the files would withhold is dropped and re-asked here, while
     the model is still in the loop (staging 2026-10-21: a dash in finished prose failed the
     build after the research was paid for)."""
-    return load_export_config().rules
+    return default_export_config().rules
 
 
 def prose_problem(text: str) -> str | None:
@@ -67,6 +72,18 @@ class DistillResult:
 
     output: DistillOutput
     drops: Counter[str] = field(default_factory=Counter)
+
+
+def _kept(out: DistillOutput) -> int:
+    """How many claims an output holds across its parts."""
+    return sum(len(getattr(out, name)) for name in type(out).model_fields)
+
+
+def unregistered_figure(claim: Claim, cited: Collection[str]) -> bool:
+    """True when the claim carries a figure that none of its cited facts' texts (value, event
+    date) carries (B6 over the cited rows; the Summary applies the same rule over the rendered
+    rows, so a claim that passes here is printed, one that fails here would be withheld there)."""
+    return bool(unregistered(claim.text, frozenset(), cited))
 
 
 def states_unstatable(claim: Claim, statable: Collection[str]) -> bool:
@@ -107,6 +124,11 @@ async def distill(
         return DistillResult(DistillOutput(), drops)
     known = {f.fact_id for f in visible}
     lane_of = {f.fact_id: f.lane for f in visible}
+    figure_texts = {f.fact_id: tuple(t for t in (f.value, f.event_date) if t) for f in visible}
+
+    def cited_texts(claim: Claim) -> list[str]:
+        """The figures (values and dates) of the facts the claim cites."""
+        return [t for fid in claim.fact_ids for t in figure_texts.get(fid, ())]
 
     def keep(
         claims: tuple[Claim, ...], counts: Counter[str], *, narrative: bool = False
@@ -123,6 +145,8 @@ async def distill(
                 counts["unconfirmed_stated"] += 1
             elif (problem := prose_problem(claim.text)) is not None:
                 counts[problem] += 1
+            elif unregistered_figure(claim, cited_texts(claim)):
+                counts["unregistered_number"] += 1
             else:
                 kept.append(claim)
         return tuple(kept)
@@ -143,16 +167,20 @@ async def distill(
                 kept.append(claim)
         return tuple(kept)
 
-    # LOOP(distill re-ask): cap=2 attempts; exit=a narrative survived, or the second attempt
-    # (a narrative the model wrote and the guards dropped whole is asked for once more, with the
-    # reasons; the Summary needs a narrative and used to fail its build without one)
-    result = DistillResult(DistillOutput(), drops)
+    # LOOP(distill re-ask): cap=2 attempts; exit=a narrative survived with every figure in
+    # place, or the second attempt (a narrative the guards dropped whole, or a claim cut for a
+    # figure the cited facts do not carry, is asked for once more with the reasons; the attempt
+    # that keeps a narrative and the most claims is the result, so a re-ask never leaves the
+    # Summary with less than the first answer gave; every attempt's drops are counted)
+    attempts: list[DistillOutput] = []
     for attempt in range(2):
         try:
             out = await call_agent(contract, model, meter, ctx, inp, client_bound=True)
         except OutputRejected as rejected:
             drops[f"output_{rejected.code}"] += 1
-            return DistillResult(DistillOutput(), drops)
+            if not attempts:
+                return DistillResult(DistillOutput(), drops)
+            break
         assert isinstance(out, DistillOutput)
         counts: Counter[str] = Counter()
         kept = DistillOutput(
@@ -165,22 +193,27 @@ async def distill(
             sharpen=keep(out.sharpen, counts, narrative=True),
         )
         drops.update(counts)
-        result = DistillResult(kept, drops)
-        if kept.narrative or not out.narrative or attempt:
+        attempts.append(kept)
+        whole = not kept.narrative and bool(out.narrative)
+        if attempt or not (whole or counts["unregistered_number"]):
             break
-        reasons = ", ".join(sorted(f"{k} ({v})" for k, v in counts.items()))
+        reasons = ", ".join(sorted(f"{k} ({v})" for k, v in counts.items()))[:200]
         inp = inp.model_copy(
             update={
                 "notes": (
-                    "Your previous narrative was rejected: " + reasons + ". Write each claim"
-                    " without naming a grade or confidence level, cite only the fact_ids given,"
-                    " and state only facts in statable_fact_ids; write every other sentence as"
-                    " a question ending with a question mark. Use no em dash, en dash or"
-                    " spaced hyphen as punctuation."
+                    f"Your previous answer was rejected in part, {sum(counts.values())} claims"
+                    f" lost: {reasons}."
+                    " Cite only the fact_ids given; state only facts in statable_fact_ids and"
+                    " write every other sentence as a question ending with a question mark;"
+                    " write a figure only exactly as it stands in the value or event_date of a"
+                    " fact you cite, else leave the figure out; name no grade or confidence"
+                    " level; use no em dash, en dash or spaced hyphen as punctuation."
                 )[:600]
             }
         )
-        drops["narrative_reasked"] += 1
+        drops["narrative_reasked" if whole else "claims_reasked"] += 1
+    chosen = max(attempts, key=lambda a: (bool(a.narrative), _kept(a)))
+    result = DistillResult(chosen, drops)
     if not result.output.narrative and result.output.questions:
         # the honest opening: what may not be stated is asked (PRD "becomes a question")
         result.output = result.output.model_copy(

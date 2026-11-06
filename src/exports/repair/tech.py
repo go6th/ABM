@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter, defaultdict
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import date
 
@@ -41,7 +42,7 @@ from exports.repair.core import (
 from exports.repair.entity import account_registrables
 from exports.repair.jobs import ResolvedPosting, get_platforms, out_of_scope_names
 from exports.repair.keys import fold, host_of, registrable
-from exports.repair.records import TechRecord
+from exports.repair.records import TeamRecord, TechRecord
 from parity.rules import rank_letter
 
 FORMULA_PREFIX = "__formula__:"
@@ -158,6 +159,8 @@ class _Tech:
     names: Counter[str] = field(default_factory=Counter)
     posting_ids: set[str] = field(default_factory=set)
     detections: int = 0
+    stack_postings: int = 0  # postings naming it, as an uploaded Confirmed stack sheet counted
+    labels: list[str] = field(default_factory=list)  # uploaded rows' source labels
     firsts: list[date] = field(default_factory=list)
     lasts: list[date] = field(default_factory=list)
     post_urls: list[tuple[date, str]] = field(default_factory=list)
@@ -235,6 +238,33 @@ def _add_detections(
             )
             continue
         url = (rec.source_url or "").strip()
+        if rec.origin == "stack":
+            # the Confirmed stack an uploaded workspace carried: the row's own function,
+            # category and postings count; no page to point at (2026-11-05)
+            key, display = tech_key(tech)
+            t = stack.setdefault(key, _Tech())
+            t.names[display] += max(rec.postings_count, 1)
+            t.stack_postings = max(t.stack_postings, rec.postings_count)
+            if rec.category.strip():
+                t.categories.append(rec.category.strip())
+            if rec.business_function.strip():
+                t.functions.append(rec.business_function.strip())
+            if rec.source_label:
+                t.labels.append(rec.source_label)
+            continue
+        if not url and rec.origin == "import":
+            key, display = tech_key(tech)
+            t = stack.setdefault(key, _Tech())
+            weight = max(rec.detections, 1)
+            t.names[display] += weight
+            t.detections += weight
+            t.labels.append(rec.source_label or "Uploaded workbook")
+            first, last = _day(rec.first_seen), _day(rec.last_seen)
+            if first:
+                t.firsts.append(first)
+            if last:
+                t.lasts.append(last)
+            continue
         if not url:
             exclusions.append(Exclusion("tech", tech, "no source URL"))
             continue
@@ -273,15 +303,20 @@ def _display(names: Counter[str], key: str) -> str:
 def _stack_rows(stack: dict[str, _Tech]) -> list[dict[str, str]]:
     rows: list[tuple[int, str, dict[str, str]]] = []
     for key, t in stack.items():
-        postings = len(t.posting_ids)
+        postings = max(len(t.posting_ids), t.stack_postings)
         both = postings > 0 and t.detections > 0
-        if t.detections:
+        if t.det_urls:
             url = sorted(t.det_urls, key=lambda x: (-x[0].toordinal(), x[1]))[0][1]
             source_type = "Website detection"
             domain = sorted(t.domains)[0]
-        else:
+        elif t.post_urls:
             url = sorted(t.post_urls, key=lambda x: (-x[0].toordinal(), x[1]))[0][1]
             source_type = "Job postings"
+            domain = NOT_APPLICABLE
+        else:
+            # an uploaded workbook's row: the workbook is the source, not a page
+            url = NOT_APPLICABLE
+            source_type = sorted(t.labels)[0] if t.labels else "Uploaded workbook"
             domain = NOT_APPLICABLE
         name = _display(t.names, key)
         rows.append(
@@ -344,6 +379,24 @@ def _ranking_sheet(
     return sheet
 
 
+def _teams_from_records(records: Sequence[TeamRecord]) -> Sheet:
+    """The Platform teams sheet from an uploaded workspace's teams (the teams feed), the 25
+    with most postings."""
+    sheet = Sheet("Platform teams", TEAM_COLUMNS)
+    ordered = sorted(records, key=lambda t: (-t.postings, fold(t.team)))[:TOP_TEAMS]
+    for t in ordered:
+        sheet.rows.append(
+            {
+                "Team": t.team,
+                "Function": t.function or NOT_FOUND,
+                "Location": t.location or NOT_FOUND,
+                "Postings": str(t.postings),
+                "Platforms": ", ".join(t.platforms) or NOT_FOUND,
+            }
+        )
+    return sheet
+
+
 def _teams_sheet(account: list[ResolvedPosting]) -> tuple[Sheet, int]:
     groups: dict[tuple[str, str], list[ResolvedPosting]] = defaultdict(list)
     skipped = 0
@@ -376,6 +429,7 @@ def build_tech(
     profile: WorkspaceProfile,
     tech_records: list[TechRecord],
     resolved_postings: list[ResolvedPosting],
+    team_records: Sequence[TeamRecord] = (),
 ) -> RepairedTable:
     """The Tech stack and teams table (three sheets; see the module docstring)."""
     exclusions: list[Exclusion] = []
@@ -388,6 +442,8 @@ def build_tech(
     detected = {k for k, t in stack.items() if t.detections}
     ranking = _ranking_sheet(hits, len(base_ids), detected)
     teams, no_team = _teams_sheet(account)
+    if not teams.rows and team_records:
+        teams, no_team = _teams_from_records(team_records), 0
     cross = Counter(r["Cross check"] for r in stack_sheet.rows)
     notes = []
     if not base_ids:

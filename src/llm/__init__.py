@@ -1,3 +1,5 @@
-"""Model routing (D-48): the only entry to a language model. Task kind -> tier -> candidate ladder
-from ``config/model_routing.yaml``; fallback is selection, the node RetryPolicy is the only retry
-owner; every response is schema-validated in code; every call is ledgered and replayable."""
+"""Model routing: one table (``llm.route``: task kind -> tier -> ``config/models.yaml`` task,
+default effort and role), the user's model choice (``llm.choice``), the one price table
+(``llm.cost``), the reply log and cache (``llm.reply_cache``) and schema validation
+(``llm.schema``). Every research call goes through ``workflow.deps.RunDeps.resolve_model`` to the
+live port (``platform.llm.ChoiceLlm``); every response is schema-validated in code."""

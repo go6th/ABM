@@ -44,7 +44,7 @@ import os
 import secrets
 import tempfile
 import zipfile
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -219,12 +219,20 @@ async def build(tenant_id: UUID, job_id: UUID, src: Sources) -> str:
     writer = _Parts(tenant_id, job_id, name, work, src)
     beat = asyncio.create_task(_beat(tenant_id, job_id, src))
     try:
-        profile, notes = await _fill(tenant_id, account_id, user_id, name, writer, work, src)
+        filled = await _fill(tenant_id, account_id, user_id, name, writer, work, src)
         # the README is written from the members that exist and refused when it lists a path
         # that is not in the archive (workspace repair, 2026-10-30)
         from exports.repair.package import clean_text, finish_readme
 
-        readme = clean_text(finish_readme(profile, writer.names, notes))
+        readme = clean_text(
+            finish_readme(
+                filled.profile,
+                writer.names,
+                filled.notes,
+                logs_text=filled.logs_text,
+                tables_text=filled.tables_text,
+            )
+        )
         await writer.add_bytes("README.txt", readme.encode("utf-8"))
         parts = await writer.close()
     except Exception as error:  # noqa: BLE001 - the job records why; nothing half-built stays
@@ -278,6 +286,26 @@ async def _beat(tenant_id: UUID, job_id: UUID, src: Sources) -> None:
             continue
 
 
+PK_LOGS_TEXT = "what the repair changed, and every row it left out."
+PK_TABLES_TEXT = "every table whole, as CSV (all fields quoted) and as Excel."
+IMPORTED_LOGS_TEXT = "the import report: every file of the upload, its rows stored and skipped."
+IMPORTED_TABLES_TEXT = (
+    "the uploaded files' own tables, as written: each workbook as uploaded and each sheet as"
+    " CSV; each Word file's tables as a workbook and as CSV. Nothing was repaired or recomputed."
+)
+
+
+@dataclass
+class _Filled:
+    """What ``_fill`` leaves for the README: the workspace profile, the notes (what was left out
+    or is not done, in words) and what the Tables and Logs folders hold."""
+
+    profile: Any
+    notes: list[str]
+    logs_text: str = PK_LOGS_TEXT
+    tables_text: str = PK_TABLES_TEXT
+
+
 async def _fill(
     tenant_id: UUID,
     account_id: UUID,
@@ -286,9 +314,13 @@ async def _fill(
     writer: _Parts,
     work: Path,
     src: Sources,
-) -> tuple[Any, list[str]]:
+) -> _Filled:
     """Add every deliverable, repaired table and file of the user's. Returns the workspace
     profile and what was left out or is not done, in words (the README prints them).
+
+    An account built from an uploaded workspace (its delivered run is a file-import run,
+    ``sheets.imported_run``) is an exact copy: ``_fill_imported`` ships the uploaded files and
+    their own tables, and the repair stage does not run (owner 2026-11-05).
 
     The tables are not the screens' live queries: they are the repair stage's tables
     (``exports.repair``), built for this workspace from its raw pulls, de-duplicated, entity
@@ -311,13 +343,18 @@ async def _fill(
     now = datetime.now(UTC)
     async with src.txn(tenant_id) as s:
         deliverables = await W.deliverables(s, account_id)
-        keys = {
-            str(r.id): str(r.object_key)
-            for r in await s.execute(
-                text("SELECT id, object_key FROM deliverables WHERE id = ANY(:i)"),
+        stored = (
+            await s.execute(
+                text(
+                    "SELECT id, object_key, manifest_json->>'original_name' AS original"
+                    " FROM deliverables WHERE id = ANY(:i)"
+                ),
                 {"i": [UUID(d["id"]) for d in deliverables]},
             )
-        }
+        ).all()
+        keys = {str(r.id): str(r.object_key) for r in stored}
+        # an uploaded file registered under a safe name ships under the name it was uploaded with
+        originals = {str(r.id): str(r.original) for r in stored if r.original}
         internal = (
             await s.execute(
                 text(
@@ -338,6 +375,15 @@ async def _fill(
             )
         ).all()
         profile = await load_profile(s, account_id, user_id, now, load_skill_config().scope)
+        run = await SH.delivered_run(s, account_id)
+        imported = run is not None and await SH.imported_run(s, run)
+        report_rows = await _import_rows(s, account_id) if imported else []
+    if imported:
+        return await _fill_imported(
+            tenant_id, account_id, profile, deliverables, keys, internal, documents, report_rows,
+            writer, src, originals,
+        )  # fmt: skip
+    async with src.txn(tenant_id) as s:
         inp = await RD.load_input(
             s,
             profile,
@@ -352,6 +398,13 @@ async def _fill(
             body = await src.payloads.get(key)
             inp.deliverables[d["filename"]] = body
             await writer.add_bytes(f"Deliverables/{d['filename']}", body)
+    if not inp.deliverables:
+        # an account built from an uploaded workspace has no files of its own: the workspace's
+        # deliverables are the account's current files (the UCB bundle shipped an empty
+        # Deliverables folder and checked no citation, 2026-11-05)
+        for name, body in _workspace_deliverables(src, documents).items():
+            inp.deliverables[name] = body
+            await writer.add_bytes(f"Deliverables/{name}", body)
     folder = "Internal - your files"
     for n, row in enumerate(internal, start=1):
         stamp = row.created_at.strftime("%Y-%m-%d")
@@ -387,7 +440,174 @@ async def _fill(
             continue
         with reader:
             await writer.add_stream(f"{folder}/{row.name}", reader)
-    return profile, notes
+    return _Filled(profile, notes)
+
+
+INTERNAL_FOLDER = "Internal - your files"
+
+
+async def _import_rows(s: AsyncSession, account_id: UUID) -> list[Any]:
+    """The import status of every upload of the account, part by part (``documents.import_status``)
+    with each read member's row counts, for ``Logs/import_report.md``."""
+    return list(
+        (
+            await s.execute(
+                text(
+                    "SELECT d.name, d.created_at, i.status AS run_status, i.error_message,"
+                    " p.part, p.status AS part_status, p.rows_written, p.rows_skipped,"
+                    " p.skip_reasons FROM documents d"
+                    " JOIN import_runs i ON i.document_id = d.id"
+                    " LEFT JOIN import_run_parts p ON p.import_run_id = i.id"
+                    " WHERE d.account_id = :a ORDER BY d.created_at, d.id, p.part"
+                ),
+                {"a": account_id},
+            )
+        ).all()
+    )
+
+
+def import_report(
+    account_name: str,
+    rows: Sequence[Any],
+    table_lines: Sequence[str],
+    column_lines: Sequence[str] = (),
+) -> str:
+    """``Logs/import_report.md`` of an imported account: what the upload holds and what the
+    import stored, skipped or failed, in words; nothing about a repair, because none ran.
+    ``column_lines`` say what was read from each sheet and which columns were kept as written
+    only (``documents.exact_copy.column_lines``)."""
+    lines = [
+        f"# Import report: {account_name}",
+        "",
+        "The account was built from an uploaded workspace. Its files are the account's files,",
+        "byte for byte, and the tables in Tables/ are those files' own sheets and tables, cell",
+        "for cell. No repair stage ran: nothing was de-duplicated, re-tagged, re-graded or",
+        "generated.",
+        "",
+        "## Tables",
+        "",
+        *[f"- {line}" for line in table_lines],
+        "",
+        "## Sheets and columns",
+        "",
+        "Every sheet and column is kept as written in the file and in Tables/. A column the",
+        "import has no place for is still there; it is only not part of the searchable rows.",
+        "",
+        *([f"- {line}" for line in column_lines] or ["- (no workbook sheets)"]),
+        "",
+        "## Uploads and their import",
+        "",
+        "| Upload | Uploaded | Part | Status | Rows stored | Rows skipped | Why skipped |",
+        "| --- | --- | --- | --- | --- | --- | --- |",
+    ]
+    if not rows:
+        lines.append("| (no import recorded) | | | | | | |")
+    for r in rows:
+        reasons = "; ".join(str(x) for x in (r.skip_reasons or [])) or ""
+        if r.error_message:
+            reasons = f"{reasons}; {r.error_message}".strip("; ")
+        lines.append(
+            f"| {r.name} | {r.created_at.date().isoformat()} | {r.part or '(whole)'} |"
+            f" {r.part_status or r.run_status} | {r.rows_written or 0} | {r.rows_skipped or 0} |"
+            f" {reasons} |"
+        )
+    lines.append("")
+    return "\n".join(lines)
+
+
+async def _fill_imported(
+    tenant_id: UUID,
+    account_id: UUID,
+    profile: Any,
+    deliverables: Sequence[Mapping[str, Any]],
+    keys: Mapping[str, str],
+    internal: Sequence[Any],
+    documents: Sequence[Any],
+    report_rows: Sequence[Any],
+    writer: _Parts,
+    src: Sources,
+    originals: Mapping[str, str] | None = None,
+) -> _Filled:
+    """The archive of an imported account (exact copy, owner 2026-11-05): ``Deliverables/`` are
+    the uploaded files as registered by the import (else read from the upload itself),
+    ``Tables/`` are those files' own sheets and tables (``documents.exact_copy.table_members``),
+    ``Internal - your files/`` the uploads and file findings, ``Logs/import_report.md`` the
+    import's own account of what it stored. The repair stage, its checks and its exclusions log
+    have no part here: nothing is changed, so nothing is left out."""
+    from documents import exact_copy as EC
+    from exports.repair.package import clean_text
+
+    files: dict[str, bytes] = {}
+    for d in deliverables:
+        key = keys.get(d["id"])
+        if key:
+            body = await src.payloads.get(key)
+            name = (originals or {}).get(d["id"]) or d["filename"]
+            if "/" in name or "\\" in name or name in (".", ".."):
+                name = d["filename"]
+            files[name] = body
+            await writer.add_bytes(f"Deliverables/{name}", body)
+    if not files:
+        # an import made before the files were registered: the upload's own deliverables
+        for fname, body in _workspace_deliverables(src, documents).items():
+            files[fname] = body
+            await writer.add_bytes(f"Deliverables/{fname}", body)
+    members, table_lines = await asyncio.to_thread(EC.table_members, files)
+    column_lines = await asyncio.to_thread(EC.column_lines, files)
+    for arcname in sorted(members):
+        await writer.add_bytes(arcname, members[arcname])
+    notes = [
+        "Tables are the uploaded files' own sheets and tables, as written; no repair stage ran."
+    ]
+    for r in report_rows:
+        if r.part_status == "failed" or r.run_status == "failed":
+            notes.append(
+                f"Import of {r.name}, part {r.part or 'whole'}: failed ({r.error_message})."
+            )
+        elif r.rows_skipped:
+            notes.append(
+                f"Import of {r.name}, part {r.part}: {r.rows_skipped} row(s) not stored"
+                f" ({'; '.join(str(x) for x in (r.skip_reasons or []))})."
+            )
+    for n, row in enumerate(internal, start=1):
+        stamp = row.created_at.strftime("%Y-%m-%d")
+        await writer.add_bytes(
+            f"{INTERNAL_FOLDER}/File findings {stamp} ({n}).docx",
+            await src.payloads.get(row.object_key),
+        )
+    report = import_report(profile.account_name, report_rows, table_lines, column_lines)
+    await writer.add_bytes("Logs/import_report.md", clean_text(report).encode("utf-8"))
+    for row in documents:
+        try:
+            reader = src.blobs.open(row.object_key)
+        except Exception:  # noqa: BLE001 - a file removed meanwhile is named, not fatal
+            notes.append(f"{INTERNAL_FOLDER}/{row.name} was no longer in storage.")
+            continue
+        with reader:
+            await writer.add_stream(f"{INTERNAL_FOLDER}/{row.name}", reader)
+    return _Filled(profile, notes, IMPORTED_LOGS_TEXT, IMPORTED_TABLES_TEXT)
+
+
+def _workspace_deliverables(src: Sources, documents: Any) -> dict[str, bytes]:
+    """The deliverable members of the uploaded workspace packages (``documents.workspace``
+    roles), by file name; the newest upload wins a name. A document that is not a zip or no
+    longer in storage contributes nothing."""
+    from documents.workspace import DELIVERABLE_ROLES, member_roles
+
+    out: dict[str, bytes] = {}
+    for row in documents:
+        try:
+            with src.blobs.open(str(row.object_key)) as reader, zipfile.ZipFile(reader) as z:
+                roles = member_roles(z.namelist())
+                for member, role in roles.items():
+                    if role not in DELIVERABLE_ROLES:
+                        continue
+                    name = member.rsplit("/", 1)[-1]
+                    if name:
+                        out[name] = z.read(member)
+        except Exception:  # noqa: BLE001 - not a zip, or gone: no deliverable from this upload
+            continue
+    return out
 
 
 async def _yielding(source: AsyncIterator[dict[str, Any]]) -> AsyncIterator[dict[str, Any]]:

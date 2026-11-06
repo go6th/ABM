@@ -27,9 +27,9 @@ owned:
   notifications: {column: user_id}
   abm_distill_outputs: run
   abm_sense_checks: run
-  alerts: account
-  alert_feedback: {column: user_id}
-  alert_outbox: {parent: alerts.alert_id}
+  alerts: account  # NOT WIRED: only the monitoring product writes it (ADR-0134)
+  alert_feedback: {column: user_id}  # NOT WIRED: only the monitoring product writes it (ADR-0134)
+  alert_outbox: {parent: alerts.alert_id}  # NOT WIRED: only the monitoring product writes it (ADR-0134)
   chat_threads: {column: owner_user_id}
   chat_turns: {parent: chat_threads.thread_id}
   chunks: account
@@ -46,9 +46,9 @@ owned:
   crm_writes: account
   crm_write_events: {parent: crm_writes.write_id}
   deliverables: account
-  deltas: account
-  delta_items: {parent: deltas.delta_id}
-  digest_runs: {column: user_id}
+  deltas: account  # NOT WIRED: only the monitoring product writes it (ADR-0134)
+  delta_items: {parent: deltas.delta_id}  # NOT WIRED: only the monitoring product writes it (ADR-0134)
+  digest_runs: {column: user_id}  # NOT WIRED: only the monitoring product writes it (ADR-0134)
   documents: {column: uploaded_by}
   document_deletions: {parent: documents.document_id}
   document_passages: {parent: documents.document_id}
@@ -59,7 +59,7 @@ owned:
   fact_evidence: {parent: facts.fact_id}
   fact_reevaluations: account
   grade_events: {parent: facts.fact_id}
-  intake_drops: account
+  intake_drops: account  # NOT WIRED: only the monitoring product writes it (ADR-0134)
   internal_deliverables: account
   job_pipeline_runs: account
   job_pipeline_passes: run
@@ -71,9 +71,9 @@ owned:
   lead_verification_queries: {parent: lead_verifications.lead_verification_id}
   leak_checks: account
   link_checks: run
-  missing_observations: account
-  monitor_configs: account
-  monitor_runs: account
+  missing_observations: account  # NOT WIRED: only the monitoring product writes it (ADR-0134)
+  monitor_configs: account  # NOT WIRED: only the monitoring product writes it (ADR-0134)
+  monitor_runs: account  # NOT WIRED: only the monitoring product writes it (ADR-0134)
   notification_outbox: run
   notification_deliveries: {parent: notification_outbox.outbox_id}
   people: account
@@ -88,9 +88,9 @@ owned:
   prepulled_intent_events: {parent: prepulled_intents.intent_id}
   prepulled_files: run
   pull_manifests: run
-  refresh_runs: account
-  refresh_row_plans: {parent: refresh_runs.refresh_run_id}
-  refresh_slots: account
+  refresh_runs: account  # NOT WIRED: only the monitoring product writes it (ADR-0134)
+  refresh_row_plans: {parent: refresh_runs.refresh_run_id}  # NOT WIRED: only the monitoring product writes it (ADR-0134)
+  refresh_slots: account  # NOT WIRED: only the monitoring product writes it (ADR-0134)
   report_sections: account
   research_files: {column: uploaded_by}
   research_file_chunks: {parent: research_files.file_id}
@@ -108,12 +108,12 @@ owned:
   run_feedback: {column: user_id}
   run_gate_results: account
   saved_views: {column: owner}
-  signal_events: account
-  signal_event_evidence: {parent: signal_events.event_id}
-  signal_event_links: {parent: signal_events.event_a}
-  signal_history: account
+  signal_events: account  # NOT WIRED: only the monitoring product writes it (ADR-0134)
+  signal_event_evidence: {parent: signal_events.event_id}  # NOT WIRED: only the monitoring product writes it (ADR-0134)
+  signal_event_links: {parent: signal_events.event_a}  # NOT WIRED: only the monitoring product writes it (ADR-0134)
+  signal_history: account  # NOT WIRED: only the monitoring product writes it (ADR-0134)
   sources: account
-  subscriptions: {column: user_id}
+  subscriptions: {column: user_id}  # NOT WIRED: only the monitoring product writes it (ADR-0134)
   tech_detections: account
   usefulness_events: {column: user_id}
   verifier_findings: run
@@ -137,6 +137,15 @@ created_owned:
   link_archive: archived copies of the addresses a research stored, owned like the account (0086)
   tech_stack_items: the organisation tech stack of a run (function, category, technology, postings), owned like the account (0090)
   account_bundles: rendered versions of an account's output parity bundle, owned like the account (0088)
+  document_members: the files inside an uploaded zip, owned by the document's owner (0102)
+  import_runs: one import per uploaded document (status, attempts), owned by the document's owner (0106)
+  import_run_parts: the parts of an import (jobs, people, tech, docx, raw) with status and skip counts, owned by the document's owner (0106)
+  platform_teams: the platform teams of a run (team, postings, activity, technologies, locations), owned like the account (0103)
+  news_events: the news feed events of a run (category, headline, dates, source), owned like the account (0105)
+  person_comments: a person's recent comments, owned like the account (0105)
+  org_connections: the partner, vendor and integration connections a feed reports, owned like the account (0105)
+  research_notes: the notes a research or an uploaded workspace carries, owned like the account (0105)
+  pull_log_calls: the pull log's call table of a research, owned like the account (0105)
 
 tenant:
   # identity, access and the client's own settings
@@ -160,7 +169,7 @@ tenant:
   document_policies: client redaction policy
   people_data_consents: the client's consent records for people data
   shelf_life_overrides: client-level freshness settings
-  alert_suppressions: client-level alert rules
+  alert_suppressions: client-level alert rules  # NOT WIRED: only the monitoring product writes it (ADR-0134)
   library_publications: which 6th Library accounts are published to the client
   question_categories: question category counts (no question text), read by the 6th admin
   # money, metering and the paid-call ledger: the client's pool and the platform's cost truth,
@@ -187,8 +196,8 @@ tenant:
   tool_calls: the paid-call ledger (idempotency across runs; never pay twice)
   tool_call_records: raw call records of the ledger
   tool_call_events: ledger events
-  llm_calls: model call records
-  llm_call_attempts: model call attempts
+  llm_calls: model call records  # ORPHANED: no writer since the one model router (ADR-0113); still read
+  llm_call_attempts: model call attempts  # ORPHANED: no writer since the one model router (ADR-0113); still read
   model_reply_log: the research cache's reply log (private task kinds are never reused across users)
   provider_leases: provider concurrency leases shared by the client's runs
   provider_waiters: provider concurrency queue
@@ -203,8 +212,8 @@ tenant:
   eval_case_results: evaluation results
   eval_metrics: evaluation metrics
   eval_baselines: evaluation baselines
-  tombstones: deletion tombstones
-  webhook_receipts: inbound webhook replay protection
+  tombstones: deletion tombstones  # ORPHANED: its writer privacy.tombstones was parked (ADR-0136)
+  webhook_receipts: inbound webhook replay protection  # NOT WIRED: only the monitoring product writes it (ADR-0134)
   crm_connection_events: the client's CRM connection history (CRM is being removed)
 
 # Keys that were unique per client and become unique per user, so two users of one client never
@@ -213,3 +222,11 @@ unique_per_owner:
   - {table: account_runs, constraint: account_runs_tenant_id_idempotency_key_key, columns: [idempotency_key]}
   - {table: research_files, constraint: uq_research_files_tenant_sha256, columns: [sha256]}
   - {table: research_jobs, index: uq_research_jobs_request, columns: [request_id], where: "request_id IS NOT NULL"}
+
+# Orphaned platform tables (not tenant tables, so not in the lists above; migrations are
+# append-only, so they are not dropped). Nothing in src/ writes them:
+#   llm_candidate_health   no writer since the one model router (ADR-0113)
+#   dsar_requests, dsar_events, suppression_entries   writers in privacy/ parked (ADR-0136)
+#   analyst_label_tasks, analyst_labels, release_checks   writers in quality/ parked (ADR-0136)
+#   contract_fingerprints, contract_operation_status, contract_drift_events   writers in
+#     contracts/ parked (ADR-0136)

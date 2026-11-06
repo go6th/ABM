@@ -8,7 +8,8 @@ approval and network policy.
 
 ## Local development
 
-1. Install Python 3.11+, `uv`, Node 22+, npm and Docker Compose v2.
+1. Install Python 3.12 (the images and `.python-version` run 3.12; `pyproject.toml` still allows
+   3.11 but mypy needs 3.12), `uv`, Node 22+, npm and Docker Compose v2.
 2. Copy `.env.example` to `.env`; the variable inventory is [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md). Never commit secrets.
 3. `make up` starts the stack and runs the migrations (`compose.yml`, service `migrate`).
 4. After an API change run `make contract` (OpenAPI snapshot, generated web client, route catalog, wiring inventory).

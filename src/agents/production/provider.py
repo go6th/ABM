@@ -389,7 +389,8 @@ class ConnectorProvider:
         from account_intelligence.dev_limits import research_uncapped
 
         # caps off: a long page (a filing, a transcript) is kept whole up to the extraction
-        # call's own size; the extractor splits what it reads, nothing is cut away unread
+        # call's own size; the extractor splits what it reads, nothing is cut away unread. It is
+        # tokens, so it stays with the spend caps, not with breadth (review 2026-11-05)
         kept = UNCAPPED_READ_CHARS if research_uncapped() else MAX_READ_CHARS
         return ProviderResult(
             items=items_of(others) + items_of(reads, kept),
@@ -571,9 +572,9 @@ class ConnectorProvider:
 
     @staticmethod
     def _own_limit() -> int:
-        from account_intelligence.dev_limits import UNCAPPED, research_uncapped
+        from account_intelligence.dev_limits import UNCAPPED, breadth_follows_source
 
-        return UNCAPPED if research_uncapped() else OWN_PAGE_READS_PER_SEARCH
+        return UNCAPPED if breadth_follows_source() else OWN_PAGE_READS_PER_SEARCH
 
     def _own_page_urls(
         self, search: ConnectorResult, ctx: RunContext, skip: set[str] | None = None
@@ -640,10 +641,10 @@ class ConnectorProvider:
         page this search returned is opened: its host is allowed for that one read, and the
         connector's SSRF checks (public addresses, https, the final URL after redirects) still
         apply. A page that cannot be read keeps its snippet."""
-        from account_intelligence.dev_limits import UNCAPPED, research_uncapped
+        from account_intelligence.dev_limits import UNCAPPED, breadth_follows_source
 
         if limit is None:
-            limit = UNCAPPED if research_uncapped() else OFF_SITE_READS_PER_SEARCH
+            limit = UNCAPPED if breadth_follows_source() else OFF_SITE_READS_PER_SEARCH
 
         async def read(url: str) -> ConnectorResult | None:
             host = (urlsplit(url).hostname or "").lower().rstrip(".")

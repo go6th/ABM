@@ -1,7 +1,9 @@
 import { timingSafeEqual } from "node:crypto";
+import { serverlessAuth } from "@/lib/serverless-auth";
 import { NextRequest, NextResponse } from "next/server";
 import { OperatorSession } from "@/lib/gen/api.gen";
 import { googleOperatorOidcConfig, operatorApiOrigin, operatorOAuthCookieNames, safeOperatorReturnPath } from "@/lib/operator-oidc";
+import { mintOperatorSession } from "@/lib/operator-session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -41,25 +43,13 @@ function tokenNonce(token: string): string | null {
   }
 }
 
-function tokenExpiry(token: string): Date | undefined {
-  try {
-    const payload = token.split(".")[1];
-    if (!payload) return undefined;
-    const claims: unknown = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
-    if (typeof claims !== "object" || claims === null || !("exp" in claims) || typeof claims.exp !== "number") return undefined;
-    return new Date(claims.exp * 1000);
-  } catch {
-    return undefined;
-  }
-}
-
 async function verifyStaffToken(token: string): Promise<{ staff_id: string; role: string; mfa_fresh: boolean } | null> {
   try {
     const apiOrigin = operatorApiOrigin();
     if (!apiOrigin) return null;
     const result = await fetch(new URL("/operator/v1/session", apiOrigin), {
       method: "GET",
-      headers: { Accept: "application/json", Authorization: "Bearer " + token },
+      headers: { ...(await serverlessAuth(apiOrigin)), Accept: "application/json", Authorization: "Bearer " + token },
       cache: "no-store",
       redirect: "manual",
     });
@@ -143,15 +133,22 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return response;
   }
 
+  // the cookie never holds the Google ID token: it is traded once, here, for an opaque console
+  // session (lib/operator-session.ts, ADR-0111)
+  const minted = await mintOperatorSession(idToken);
+  if (!minted) {
+    const response = errorRedirect(config.redirectUri, "session_refused");
+    clearOAuthCookies(response, names, config.secureCookies);
+    return response;
+  }
   const destination = new URL(returnTo, config.redirectUri);
   const response = NextResponse.redirect(destination, 303);
-  const expires = tokenExpiry(idToken);
-  response.cookies.set(names.session, idToken, {
+  response.cookies.set(names.session, minted.token, {
     httpOnly: true,
     secure: config.secureCookies,
     sameSite: "strict",
     path: "/",
-    ...(expires ? { expires } : {}),
+    expires: minted.expiresAt,
   });
   clearOAuthCookies(response, names, config.secureCookies);
   response.headers.set("Cache-Control", "no-store");

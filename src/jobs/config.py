@@ -19,7 +19,7 @@ from typing import Any
 import yaml
 
 from account_intelligence.config import CONFIG_DIR
-from account_intelligence.dev_limits import UNCAPPED, research_uncapped
+from account_intelligence.dev_limits import UNCAPPED, breadth_follows_source
 from jobs.errors import ConfigError
 from jobs.heuristic import HeuristicRules
 
@@ -192,8 +192,10 @@ def _heuristic(rubric: dict[str, Any]) -> HeuristicRules:
 
 
 @lru_cache(maxsize=4)
-def load_jobs_config(directory: Path | None = None) -> JobsConfig:
-    """Load all three files; ``ConfigError`` on anything missing or unsourced."""
+def load_jobs_config(directory: Path | None = None, *, configured: bool = False) -> JobsConfig:
+    """Load all three files; ``ConfigError`` on anything missing or unsourced. ``configured``
+    keeps the configured caps (a golden oracle, a generated document), not this process's lifted
+    breadth."""
     base = directory or CONFIG_DIR
     lanes, h1 = load_yaml(base / "job_lanes.yaml")
     rubric, h2 = load_yaml(base / "posting_rubric.yaml")
@@ -208,8 +210,8 @@ def load_jobs_config(directory: Path | None = None) -> JobsConfig:
         for name, cap in jobs["caps"].items():
             _need_provenance(cap, f"cap {name}")
             caps[name] = int(cap["value"])
-        uncapped = research_uncapped()
-        if uncapped:  # caps off: read and extract every posting (dev_limits)
+        uncapped = not configured and breadth_follows_source()
+        if uncapped:  # read and extract every posting, however many (dev_limits)
             caps.update({k: UNCAPPED for k in ("max_page_reads", "max_extractor_calls")})
         template = jobs["templates"]["count_sentence"]
         _need_provenance(template, "count_sentence template")

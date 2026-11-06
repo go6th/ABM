@@ -18,11 +18,13 @@ import re
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
+from decimal import ROUND_CEILING, Decimal
 from typing import Any
 from uuid import UUID
 
 from sqlalchemy import text
 
+from account_intelligence.db.session import session_tenant
 from account_intelligence.replica.answers import LANE_LABEL, day_month
 from account_intelligence.replica.current import (
     NEWEST_DETECTION,
@@ -31,6 +33,7 @@ from account_intelligence.replica.current import (
     NEWEST_POSTING,
 )
 from account_intelligence.replica.settings import CADENCE_LABEL
+from people.config import internal_people_sql
 
 DELIVERABLE_LABEL = {
     "summary": "Account summary",
@@ -216,10 +219,14 @@ async def workspace(session: Any, account_id: UUID, user_id: str, now: datetime)
     section = (
         await session.execute(
             text(
-                "SELECT text, cited_source_codes FROM report_sections WHERE account_id = :a AND"
+                # the research's own narrative, or the one read or written from the client's
+                # uploaded files (a file-import or file-mode run): private, shown only here
+                "SELECT text, cited_source_codes FROM report_sections r WHERE account_id = :a AND"
                 " kind = 'narrative'"
-                " AND visibility = 'public' ORDER BY version DESC, created_at DESC, position LIMIT"
-                " 1"
+                " AND (visibility = 'public' OR EXISTS (SELECT 1 FROM account_runs x"
+                "   WHERE x.id = r.run_id AND (x.finished_reason = 'file_import'"
+                "   OR x.run_input->>'input_mode' = 'file')))"
+                " ORDER BY created_at DESC, version DESC, position LIMIT 1"
             ),
             {"a": account_id},
         )
@@ -272,8 +279,11 @@ async def workspace(session: Any, account_id: UUID, user_id: str, now: datetime)
         " FROM facts f LEFT JOIN LATERAL (SELECT url, evidence_date, source_ref FROM fact_evidence"
         " x"
         "   WHERE x.fact_id = f.id ORDER BY evidence_date DESC NULLS LAST LIMIT 1) e ON true"
+        # a finding read from the client's own uploaded file is theirs to see on their own account
+        # page (never in a shareable file): the same rule as the deep-dive counts
         " WHERE f.account_id = :a AND f.status = 'current' AND f.superseded_at IS NULL AND"
-        " f.visibility = 'public'" + NEWEST_FACT
+        " (f.visibility = 'public' OR f.flags @> CAST('[\"from_uploaded_file\"]' AS jsonb))"
+        + NEWEST_FACT
     )
     facts = (await session.execute(text(facts_sql), {"a": account_id})).all()
     keyed = [f for f in facts if "key_finding" in (f.flags or [])]
@@ -340,49 +350,91 @@ async def workspace(session: Any, account_id: UUID, user_id: str, now: datetime)
         await session.execute(
             text(
                 "SELECT"
-                " (SELECT count(*) FROM signal_events WHERE account_id = :a) AS signals,"
-                " ((SELECT count(*) FROM people p WHERE p.account_id = :a AND NOT p.excluded AND"
+                " ((SELECT count(*) FROM signal_events WHERE tenant_id = :t AND account_id = :a)"
+                f"  + (SELECT count(*) FROM facts f WHERE {FACT_CLASS['signals']})) AS signals,"
+                " ((SELECT count(*) FROM people p WHERE p.tenant_id = :t AND p.account_id = :a AND"
+                " NOT p.excluded AND"
                 " p.merged_into IS NULL"
-                "   AND p.erased_at IS NULL AND NOT coalesce(p.internal_only, false)"
+                f"   AND p.erased_at IS NULL AND {internal_people_sql()}"
                 f"   {NEWEST_PERSON})"
                 f"  + (SELECT count(*) FROM facts f WHERE {FACT_CLASS['people']})) AS people,"
-                " ((SELECT count(*) FROM job_postings j WHERE j.account_id = :a AND j.status <>"
-                f" 'closed' {NEWEST_POSTING})"
+                # every posting, open and closed (owner decision 2026-11-06: the counter read 0
+                # while the research held 144 postings, most of them closed)
+                " ((SELECT count(*) FROM job_postings j WHERE j.tenant_id = :t AND j.account_id ="
+                f" :a {NEWEST_POSTING})"
                 f"  + (SELECT count(*) FROM facts f WHERE {FACT_CLASS['jobs']})) AS jobs,"
-                " ((SELECT count(*) FROM tech_detections t WHERE t.account_id = :a"
+                " ((SELECT count(*) FROM tech_detections t WHERE t.tenant_id = :t AND t.account_id"
+                " = :a"
                 f" {NEWEST_DETECTION})"
                 f"  + (SELECT count(*) FROM facts f WHERE {FACT_CLASS['tech']})) AS tech,"
-                f" (SELECT count(*) FROM facts f WHERE {FACT_CLASS['news']}) AS news,"
-                " (SELECT count(*) FROM connector_items WHERE account_id = :a AND owner_user_id ="
+                f" ((SELECT count(*) FROM facts f WHERE {FACT_CLASS['news']})"
+                "  + (SELECT count(*) FROM news_events n WHERE n.tenant_id = :t AND n.account_id ="
+                " :a)) AS news,"
+                " (SELECT count(*) FROM connector_items WHERE tenant_id = :t AND account_id = :a"
+                " AND owner_user_id ="
                 " :u"
                 "   AND state = 'matched') AS mail_drive,"
-                " ((SELECT count(*) FROM sources WHERE account_id = :a)"
+                " ((SELECT count(*) FROM sources WHERE tenant_id = :t AND account_id = :a)"
                 "  + (SELECT count(DISTINCT t.response->'args'->>'url') FROM tool_calls t"
-                "   JOIN account_runs r ON r.id = t.run_id WHERE r.account_id = :a"
+                "   JOIN account_runs r ON r.tenant_id = t.tenant_id AND r.id = t.run_id WHERE"
+                " r.tenant_id = :t AND r.account_id = :a"
                 "   AND t.tool IN ('p_search:read_page', 'p_scrape:scrape_job_page')"
                 "   AND t.response->'args'->>'url' IS NOT NULL AND NOT EXISTS (SELECT 1 FROM"
-                "   sources x WHERE x.account_id = :a AND x.url = t.response->'args'->>'url'))"
+                "   sources x WHERE x.tenant_id = :t AND x.account_id = :a AND x.url ="
+                " t.response->'args'->>'url'))"
                 # the client's uploaded files that facts cite (documents.deliverables)
-                "  + (SELECT count(*) FROM documents d WHERE d.account_id = :a AND EXISTS ("
-                "   SELECT 1 FROM fact_evidence e JOIN facts f ON f.id = e.fact_id"
-                "   WHERE e.document_id = d.id AND f.account_id = :a AND f.status = 'current')))"
+                "  + (SELECT count(*) FROM documents d WHERE d.tenant_id = :t AND d.account_id = :a"
+                " AND EXISTS ("
+                "   SELECT 1 FROM fact_evidence e JOIN facts f ON f.tenant_id = e.tenant_id"
+                "   AND f.id = e.fact_id WHERE e.tenant_id = d.tenant_id AND e.document_id = d.id"
+                "   AND f.account_id = :a AND f.status = 'current')))"
                 " AS sources,"
-                " (SELECT count(*) FROM tool_calls t JOIN account_runs r ON r.id = t.run_id"
-                "   WHERE r.account_id = :a AND t.tool = 'p_search:web_search') AS searches,"
+                " (SELECT count(*) FROM tool_calls t JOIN account_runs r ON r.tenant_id ="
+                " t.tenant_id AND r.id = t.run_id"
+                "   WHERE r.tenant_id = :t AND r.account_id = :a AND t.tool ="
+                " 'p_search:web_search') AS searches,"
+                " (SELECT count(*) FROM document_members m JOIN documents d ON d.tenant_id ="
+                "   m.tenant_id AND d.id = m.document_id WHERE m.tenant_id = :t"
+                "   AND d.account_id = :a) AS files,"
+                # the live sheets of an imported workspace (phase 5): teams of the newest run
+                # that has any, connections, the newest Summary's sections, calls and notes
+                " (SELECT count(*) FROM platform_teams t WHERE t.tenant_id = :t AND t.account_id ="
+                " :a AND t.run_id ="
+                "   (SELECT r.run_id FROM platform_teams r WHERE r.tenant_id = :t AND r.account_id"
+                " = :a"
+                "   ORDER BY r.created_at DESC LIMIT 1)) AS teams,"
+                " (SELECT count(*) FROM org_connections c WHERE c.tenant_id = :t AND c.account_id ="
+                " :a) AS connections,"
+                " (SELECT count(*) FROM report_sections r WHERE r.tenant_id = :t AND r.account_id ="
+                " :a"
+                "   AND (r.run_id, r.version) = (SELECT x.run_id,"
+                "   x.version FROM report_sections x WHERE x.tenant_id = :t AND x.account_id = :a"
+                "   ORDER BY x.created_at DESC, x.version DESC LIMIT 1)) AS findings,"
+                " ((SELECT count(*) FROM tool_calls t JOIN account_runs r ON r.tenant_id ="
+                " t.tenant_id AND r.id = t.run_id"
+                "   WHERE r.tenant_id = :t AND r.account_id = :a)"
+                "  + (SELECT count(*) FROM pull_log_calls c WHERE c.tenant_id = :t AND c.account_id"
+                " = :a)) AS calls,"
+                " (SELECT count(*) FROM research_notes n WHERE n.tenant_id = :t AND n.account_id ="
+                " :a) AS notes,"
                 " (SELECT count(*) FILTER (WHERE c.status = 'done') FROM coverage_rows c WHERE"
-                "   c.run_id = (SELECT r.id FROM account_runs r WHERE r.account_id = :a"
+                "   c.tenant_id = :t AND c.run_id = (SELECT r.id FROM account_runs r WHERE"
+                " r.tenant_id = :t AND r.account_id = :a"
                 "   AND r.status IN ('COMPLETED', 'PARTIAL', 'BUDGET_EXCEEDED')"
-                "   AND EXISTS (SELECT 1 FROM coverage_rows x WHERE x.run_id = r.id)"
+                "   AND EXISTS (SELECT 1 FROM coverage_rows x WHERE x.tenant_id = r.tenant_id"
+                "   AND x.run_id = r.id)"
                 "   ORDER BY r.finished_at DESC NULLS LAST LIMIT 1)"
                 f"   AND {PLANNED}) AS coverage_done,"
                 " (SELECT count(*) FROM coverage_rows c WHERE"
-                "   c.run_id = (SELECT r.id FROM account_runs r WHERE r.account_id = :a"
+                "   c.tenant_id = :t AND c.run_id = (SELECT r.id FROM account_runs r WHERE"
+                " r.tenant_id = :t AND r.account_id = :a"
                 "   AND r.status IN ('COMPLETED', 'PARTIAL', 'BUDGET_EXCEEDED')"
-                "   AND EXISTS (SELECT 1 FROM coverage_rows x WHERE x.run_id = r.id)"
+                "   AND EXISTS (SELECT 1 FROM coverage_rows x WHERE x.tenant_id = r.tenant_id"
+                "   AND x.run_id = r.id)"
                 "   ORDER BY r.finished_at DESC NULLS LAST LIMIT 1)"
                 f"   AND {PLANNED}) AS coverage_total"
             ),
-            {"a": account_id, "u": user_id},
+            {"a": account_id, "u": user_id, "t": await session_tenant(session)},
         )
     ).one()
 
@@ -441,7 +493,55 @@ async def workspace(session: Any, account_id: UUID, user_id: str, now: datetime)
             "run_id": str(job.run_id) if job.run_id else None,
         },
         "stopped_run": stopped,
+        "import_problems": await import_problems(session, account_id),
     }
+
+
+async def import_problems(session: Any, account_id: UUID) -> list[dict[str, Any]]:
+    """The parts of an uploaded file's import that failed or are still pending or running, and
+    an import that failed as a whole before any part ran (part ``import``), for the banner on the
+    account page (at most 10): the document, the part, its status, the rows not imported and the
+    first reason (a row number and a rule, or the error class). One import run per document, so
+    this is the latest import of each document bound to the account; a file uploaded again under
+    the same name to the same account replaces the earlier one here."""
+    rows = (
+        await session.execute(
+            text(
+                "WITH current_runs AS ("
+                " SELECT ir.id, ir.tenant_id, ir.status, ir.error_message, d.name,"
+                "   coalesce(ir.started_at, ir.created_at) AS at"
+                " FROM import_runs ir JOIN documents d ON d.tenant_id = ir.tenant_id"
+                "   AND d.id = ir.document_id"
+                " WHERE ir.tenant_id = :t AND ir.account_id = :a AND d.account_id = :a"
+                "   AND NOT EXISTS (SELECT 1 FROM documents d2 WHERE d2.tenant_id = d.tenant_id"
+                "     AND d2.account_id = d.account_id AND d2.name = d.name"
+                "     AND d2.created_at > d.created_at))"
+                " SELECT * FROM ("
+                " SELECT c.name AS document_name, p.part, p.status, p.rows_skipped,"
+                "   coalesce(p.error_message, p.skip_reasons ->> 0) AS reason, c.at"
+                " FROM current_runs c JOIN import_run_parts p ON p.tenant_id = c.tenant_id"
+                "   AND p.import_run_id = c.id"
+                " WHERE p.status IN ('failed', 'pending', 'running')"
+                " UNION ALL"
+                " SELECT c.name, 'import', c.status, 0, c.error_message, c.at FROM current_runs c"
+                " WHERE c.status = 'failed' AND NOT EXISTS (SELECT 1 FROM import_run_parts p"
+                "   WHERE p.tenant_id = c.tenant_id AND p.import_run_id = c.id"
+                "   AND p.status = 'failed')"
+                ") problems ORDER BY status = 'failed' DESC, at DESC, part LIMIT 10"
+            ),
+            {"t": await session_tenant(session), "a": account_id},
+        )
+    ).all()
+    return [
+        {
+            "document_name": str(r.document_name),
+            "part": str(r.part),
+            "status": str(r.status),
+            "rows_skipped": int(r.rows_skipped),
+            "reason": str(r.reason) if r.reason else None,
+        }
+        for r in rows
+    ]
 
 
 # The research graph records what it finds as graded facts keyed ``<class>.<step>.<attribute>``
@@ -471,7 +571,7 @@ def title_only(value_sql: str) -> str:
 
 
 _FACT_PUBLIC = (
-    "f.account_id = :a AND f.status = 'current' AND (f.visibility = 'public'"
+    "f.tenant_id = :t AND f.account_id = :a AND f.status = 'current' AND (f.visibility = 'public'"
     " OR f.flags @> CAST('[\"from_uploaded_file\"]' AS jsonb))" + NEWEST_FACT
 )
 FACT_CLASS = {
@@ -497,6 +597,10 @@ FACT_CLASS = {
         " 'regulatory_quality_events', 'events_sponsored'))"
     ),
 }
+# the research's own findings shown as signals beside the monitoring events (owner decision
+# 2026-11-06: every account's Signals screen read 0 after a research, because only a scheduled
+# refresh or an uploaded workspace writes ``signal_events``)
+FACT_CLASS["signals"] = FACT_CLASS["news"]
 
 # What a step that could not finish says on the account page (tracker reason codes).
 GAP_TEXT = {
@@ -514,6 +618,10 @@ GAP_TEXT = {
     "cap_reached": "the credit limit was reached",
     "not_available_yet": "not available yet",
     "fewer_than_expected": "fewer results than expected",
+    "postings_not_read": "some matching postings were not read yet",
+    "feed_incomplete": "the job feed did not return every posting",
+    "counts_inconsistent": "the posting counts did not add up",
+    "careers_site_not_found": "no careers site was found for this company",
     "claims_dropped": "what was found did not pass checking",
 }
 
@@ -558,6 +666,11 @@ STOP_TEXT = {
     "model_unavailable": "The AI model provider was unavailable. Resume in a little while.",
     "model_not_configured": "No AI model is set up for this workspace.",
     "model_refused": "The AI model declined part of the work.",
+    # the data-class guard (ADR-0133) refused to send the client's data to a model that may keep it
+    "model_data_class_refused": (
+        "The chosen AI model may not receive this workspace's own data, so nothing was sent to it."
+        " Choose a model approved for client data, then resume."
+    ),
     "BadRequestError": (
         "The AI model provider refused the request, often because its usage limit was reached."
         " Restore it, then resume."
@@ -572,6 +685,10 @@ STOP_TEXT = {
         " Open Coverage to see which."
     ),
     "steps_waiting": "Some steps could not be finished. Open Coverage to see which steps and why.",
+    # the tracker's completion verdict refused COMPLETED (ADR-0128): finished with gaps
+    "tracker_verdict": (
+        "Some steps could not be finished. Open Coverage to see which steps and why."
+    ),
     "pull_only": "This run only collected data; nothing was written up yet.",
     # the run graded no new fact (audit 2026-10-20): finished, nothing to resume
     "no_new_findings": "Nothing new was found on the web for this research.",
@@ -674,7 +791,7 @@ STOP_TEXT.update(
 # for a 3-step research (owner report 2026-10-21). The steps a research shows, counts and lists
 # as gaps are the rows in its scope; a full research (no scope_rows) keeps all 33.
 PLANNED = (
-    "NOT EXISTS (SELECT 1 FROM account_runs x WHERE x.id = c.run_id"
+    "NOT EXISTS (SELECT 1 FROM account_runs x WHERE x.tenant_id = c.tenant_id AND x.id = c.run_id"
     " AND jsonb_typeof(x.run_input->'scope_rows') = 'array'"
     " AND NOT jsonb_exists(x.run_input->'scope_rows', c.row_key))"
 )
@@ -797,6 +914,7 @@ _FINISHED_REASONS = (
     "canceled",
     "user_canceled",
     "steps_waiting",
+    "tracker_verdict",
     "no_new_findings",
 )
 OPEN_JOB_STATUSES = ("waiting_credit_limit", "queued", "running")
@@ -849,6 +967,7 @@ async def stopped_run(session: Any, account_id: UUID) -> dict[str, Any] | None:
         await session.execute(
             text(
                 "SELECT r.id, r.status, r.finished_reason, r.stalled_at,"
+                " coalesce((r.run_input->>'replay_key_version')::int, 1) AS replay_version,"
                 f" (SELECT count(*) FROM coverage_rows c WHERE c.run_id = r.id AND {PLANNED})"
                 " AS total,"
                 " (SELECT count(*) FROM coverage_rows c WHERE c.run_id = r.id"
@@ -881,7 +1000,35 @@ async def stopped_run(session: Any, account_id: UUID) -> dict[str, Any] | None:
         "reason": stop_text(reason, defects),
         "steps_done": int(row.done),
         "steps_total": int(row.total),
+        "replay_extra_usd": await replay_extra_usd(session, row.id, int(row.replay_version)),
     }
+
+
+# what the source run paid: its priced model replies (the larger of the router's ledger and the
+# research graph's reply log, as the token meter counts them) and its paid provider calls
+_PAID = text(
+    "SELECT GREATEST("
+    " (SELECT COALESCE(sum(cost_usd), 0) FROM llm_calls WHERE run_id = r.id),"
+    " (SELECT COALESCE(sum(cost_usd), 0) FROM model_reply_log"
+    "  WHERE run_id = r.id AND served_from = 'model'))"
+    " + COALESCE(r.spent_usd, 0) FROM account_runs r WHERE r.id = :r"
+)
+
+
+async def replay_extra_usd(session: Any, run_id: UUID, version: int) -> float | None:
+    """How much more a resume of the run may cost because its replay keys are of an older
+    version (ADR-0129), rounded up to the cent; None when its keys are current.
+
+    An upper bound: everything the source run paid for (model replies and provider calls). A
+    version bump names which keys changed, but a run does not record which of its calls used
+    them, so the bound assumes none of them is reused; the calls whose keys did not change are
+    still reused at no cost, so the resume usually costs less."""
+    from account_intelligence.connectors.cache import replay_key_version
+
+    if version >= replay_key_version():
+        return None
+    paid = Decimal(str(await session.scalar(_PAID, {"r": run_id}) or 0))
+    return float(paid.quantize(Decimal("0.01"), rounding=ROUND_CEILING))
 
 
 async def newest_files(session: Any, account_id: UUID) -> list[Any]:
@@ -894,6 +1041,9 @@ async def newest_files(session: Any, account_id: UUID) -> list[Any]:
                 text(
                     "SELECT DISTINCT ON (d.kind) d.id, d.kind, d.filename, d.size_bytes,"
                     " d.built_at, d.run_id, d.manifest_json->>'exclusion_hash' AS xh,"
+                    # an uploaded workspace's own file (documents.workspace_import): shown as it
+                    # is under any exclusion set, never rebuilt (exact copy, 2026-11-05)
+                    " d.manifest_json->>'source' = 'workspace_import' AS imported,"
                     # the files the account's most recent build left out of its set, and its run:
                     # an older file of such a kind must not stand in for the missing one
                     " (SELECT x.manifest_json->'files_withheld' FROM deliverables x"
@@ -947,6 +1097,7 @@ async def stale_kinds(session: Any, account_id: UUID) -> list[str]:
         r.kind
         for r in await newest_files(session, account_id)
         if (r.xh or NO_EXCLUSIONS) != current
+        and not r.imported
         and r.kind not in builder_withheld([{"files_withheld": list(r.latest_withheld or [])}])
     ]
 
@@ -966,7 +1117,7 @@ async def deliverables(session: Any, account_id: UUID) -> list[dict[str, Any]]:
     rows = [
         r
         for r in await newest_files(session, account_id)
-        if not _held_by_gate(r) and (r.xh or NO_EXCLUSIONS) == current
+        if not _held_by_gate(r) and (r.imported or (r.xh or NO_EXCLUSIONS) == current)
     ]
     rows = sorted(rows, key=lambda r: DELIVERABLE_ORDER.index(r.kind))
     return [

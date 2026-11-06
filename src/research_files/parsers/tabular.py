@@ -1045,6 +1045,12 @@ class JsonParser:
         )
 
     def _document(self, stream: IO[bytes], ctx: ParseContext) -> Iterator[Unit]:
+        """A JSON document that is not a top-level array: parsed whole (bounded by
+        ``json_max_document_bytes``), its largest list of objects streamed out in units capped
+        like an array's (``rows_per_unit`` rows or ``unit_text_bytes`` of text, whichever comes
+        first), then one text unit of the document's head. Before 2026-11-03 a unit held
+        ``rows_per_unit`` rows whatever their size, so a 50 MB ``{"jobs": [...]}`` pull produced
+        a unit past the sandbox's line limit and failed its whole part."""
         table = ctx.name
         stream.seek(0)
         data = stream.read(ctx.cfg.parsing.json_max_document_bytes + 1)
@@ -1070,30 +1076,72 @@ class JsonParser:
                 "Re-export the file and upload it again.",
             )
             return
+        del data  # the parsed value is what the units read; the bytes are not needed twice
         records_list = _largest_record_list(value)
         if records_list is not None:
             path, items = records_list
-            records = _Records(None)
-            rows = [(i + 1, records.row(v)) for i, v in enumerate(items)]
-            for start in range(0, len(rows), ctx.cfg.parsing.rows_per_unit):
-                chunk = rows[start : start + ctx.cfg.parsing.rows_per_unit]
-                yield Unit(
-                    "rows",
-                    {"table": table, "path": path, "items": [chunk[0][0], chunk[-1][0]]},
-                    "".join(
-                        json.dumps(v, default=str)[:4000] + "\n"
-                        for v in items[start : start + len(chunk)]
-                    ),
-                    {"done": False},
-                    [],
-                    table=f"{table}:{path}",
-                    header=list(records.header) if start == 0 else None,
-                    rows=chunk,
-                )
-        text = json.dumps(value, indent=1, default=str)
+            yield from self._list_units(table, path, items, ctx)
         yield Unit(
-            "text", {"table": table}, text[: ctx.cfg.parsing.unit_text_bytes], {"done": True}
+            "text",
+            {"table": table},
+            _head_text(value, ctx.cfg.parsing.unit_text_bytes),
+            {"done": True},
         )
+
+    def _list_units(
+        self, table: str, path: str, items: list[Any], ctx: ParseContext
+    ) -> Iterator[Unit]:
+        records = _Records(None)
+        limit, limit_bytes = ctx.cfg.parsing.rows_per_unit, ctx.cfg.parsing.unit_text_bytes
+        rows: list[tuple[int, list[Any]]] = []
+        texts: list[str] = []
+        size = 0
+        first = True
+        # LOOP(json object list items): cap=the list's items; exit=items exhausted
+        for i, item in enumerate(items, 1):
+            dumped = json.dumps(item, default=str)
+            rows.append((i, records.row(item)))
+            texts.append(dumped[:4000] + "\n")
+            size += len(dumped)
+            if len(rows) >= limit or size >= limit_bytes:
+                yield self._list_unit(table, path, rows, texts, records, first)
+                rows, texts, size, first = [], [], 0, False
+        if rows:
+            yield self._list_unit(table, path, rows, texts, records, first)
+
+    @staticmethod
+    def _list_unit(
+        table: str,
+        path: str,
+        rows: list[tuple[int, list[Any]]],
+        texts: list[str],
+        records: _Records,
+        first: bool,
+    ) -> Unit:
+        return Unit(
+            "rows",
+            {"table": table, "path": path, "items": [rows[0][0], rows[-1][0]]},
+            "".join(texts),
+            {"done": False},
+            [],
+            table=f"{table}:{path}",
+            header=list(records.header) if first else None,
+            rows=list(rows),
+        )
+
+
+def _head_text(value: Any, limit: int) -> str:
+    """The first ``limit`` characters of the document, indented, without rendering the whole
+    document first (a 50 MB pull indents to twice that)."""
+    pieces: list[str] = []
+    size = 0
+    # LOOP(json head pieces): cap=the encoder's pieces up to `limit` characters; exit=limit
+    for piece in json.JSONEncoder(indent=1, default=str).iterencode(value):
+        pieces.append(piece)
+        size += len(piece)
+        if size >= limit:
+            break
+    return "".join(pieces)[:limit]
 
 
 def _largest_record_list(value: Any, path: str = "$") -> tuple[str, list[Any]] | None:

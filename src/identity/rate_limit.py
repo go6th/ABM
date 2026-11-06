@@ -6,6 +6,12 @@ Keys contain hashes rather than submitted email addresses or source IPs. The per
 (``consume_user``, values in ``config/rate_limits.yaml``, security audit M4) key on the verified
 client and user only.
 
+Redis down: the sign-in buckets (``SIGN_IN_ACTIONS``) fail OPEN, through this instance's own
+bounded bucket, and log ``rate_limit_degraded`` (counted by ``auth_rate_limit_degraded_total``;
+the observability module pages on the event): a Memorystore outage must not lock every user out,
+and Cloud Armor's per-IP bucket still holds at the edge. Every other bucket fails CLOSED (503).
+(ADR-0125)
+
 GUARANTEE(test_per_user_buckets_refuse_past_capacity_per_user_and_action)
 """
 
@@ -25,6 +31,12 @@ from account_intelligence.api.problem import DependencyUnavailable
 from account_intelligence.api.ratelimit import TokenBucketLimiter, enforce_rate_limit
 from account_intelligence.config import CONFIG_DIR, get_settings
 from account_intelligence.connectors.ratelimit import BucketLimit, RedisRateStore
+from identity import obs
+from obs.logging import logger
+
+_logger = logger(__name__)
+# the sign-in buckets: password sign-in and SSO discovery (the first step of an SSO sign-in)
+SIGN_IN_ACTIONS = frozenset({"login", "sso_discover"})
 
 
 @lru_cache(maxsize=1)
@@ -76,9 +88,9 @@ def _redis_store() -> RedisRateStore:
         raise DependencyUnavailable()
     try:
         if _redis_client is None:
-            import redis.asyncio as redis
+            from account_intelligence.platform.redis_url import redis_from_url
 
-            _redis_client = redis.Redis.from_url(
+            _redis_client = redis_from_url(
                 settings.redis_url,
                 socket_connect_timeout=2,
                 socket_timeout=2,
@@ -112,8 +124,18 @@ async def consume(request: Request, *, account: str, action: str) -> None:
                     key, BucketLimit(rate_per_s=refill, burst=capacity), time.time()
                 )
             except Exception as error:
-                # any Redis failure: fail closed (503), never an unlimited sign-in
-                raise DependencyUnavailable() from error
+                if action not in SIGN_IN_ACTIONS:
+                    # any Redis failure: fail closed (503), never an unlimited action
+                    raise DependencyUnavailable() from error
+                # sign-in fails open, through this instance's bounded bucket, and alerts
+                _logger.warning(
+                    "rate_limit_degraded",
+                    extra={"kind": action, "error_class": type(error).__name__},
+                )
+                obs.record_rate_limit_degraded(action)
+                allowed, retry_after = _memory_limiter(kind).consume(key)
+                waits.append(0 if allowed else float(retry_after))
+                continue
             waits.append(wait)
         else:
             allowed, retry_after = _memory_limiter(kind).consume(key)

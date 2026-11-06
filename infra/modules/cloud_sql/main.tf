@@ -205,3 +205,7 @@ output "iam_users" {
 output "instance_name" {
   value = google_sql_database_instance.main.name
 }
+output "private_ip" {
+  description = "The instance's private IP: the checkpointer signs in there with IAM (ADR-0125)."
+  value       = google_sql_database_instance.main.private_ip_address
+}

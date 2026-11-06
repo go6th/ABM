@@ -848,3 +848,18 @@ dl.kpi-tiles dd { margin: 0; }
 .pchip.fill-FFEB9C { background: #ffeb9c; }
 .pchip.fill-E7E6E6 { background: #e7e6e6; }
 @media (min-width: 900px) { .parity-count-grid { grid-template-columns: 3fr 2fr; } }
+
+/* ---------- One uploaded document as it was read (DocumentView) ---------- */
+.doc-view .ttl h1 { overflow-wrap: anywhere; }
+.doc-view .ttl .sub { font-size: 13px; color: var(--muted); margin-top: 2px; }
+.doc-member h2 { font-size: 16px; overflow-wrap: anywhere; }
+.doc-member .sub { display: block; font-size: 13px; color: var(--muted); margin-top: 2px; }
+.doc-passages { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px; }
+.doc-passage { display: flex; flex-direction: column; gap: 6px; }
+.doc-passage .sub { font-size: 12px; color: var(--muted); }
+.doc-heading { font-size: 14px; font-weight: 600; color: var(--ink); margin-top: 6px; }
+.doc-text { font-size: 15px; line-height: 1.6; color: var(--ink-2); max-width: 74ch; white-space: pre-wrap; overflow-wrap: anywhere; }
+.mono {
+  font-family: var(--mono, ui-monospace, "SF Mono", Menlo, Consolas, monospace); font-size: 12.5px; line-height: 1.5; color: var(--ink);
+  white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r-field); background: var(--quiet-card);
+}

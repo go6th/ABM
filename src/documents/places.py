@@ -29,8 +29,6 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any
 
-import yaml
-
 from account_intelligence.config import CONFIG_DIR
 
 EARTH_MILES = 3958.8
@@ -100,7 +98,9 @@ def canon(name: str) -> str:
 
 @lru_cache(maxsize=1)
 def _data() -> dict[str, Any]:
-    cfg = yaml.safe_load((CONFIG_DIR / "expanders.yaml").read_text())
+    from documents.config import load_expanders
+
+    cfg = load_expanders()
     doc = json.loads((CONFIG_DIR / "places.json").read_text())
     by_name: dict[str, list[Place]] = {}
     for name, ascii_name, cc, admin1, lat, lon, pop in doc["places"]:

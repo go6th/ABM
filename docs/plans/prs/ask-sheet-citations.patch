@@ -1,0 +1,1828 @@
+diff --git a/docs/plans/ingestion-hardening-ask-done.md b/docs/plans/ingestion-hardening-ask-done.md
+new file mode 100644
+index 0000000..516824f
+--- /dev/null
++++ b/docs/plans/ingestion-hardening-ask-done.md
+@@ -0,0 +1,58 @@
++# Ask cites the deep-dive sheet: what was built (2026-11-04)
++
++An Ask answer drawn from a workspace table now cites the deep-dive sheet instead of the zip. A
++table is a sheet when it is a deliverable workbook of a workspace zip (`deliverable_jobs` → Job
++postings, `deliverable_people` → People, `deliverable_tech` → Tech stack and teams, worked out
++from the member's path with `documents.workspace.classify_member`) or a research table of a
++`FILE_TABLES` kind. Its citation reads "Job postings sheet" and carries
++`sheet: {key, match_col, match}`. Its `url` stays empty. After the tool loop, the Ask route copies
++the table's last stored `query_table` filter onto the citation (`answers.carry_table_matches`).
++This happens only when the filter is one `eq`, `contains` or `icontains` test with no radius, on a
++column whose header is the label of a matchable sheet column. That column must be matchable on
++both the live and the file-shaped form of the sheet, so the link works whichever form the
++account shows. The meta then reads "Filtered: Location contains San Francisco". Any other query
++opens the whole sheet.
++
++The browser renders "Open in the deep dive" as an in-app link to
++`/accounts/<domain>/<sheet>?match_col=…&match=…` in three places: the inline chip link, the
++source card and the "What this answer used" panel. The structured answer's cited cells use the
++same chip.
++
++The sheets take an allow-listed match:
++- `Col.match` marks the columns a link may match on. `sheets.parse` and `file_tabs.grid_query`
++  validate the match: a matchable column of that sheet, a stripped value of 1 to 200 characters,
++  no NUL.
++- The predicate is fixed SQL, `CAST(<column> AS text) ILIKE :match ESCAPE '\'`. The value is
++  LIKE-escaped and bound.
++- The match applies to the page, the total, every chip count, the cell route and the CSV and
++  Excel exports. The Excel About sheet gets a "Matched" line.
++- The page echoes the match as `match: {col, label, value}`.
++- The sheet page forwards the match, shows a removable "Location: San Francisco" chip, and keeps
++  the match on every link it builds: chips, sort headings, paging, Show more rows, tabs, the cut
++  cell's fetch and the downloads.
++
++The row's own link opens the posting's web page, as before. No model call was added.
++
++## Staging verification
++
++1. Deploy the api and the web.
++2. Upload a workspace zip (or use an account with an imported one). Ask a count question about
++   a city, for example "How many job openings are there in <city>?".
++3. Check the answer's sources:
++   - The [1] chip shows "Open in the deep dive", not "From your files: … (table …)".
++   - The "What this answer used" panel says "Job postings sheet".
++   - The source card's meta says "Filtered: Location contains <city>".
++4. Click the link. The Job postings sheet opens with a "Location: <city>" chip.
++   - The row count and the "All" chip equal the answer's count (when the model filtered on
++     Location only).
++   - Every row's Location contains the city.
++5. On the sheet:
++   - Click a column heading and a filter chip. The chip stays.
++   - Download CSV and Excel. Both hold only the matched rows. The Excel "About" sheet has a
++     "Matched" line.
++   - Click the × chip. The whole table returns.
++6. Open a row's posting link. It opens the web page.
++7. Request `/v1/accounts/<domain>/sheets/jobs?match_col=grade&match=x`. Expect 422
++   `bad_sheet_query`. Request another client's domain with a match. Expect 404.
++8. Reopen an older thread. Its answers still load. Older answers have no `sheet` field and keep
++   their old title.
+diff --git a/src/account_intelligence/api/contract.py b/src/account_intelligence/api/contract.py
+index 4ca0b6b..e17d9d1 100644
+--- a/src/account_intelligence/api/contract.py
++++ b/src/account_intelligence/api/contract.py
+@@ -463,6 +463,15 @@ class SheetFilter(Out):
+     count: int
+ 
+ 
++class SheetMatch(Out):
++    """The match a sheet page is narrowed by (a link from an Ask citation): the rows whose
++    ``col`` cell contains ``value``; ``label`` is the column's heading."""
++
++    col: str
++    label: str
++    value: str
++
++
+ class SheetRow(Out):
+     """One row: its absolute number, its cells as shown, and its link if it has one (the
+     original page; ``link_label`` reads "6th / LinkedIn", never a data connector's name)."""
+@@ -574,6 +583,8 @@ class Sheet(Out):
+     filter: str
+     sort: str
+     dir: Literal["asc", "desc"]
++    # the match the rows, the total and the chip counts are narrowed by (None: every row)
++    match: SheetMatch | None = None
+     total: int
+     offset: int
+     rows: list[SheetRow]
+@@ -2227,9 +2238,20 @@ class AnswerPart(Out):
+     v: str
+ 
+ 
++class AnswerSheetLink(Out):
++    """The deep-dive sheet a cited table opens in: the sheet ``key`` (``jobs``, ``people``,
++    ``technology``, ...) and, when the answer's query narrowed the table on one column, the
++    sheet column and text the page is matched by (``sheets.Query.match``)."""
++
++    key: str
++    match_col: str | None = None
++    match: str | None = None
++
++
+ class AnswerSource(Out):
+     """A stored row an answer cites: what it is, when, and where to open it (``url`` is the
+-    original page; ``label`` reads "6th / LinkedIn", never a data connector's name)."""
++    original page; ``label`` reads "6th / LinkedIn", never a data connector's name). ``sheet``:
++    a cited table that is a deep-dive sheet opens there (never through ``url``)."""
+ 
+     n: int
+     title: str
+@@ -2253,6 +2275,7 @@ class AnswerSource(Out):
+     ]
+     account_domain: str | None
+     account_name: str | None
++    sheet: AnswerSheetLink | None = None
+ 
+ 
+ class AnswerItems(Out):
+diff --git a/src/account_intelligence/api/routes/account_workspace.py b/src/account_intelligence/api/routes/account_workspace.py
+index f95e504..08926a2 100644
+--- a/src/account_intelligence/api/routes/account_workspace.py
++++ b/src/account_intelligence/api/routes/account_workspace.py
+@@ -254,9 +254,13 @@ def _grid_query(
+     offset: int,
+     limit: int,
+     filter: str | None = None,
++    match_col: str | None = None,
++    match: str | None = None,
+ ) -> SH.Query:
+     try:
+-        return FT.grid_query(main, SH.SHEETS[sheet], sort, dir, offset, limit, filter)  # type: ignore[no-any-return]
++        return FT.grid_query(  # type: ignore[no-any-return]
++            main, SH.SHEETS[sheet], sort, dir, offset, limit, filter, match_col, match
++        )
+     except SH.BadSheetQuery:
+         raise APIProblem(
+             422,
+@@ -454,6 +458,10 @@ async def download_deliverables(
+     )
+ 
+ 
++# a sheet column key a link may match on (``sheets.Col.match``)
++MATCH_COL = r"^[a-z][a-z0-9_]*$"
++
++
+ def _sheet_query(
+     sheet: str,
+     filter: str | None,
+@@ -462,9 +470,13 @@ def _sheet_query(
+     offset: int,
+     limit: int,
+     run_id: UUID | None = None,
++    match_col: str | None = None,
++    match: str | None = None,
+ ) -> SH.Query:
+     try:
+-        return SH.parse(sheet, filter, sort, dir, offset, limit, run_id=run_id)
++        return SH.parse(
++            sheet, filter, sort, dir, offset, limit, run_id=run_id, match_col=match_col, match=match
++        )
+     except SH.SheetNotFound:
+         raise HTTPException(404, "not found") from None
+     except SH.BadSheetQuery:
+@@ -498,6 +510,8 @@ async def account_sheet(
+     filter: str | None = Query(default=None, max_length=40),
+     sort: str | None = Query(default=None, max_length=40),
+     dir: str | None = Query(default=None, max_length=4),
++    match_col: str | None = Query(default=None, max_length=40, pattern=MATCH_COL),
++    match: str | None = Query(default=None, max_length=SH.MATCH_MAX),
+     offset: int = Query(default=0, ge=0, le=100_000),
+     limit: int = Query(default=200, ge=1, le=SH.MAX_PAGE),
+     ident: Identity = Depends(authorize),
+@@ -513,10 +527,10 @@ async def account_sheet(
+     delivered = await _book(request, ident, account_id, sheet, builder_only=run is None)
+     main = _file_main(run, delivered, sheet)
+     if main is not None:
+-        q = _grid_query(main, sheet, sort, dir, offset, limit, filter)
++        q = _grid_query(main, sheet, sort, dir, offset, limit, filter, match_col, match)
+         out = FT.grid_page(main, q)
+     else:
+-        q = _sheet_query(sheet, filter, sort, dir, offset, limit, run)
++        q = _sheet_query(sheet, filter, sort, dir, offset, limit, run, match_col, match)
+         async with tenant_txn(ident.tenant_id) as s:
+             out = await SH.read(s, q, account_id, ident.user_id, datetime.now(UTC))
+     async with tenant_txn(ident.tenant_id) as s:
+@@ -574,6 +588,8 @@ async def account_sheet_cell(
+     filter: str | None = Query(default=None, max_length=40),
+     sort: str | None = Query(default=None, max_length=40),
+     dir: str | None = Query(default=None, max_length=4),
++    match_col: str | None = Query(default=None, max_length=40, pattern=MATCH_COL),
++    match: str | None = Query(default=None, max_length=SH.MATCH_MAX),
+     ident: Identity = Depends(authorize),
+ ) -> dict[str, Any]:
+     """One whole cell of a deep-dive table (the page shows a long cell cut to ``CELL_CAP``):
+@@ -587,10 +603,10 @@ async def account_sheet_cell(
+     main = _file_main(run, delivered, sheet)
+     found: dict[str, Any] | None
+     if main is not None:
+-        q = _grid_query(main, sheet, sort, dir, n - 1, 1, filter)
++        q = _grid_query(main, sheet, sort, dir, n - 1, 1, filter, match_col, match)
+         found = FT.grid_cell(main, q, n, col)
+     else:
+-        q = _sheet_query(sheet, filter, sort, dir, n - 1, 1, run)
++        q = _sheet_query(sheet, filter, sort, dir, n - 1, 1, run, match_col, match)
+         if col not in {c.key for c in q.sheet.cols}:
+             raise HTTPException(404, "not found")
+         async with tenant_txn(ident.tenant_id) as s:
+@@ -986,6 +1002,8 @@ async def account_sheet_xlsx(
+     filter: str | None = Query(default=None, max_length=40),
+     sort: str | None = Query(default=None, max_length=40),
+     dir: str | None = Query(default=None, max_length=4),
++    match_col: str | None = Query(default=None, max_length=40, pattern=MATCH_COL),
++    match: str | None = Query(default=None, max_length=SH.MATCH_MAX),
+     ident: Identity = Depends(authorize),
+ ) -> Response:
+     """Every row of the filtered, sorted table as an Excel workbook (an audited export; a table
+@@ -1005,9 +1023,9 @@ async def account_sheet_xlsx(
+     run = await _file_run(request, ident, account_id, sheet)
+     main = await _export_main(request, ident, account_id, run, sheet)
+     q = (
+-        _grid_query(main, sheet, sort, dir, 0, SH.MAX_PAGE, filter)
++        _grid_query(main, sheet, sort, dir, 0, SH.MAX_PAGE, filter, match_col, match)
+         if main is not None
+-        else _sheet_query(sheet, filter, sort, dir, 0, SH.MAX_PAGE, run)
++        else _sheet_query(sheet, filter, sort, dir, 0, SH.MAX_PAGE, run, match_col, match)
+     )
+     fd, tmp = tempfile.mkstemp(prefix="sheet-", suffix=".xlsx")
+     os.close(fd)
+@@ -1058,6 +1076,8 @@ async def account_sheet_csv(
+     filter: str | None = Query(default=None, max_length=40),
+     sort: str | None = Query(default=None, max_length=40),
+     dir: str | None = Query(default=None, max_length=4),
++    match_col: str | None = Query(default=None, max_length=40, pattern=MATCH_COL),
++    match: str | None = Query(default=None, max_length=SH.MATCH_MAX),
+     ident: Identity = Depends(authorize),
+ ) -> Response:
+     """Every row of the filtered, sorted table as CSV, streamed (an audited export)."""
+@@ -1071,9 +1091,9 @@ async def account_sheet_csv(
+     run = await _file_run(request, ident, account_id, sheet)
+     main = await _export_main(request, ident, account_id, run, sheet)
+     q = (
+-        _grid_query(main, sheet, sort, dir, 0, SH.MAX_PAGE, filter)
++        _grid_query(main, sheet, sort, dir, 0, SH.MAX_PAGE, filter, match_col, match)
+         if main is not None
+-        else _sheet_query(sheet, filter, sort, dir, 0, SH.MAX_PAGE, run)
++        else _sheet_query(sheet, filter, sort, dir, 0, SH.MAX_PAGE, run, match_col, match)
+     )
+     async with tenant_txn(ident.tenant_id) as s:
+         name = await _account_name(s, account_id)
+diff --git a/src/account_intelligence/api/routes/ask.py b/src/account_intelligence/api/routes/ask.py
+index 4c9d89d..00fc652 100644
+--- a/src/account_intelligence/api/routes/ask.py
++++ b/src/account_intelligence/api/routes/ask.py
+@@ -492,6 +492,10 @@ async def ask(
+             # the table guarantee's last line: whatever wrote the answer, it leaves with a table;
+             # an open question's insights keep their facts table under "Sources"
+             ensure_table(draft, collapsed=shape is not None)
++            if tools is not None:
++                # a cited table that is a deep-dive sheet opens the sheet narrowed by the
++                # answer's own query (one equality or contains test; answers.carry_table_matches)
++                A.carry_table_matches(draft.rows.values(), tools.table_tools.stored)
+             answer = A.finish(draft, q, ws, now, scope)
+             if failed:
+                 # the same question, one tap away
+diff --git a/src/account_intelligence/replica/answers.py b/src/account_intelligence/replica/answers.py
+index c976059..43acd17 100644
+--- a/src/account_intelligence/replica/answers.py
++++ b/src/account_intelligence/replica/answers.py
+@@ -227,7 +227,7 @@ class Row:
+ 
+     def haystack(self) -> str:
+         """Every searchable field of the row, lower case and space padded for word matches."""
+-        extra = " ".join(map(str, self.extra.values()))
++        extra = " ".join(str(v) for k, v in self.extra.items() if k != "sheet")
+         return f" {self.text} {self.title} {self.meta} {self.lane or ''} {extra} ".lower()
+ 
+ 
+@@ -655,15 +655,51 @@ async def passage_rows(
+     return out
+ 
+ 
++# the deep-dive sheet a deliverable workbook of a workspace zip is (``documents.workspace``)
++_ROLE_SHEET = {
++    "deliverable_jobs": "jobs",
++    "deliverable_people": "people",
++    "deliverable_tech": "technology",
++}
++
++
++def member_role(member: str | None) -> str | None:
++    """The role of a workspace zip member from its path (``documents.workspace.classify_member``
++    under the folder that holds its ``deliverables/``), or None for a loose upload."""
++    from documents.workspace import classify_member
++
++    if not member:
++        return None
++    parts = [p for p in member.replace("\\", "/").split("/") if p and p != "."]
++    for i, part in enumerate(parts[:-1]):
++        if part.lower() == "deliverables":
++            root = "/".join(parts[:i])
++            return str(classify_member(member, f"{root}/" if root else ""))
++    return None
++
++
++def table_sheet(t: Any) -> str | None:
++    """The deep-dive sheet a table is (``sheets.SHEETS`` / ``FILE_TABLES`` key): a research
++    table by its client table kind, a zip's deliverable workbook by its role; None otherwise."""
++    from account_intelligence.replica.sheets import FILE_TABLES
++
++    if t.view is not None:
++        return next((k for k, kind in FILE_TABLES.items() if kind == t.view.kind), None)
++    return _ROLE_SHEET.get(member_role(t.member) or "")
++
++
+ def table_rows(ws: Workspace, tables: list[Any]) -> list[Row]:
+     """The workspace's ingested tables (``documents.tables.list_tables``) as citable rows: the
+-    model cites the table it queried, and the answer's source list names the file."""
++    model cites the table it queried, and the answer's source list names the file. A table that
++    is a deep-dive sheet (``table_sheet``) carries ``extra["sheet"]``: its citation opens that
++    sheet (``carry_table_matches`` adds the answer's filter)."""
+     by_id = {a.id: a for a in ws.accounts}
+     out = []
+     for t in tables:
+         acct = by_id.get(t.account_id)
+         if acct is None:
+             continue
++        sheet = table_sheet(t)
+         columns = ", ".join(c.raw for c in t.columns if not c.payload)[:400]
+         out.append(
+             Row(
+@@ -687,6 +723,7 @@ def table_rows(ws: Workspace, tables: list[Any]) -> list[Row]:
+                     # one table holds every account's rows: it is cited whichever account the
+                     # question names (pick_rows)
+                     **({"research": True} if t.view else {}),
++                    **({"sheet": {"key": sheet}} if sheet else {}),
+                 },
+             )
+         )
+@@ -1642,12 +1679,103 @@ def plain_text(paragraphs: list[list[dict[str, str]]]) -> str:
+     return "\n\n".join(out)
+ 
+ 
++_MATCH_OPS = frozenset({"eq", "contains", "icontains"})
++
++
++def _sheet_forms(key: str) -> list[Any]:
++    """Every form of a deep-dive sheet a link may open: the live sheet and, for a table the
++    files print, the file-shaped one (``sheets.parse`` picks one by the account's delivery)."""
++    from account_intelligence.replica import sheets as SH
++
++    forms = [SH.SHEETS[key]] if key in SH.SHEETS else []
++    if key in SH.FILE_TABLES:
++        forms.append(SH.file_sheet(key))
++    return forms
++
++
++def sheet_column(key: str, column: Any, *, by_key: bool = False) -> tuple[str, str] | None:
++    """The sheet column (key, label) a table column maps to: a matchable column of the sheet
++    whose label is the table column's header, case folded (a workbook's "Location" is the Jobs
++    sheet's ``location``; ``by_key``: a research table's column is also the sheet's by its key).
++    The column must be matchable in every form of the sheet, so the link opens whichever form the
++    account shows; None otherwise."""
++    forms = _sheet_forms(key)
++    header = str(column.raw).strip().casefold()
++    for form in forms:
++        for c in form.cols:
++            if not c.match or (
++                c.label.strip().casefold() != header and not (by_key and c.key == column.name)
++            ):
++                continue
++            if all(any(o.key == c.key and o.match for o in other.cols) for other in forms):
++                return c.key, c.label
++    return None
++
++
++def carry_table_matches(rows: Any, stored: Mapping[str, tuple[Any, Any, Any]]) -> None:
++    """Copy the filter of each cited sheet table's last stored query onto its citation
++    (``extra["sheet"]``): one equality or contains test on a column that maps to a matchable
++    sheet column (``sheet_column``) opens the sheet narrowed to those rows; any other query
++    (several conditions, another operator, a radius) opens the whole sheet."""
++    last: dict[str, Any] = {}
++    for table, query, _ in stored.values():
++        last[f"table:{table.id}"] = (table, query)
++    for row in rows:
++        link = row.extra.get("sheet")
++        if not isinstance(link, dict) or row.key not in last:
++            continue
++        table, query = last[row.key]
++        for k in ("match_col", "match", "match_label"):
++            link.pop(k, None)
++        if len(query.where) != 1 or getattr(query, "radius_miles", None) is not None:
++            continue
++        where = query.where[0]
++        value = str(where.value).strip() if isinstance(where.value, str) else ""
++        if where.op not in _MATCH_OPS or not value or len(value) > 200 or "\x00" in value:
++            continue
++        found = sheet_column(str(link["key"]), where.column, by_key=table.view is not None)
++        if found is not None:
++            link.update({"match_col": found[0], "match": value, "match_label": found[1]})
++
++
++def _sheet_title(key: str) -> str:
++    """The title of a deep-dive sheet as a source names it ("Job postings sheet")."""
++    forms = _sheet_forms(key)
++    return f"{forms[0].title} sheet" if forms else "Deep-dive sheet"
++
++
+ def source_out(n: int, r: Row) -> dict[str, Any]:
+     """One numbered source as the answer's SOURCES list shows it: the link opens the original
+-    page and reads "6th / LinkedIn" (``source_label``; a data provider's own page has none)."""
++    page and reads "6th / LinkedIn" (``source_label``; a data provider's own page has none). A
++    cited table that is a deep-dive sheet names the sheet and carries ``sheet`` (the browser
++    opens the sheet, matched by the answer's filter); its ``url`` stays None."""
+     from account_intelligence.replica.source_label import source_link
+ 
+     link = source_link(r.url)
++    sheet = r.extra.get("sheet")
++    if isinstance(sheet, dict) and sheet.get("key"):
++        matched = bool(sheet.get("match_col") and sheet.get("match"))
++        return {
++            "n": n,
++            "title": _sheet_title(str(sheet["key"])),
++            "meta": (
++                f"Filtered: {sheet.get('match_label') or sheet['match_col']} contains"
++                f" {sheet['match']}"
++                if matched
++                else r.meta
++            ),
++            "date": r.when.date().isoformat() if r.when else None,
++            "url": None,
++            "label": None,
++            "kind": r.kind,
++            "account_domain": r.account.domain,
++            "account_name": r.account.name,
++            "sheet": {
++                "key": str(sheet["key"]),
++                "match_col": sheet["match_col"] if matched else None,
++                "match": sheet["match"] if matched else None,
++            },
++        }
+     return {
+         "n": n,
+         "title": r.title,
+@@ -1658,6 +1786,8 @@ def source_out(n: int, r: Row) -> dict[str, Any]:
+         "kind": r.kind,
+         "account_domain": r.account.domain,
+         "account_name": r.account.name,
++        # every source carries the key, as the thread's stored answer reads back (AnswerSource)
++        "sheet": None,
+     }
+ 
+ 
+diff --git a/src/account_intelligence/replica/file_tabs.py b/src/account_intelligence/replica/file_tabs.py
+index 62ce917..ef3821f 100644
+--- a/src/account_intelligence/replica/file_tabs.py
++++ b/src/account_intelligence/replica/file_tabs.py
+@@ -861,11 +861,13 @@ def grid_query(
+     offset: int,
+     limit: int,
+     filter_key: str | None = None,
++    match_col: str | None = None,
++    match: str | None = None,
+ ) -> Any:
+     """A validated request over the main tab (``sheets.BadSheetQuery`` for an unknown or
+-    unsortable column, a direction other than asc or desc, or a filter the file's table does not
+-    have: it has All and the stored table's chips whose column the file carries); the page is
+-    clamped like ``sheets.parse`` clamps it."""
++    unsortable column, a direction other than asc or desc, a filter the file's table does not
++    have: it has All and the stored table's chips whose column the file carries, or a match the
++    table cannot take: ``_grid_match``); the page is clamped like ``sheets.parse`` clamps it."""
+     from account_intelligence.replica.sheets import FILE_ORDER, MAX_PAGE, BadSheetQuery, Query
+ 
+     sheet = grid_sheet(tab, live)
+@@ -883,9 +885,40 @@ def grid_query(
+         direction == "desc",
+         max(0, offset),
+         max(1, min(limit, MAX_PAGE)),
++        match=_grid_match(tab, live, match_col, match),
+     )
+ 
+ 
++def _grid_match(tab: Tab, live: Any, match_col: str | None, match: str | None) -> Any:
++    """The match of a request over the main tab: a matchable column of the sheet (the live
++    sheet's or the file-shaped sheet's, ``sheets.parse_match``) found in the file's table by its
++    header (the column's label, case folded). Returned as a ``sheets.Col`` with the sheet's key
++    and the file's header, whose ``sort`` names the tab column (``c3``)."""
++    from account_intelligence.replica.sheets import (
++        FILE_TABLES,
++        BadSheetQuery,
++        Col,
++        file_sheet,
++        match_value,
++    )
++
++    value = match_value(match)
++    if match_col is None and value is None:
++        return None
++    sheets = [live, file_sheet(live.key)] if live.key in FILE_TABLES else [live]
++    labels = {
++        c.label.strip().casefold()
++        for sheet in sheets
++        for c in sheet.cols
++        if c.key == match_col and c.match
++    }
++    header = (tab.table or Block("table")).header
++    j = next((i for i, h in enumerate(header) if h.strip().casefold() in labels), None)
++    if j is None or value is None:
++        raise BadSheetQuery("unknown match column")
++    return (Col(str(match_col), header[j], f"c{j + 1}", match=True), value)
++
++
+ def _sort_value(text_value: str) -> tuple[int, Any]:
+     """Numbers (a percentage as its number) before text, text without case."""
+     t = text_value.strip()
+@@ -930,16 +963,27 @@ def _chips(tab: Tab, sheet_key: str) -> list[tuple[Any, int, str]]:
+     ]
+ 
+ 
++def _matched(tab: Tab, q: Any) -> list[tuple[Cell, ...]]:
++    """The main tab's rows under the request's match (``_grid_match``: the cell in the matched
++    column contains the text, case folded), every row without one."""
++    rows = list((tab.table or Block("table")).rows)
++    if q.match is None:
++        return rows
++    col, value = q.match
++    j, wanted = int(col.sort[1:]) - 1, value.casefold()
++    return [r for r in rows if j < len(r) and wanted in r[j].text.casefold()]
++
++
+ def _kept(tab: Tab, q: Any) -> list[tuple[Cell, ...]]:
+-    """The main tab's rows under the request's filter (All: every row)."""
+-    table = tab.table or Block("table")
++    """The main tab's rows under the request's match and filter (All: every matched row)."""
++    rows = _matched(tab, q)
+     if q.filter.key == "all":
+-        return list(table.rows)
++        return rows
+     chip = next((c for c in _chips(tab, q.sheet.key) if c[0].key == q.filter.key), None)
+     if chip is None:
+         return []
+     _, j, value = chip
+-    return [r for r in table.rows if j < len(r) and r[j].text.strip() == value]
++    return [r for r in rows if j < len(r) and r[j].text.strip() == value]
+ 
+ 
+ def _order(tab: Tab, q: Any) -> list[tuple[Cell, ...]]:
+@@ -990,11 +1034,12 @@ def grid_rows(tab: Tab, q: Any) -> list[dict[str, Any]]:
+ 
+ 
+ def _filter_counts(tab: Tab, q: Any) -> list[dict[str, Any]]:
+-    """The chips with the rows each holds over the whole table (not the filtered page)."""
+-    table = tab.table or Block("table")
+-    out = [{"key": "all", "label": "All", "count": len(table.rows)}]
++    """The chips with the rows each holds over the whole table, within the request's match
++    (not the filtered page)."""
++    rows = _matched(tab, q)
++    out = [{"key": "all", "label": "All", "count": len(rows)}]
+     for f, j, value in _chips(tab, q.sheet.key):
+-        n = sum(1 for r in table.rows if j < len(r) and r[j].text.strip() == value)
++        n = sum(1 for r in rows if j < len(r) and r[j].text.strip() == value)
+         out.append({"key": f.key, "label": f.label, "count": n})
+     return out
+ 
+@@ -1002,6 +1047,8 @@ def _filter_counts(tab: Tab, q: Any) -> list[dict[str, Any]]:
+ def grid_page(tab: Tab, q: Any) -> dict[str, Any]:
+     """One page of the main tab in the shape ``sheets.read`` returns (an offset past the end
+     is an empty page with the table's total); only the page's rows are shaped."""
++    from account_intelligence.replica.sheets import match_out
++
+     ordered = _order(tab, q)
+     width = len((tab.table or Block("table")).header)
+     page = [
+@@ -1025,6 +1072,7 @@ def grid_page(tab: Tab, q: Any) -> dict[str, Any]:
+         "filter": q.filter.key,
+         "sort": q.sort.key,
+         "dir": "desc" if q.desc else "asc",
++        "match": match_out(q),
+         "total": len(ordered),
+         "offset": q.offset,
+         "rows": page,
+diff --git a/src/account_intelligence/replica/sheets.py b/src/account_intelligence/replica/sheets.py
+index 249aa2d..e98044c 100644
+--- a/src/account_intelligence/replica/sheets.py
++++ b/src/account_intelligence/replica/sheets.py
+@@ -50,7 +50,9 @@ GRADE_ORDER = (
+ class Col:
+     """One column: its key in the row, its heading, its sort expression and how it is shown.
+     ``link_text`` is what a link column of a file-shaped sheet shows in place of the address
+-    (the People List's "Open profile"); the address goes in the row's ``links``."""
++    (the People List's "Open profile"); the address goes in the row's ``links``. ``match``: a
++    link may open the sheet narrowed to the rows whose cell in this column contains a text
++    (``Query.match``; an Ask citation opens the rows it counted)."""
+ 
+     key: str
+     label: str
+@@ -58,6 +60,7 @@ class Col:
+     # text, strong, grade, priority, status, date, ago, link, num, url, code, long
+     kind: str = "text"
+     link_text: str | None = None
++    match: bool = False
+ 
+ 
+ @dataclass(frozen=True)
+@@ -197,10 +200,10 @@ SHEETS: dict[str, Sheet] = {
+             )
+         ),
+         cols=(
+-            Col("name", "Name", "s.name", "strong"),
+-            Col("title", "Title as reported", "s.title"),
+-            Col("area", "Area", "s.area"),
+-            Col("priority", "Priority", "s.priority", "priority"),
++            Col("name", "Name", "s.name", "strong", match=True),
++            Col("title", "Title as reported", "s.title", match=True),
++            Col("area", "Area", "s.area", match=True),
++            Col("priority", "Priority", "s.priority", "priority", match=True),
+             Col("profile", "LinkedIn", None, "url", link_text="Open profile"),
+             Col("grade", "Fact grade", GRADE_ORDER.format("s.grade"), "grade"),
+             Col("seen", "Last seen", "s.seen", "ago"),
+@@ -281,11 +284,11 @@ SHEETS: dict[str, Sheet] = {
+             )
+         ),
+         cols=(
+-            Col("title", "Role", "s.title", "strong"),
+-            Col("lanes", "Lane", "s.lanes"),
+-            Col("location", "Location", "s.location"),
++            Col("title", "Role", "s.title", "strong", match=True),
++            Col("lanes", "Lane", "s.lanes", match=True),
++            Col("location", "Location", "s.location", match=True),
+             Col("posted", "Posted", "s.posted", "date"),
+-            Col("status", "Status", "s.status"),
++            Col("status", "Status", "s.status", match=True),
+             Col("link", "Posting", None, "link"),
+         ),
+         filters=(
+@@ -332,7 +335,7 @@ SHEETS: dict[str, Sheet] = {
+             )
+         ),
+         cols=(
+-            Col("technology", "Technology", "s.technology", "strong"),
++            Col("technology", "Technology", "s.technology", "strong", match=True),
+             Col("sources", "Sources", "s.sources", "num"),
+             Col("check", "Cross check", "s.check"),
+             Col("first_seen", "First seen", "s.first_seen"),
+@@ -368,8 +371,8 @@ SHEETS: dict[str, Sheet] = {
+             " true AS imported FROM news_events n WHERE n.tenant_id = :t AND n.account_id = :a"
+         ),
+         cols=(
+-            Col("headline", "Headline", "s.headline", "strong"),
+-            Col("category", "Category", "s.category"),
++            Col("headline", "Headline", "s.headline", "strong", match=True),
++            Col("category", "Category", "s.category", match=True),
+             Col("grade", "Fact grade", GRADE_ORDER.format("s.grade"), "grade"),
+             Col("published", "Published", "s.published", "date"),
+             Col("why", "Why it matters", "s.why", "long"),
+@@ -463,8 +466,8 @@ SHEETS: dict[str, Sheet] = {
+         ),
+         cols=(
+             Col("code", "Code", "s.code"),
+-            Col("title", "Title", "s.title", "strong"),
+-            Col("publisher", "Publisher", "s.publisher"),
++            Col("title", "Title", "s.title", "strong", match=True),
++            Col("publisher", "Publisher", "s.publisher", match=True),
+             Col("published", "Published", "s.published", "date"),
+             Col("how_retrieved", "How retrieved", "s.how_retrieved"),
+             Col("supports", "What it supports", "s.supports", "long"),
+@@ -604,14 +607,14 @@ SHEETS: dict[str, Sheet] = {
+             " DESC LIMIT 1)"
+         ),
+         cols=(
+-            Col("team", "Team", "s.team", "strong"),
+-            Col("function", "Function", "s.function"),
++            Col("team", "Team", "s.team", "strong", match=True),
++            Col("function", "Function", "s.function", match=True),
+             Col("postings", "Postings", "s.postings", "num"),
+             Col("first_activity", "First activity", "s.first_activity", "date"),
+             Col("last_activity", "Last activity", "s.last_activity", "date"),
+             Col("lanes", "Lane platforms", "s.lanes"),
+             Col("technologies", "Technologies", "s.technologies", "long"),
+-            Col("locations", "Locations", "s.locations", "long"),
++            Col("locations", "Locations", "s.locations", "long", match=True),
+             Col("merged", "Rows merged", "s.merged", "num"),
+         ),
+         filters=(
+@@ -642,9 +645,9 @@ SHEETS: dict[str, Sheet] = {
+             " :a"
+         ),
+         cols=(
+-            Col("company", "Organisation", "s.company", "strong"),
+-            Col("domain", "Domain", "s.domain"),
+-            Col("category", "Relationship", "s.category"),
++            Col("company", "Organisation", "s.company", "strong", match=True),
++            Col("domain", "Domain", "s.domain", match=True),
++            Col("category", "Relationship", "s.category", match=True),
+             Col("how", "Found through", "s.how"),
+             Col("first_seen_at", "First seen", "s.first_seen_at", "date"),
+             Col("last_seen_at", "Last seen", "s.last_seen_at", "date"),
+@@ -874,6 +877,8 @@ _SHOWN: dict[tuple[str, str], str] = {
+ }
+ # how an export column kind is shown when no entry above says otherwise
+ _KIND_SHOWN = {"count": "num", "percent": "num", "url": "url", "code": "code", "text_long": "long"}
++# the export column kinds a link may not match on (``Col.match``): every other column is text
++_NOT_MATCHED = frozenset({"count", "percent", "url", "code", "text_long"})
+ 
+ 
+ def _lit(value: str) -> str:
+@@ -955,7 +960,14 @@ def file_sheet(key: str) -> Sheet:
+         sortable = c.kind not in ("text_long", "url")
+         link_text = _link_text(rules, table, c.key) if c.kind == "url" else None
+         cols.append(
+-            Col(c.key, c.header, f"s._cells->'{c.key}'" if sortable else None, shown, link_text)
++            Col(
++                c.key,
++                c.header,
++                f"s._cells->'{c.key}'" if sortable else None,
++                shown,
++                link_text,
++                match=c.kind not in _NOT_MATCHED,
++            )
+         )
+     selected = ", ".join(f"coalesce(v.cells->>'{c.key}', '') AS \"{c.key}\"" for c in cols)
+     base = (
+@@ -1167,12 +1179,17 @@ class SheetNotFound(LookupError):
+ 
+ 
+ class BadSheetQuery(ValueError):
+-    """An unknown sort column, filter or direction."""
++    """An unknown sort column, filter, direction or match."""
++
++
++MATCH_MAX = 200
+ 
+ 
+ @dataclass(frozen=True)
+ class Query:
+-    """A validated sheet request. ``run_id`` is the delivered run a file-shaped sheet reads."""
++    """A validated sheet request. ``run_id`` is the delivered run a file-shaped sheet reads.
++    ``match``: the rows whose cell in a matchable column (``Col.match``) contains the text, case
++    folded (an Ask citation's link, ``parse``)."""
+ 
+     sheet: Sheet
+     filter: Filter
+@@ -1181,6 +1198,51 @@ class Query:
+     offset: int
+     limit: int
+     run_id: UUID | None = None
++    match: tuple[Col, str] | None = None
++
++
++def match_value(value: str | None) -> str | None:
++    """A match text as a link carries it, stripped; ``BadSheetQuery`` past ``MATCH_MAX``
++    characters or with a NUL; None when blank."""
++    if value is None:
++        return None
++    stripped = value.strip()
++    if not stripped:
++        return None
++    if len(stripped) > MATCH_MAX or "\x00" in stripped:
++        raise BadSheetQuery("bad match")
++    return stripped
++
++
++def parse_match(
++    cols: Sequence[Col], match_col: str | None, match: str | None
++) -> tuple[Col, str] | None:
++    """The validated ``(column, text)`` of a match: the column is a matchable column of the
++    sheet (``BadSheetQuery`` otherwise), the text is ``match_value``. None without both."""
++    value = match_value(match)
++    if match_col is None and value is None:
++        return None
++    col = next((c for c in cols if c.key == match_col and c.match), None)
++    if col is None or value is None:
++        raise BadSheetQuery("unknown match column")
++    return col, value
++
++
++def like_pattern(value: str) -> str:
++    """``value`` as a contains pattern for ILIKE (``%``, ``_`` and the escape character taken
++    literally)."""
++    escaped = value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
++    return f"%{escaped}%"
++
++
++def match_where(q: Query) -> str:
++    """The fixed SQL of the request's match over the row alias ``s`` (``true`` without one): the
++    column's own expression (a file-shaped sheet's text cell) ILIKE the bound ``:match``."""
++    if q.match is None:
++        return "true"
++    col = q.match[0]
++    expr = f's."{col.key}"' if q.sheet.table is not None else str(col.sort)
++    return f"CAST({expr} AS text) ILIKE :match ESCAPE '\\'"
+ 
+ 
+ def parse(
+@@ -1192,10 +1254,13 @@ def parse(
+     limit: int = 200,
+     *,
+     run_id: UUID | None = None,
++    match_col: str | None = None,
++    match: str | None = None,
+ ) -> Query:
+     """Validate a request against the sheet's allow-lists. With ``run_id`` (the account's
+     delivered run, ``file_run``) a sheet the files print is the file-shaped one; the Platform
+-    picture has no live form, so it is always file-shaped (and empty before a delivery)."""
++    picture has no live form, so it is always file-shaped (and empty before a delivery). A match
++    (``match_col`` and ``match``) names a matchable column of THAT sheet (``parse_match``)."""
+     if sheet_key in FILE_TABLES and (run_id is not None or sheet_key not in SHEETS):
+         sheet: Sheet | None = file_sheet(sheet_key)
+     else:
+@@ -1215,6 +1280,7 @@ def parse(
+         max(0, offset),
+         max(1, min(limit, MAX_PAGE)),
+         run_id if sheet.table else None,
++        parse_match(sheet.cols, match_col, match),
+     )
+ 
+ 
+@@ -1298,9 +1364,19 @@ def params(
+         out["tracker"] = tracker_labels()
+     if q.sheet.table is not None:
+         out["run"] = str(q.run_id) if q.run_id else None
++    if q.match is not None:
++        out["match"] = like_pattern(q.match[1])
+     return out
+ 
+ 
++def match_out(q: Query) -> dict[str, str] | None:
++    """The request's match as the page echoes it (``{col, label, value}``), or None."""
++    if q.match is None:
++        return None
++    col, value = q.match
++    return {"col": col.key, "label": col.label, "value": value}
++
++
+ def row_out(q: Query, n: int, r: Any, now: datetime) -> dict[str, Any]:
+     """One row as the sheet shows it: its number, cells, source link and, on a file-shaped
+     sheet, the address of each link column (the cell shows the file's link text)."""
+@@ -1505,12 +1581,14 @@ async def read(
+     counts_sql = ", ".join(
+         f"count(*) FILTER (WHERE {f.where}) AS c{i}" for i, f in enumerate(q.sheet.filters)
+     )
+-    counts_query = f"SELECT {counts_sql} FROM ({base}) s"  # nosec B608 -- allow-listed sheet SQL; values are bound.
++    matched = match_where(q)
++    counts_query = f"SELECT {counts_sql} FROM ({base}) s WHERE {matched}"  # nosec B608 -- allow-listed sheet SQL; values are bound.
+     counts = (await session.execute(text(counts_query), bound)).one()
+     order = f"{q.sort.sort} {'DESC' if q.desc else 'ASC'} NULLS LAST, {q.sheet.tiebreak}"
+     limit = MAX_EXPORT if export else q.limit
+     offset = 0 if export else q.offset
+     where = f"({q.filter.where}) AND ({q.sheet.export_where})" if export else q.filter.where
++    where = f"({where}) AND ({matched})"
+     page_query = f"SELECT * FROM ({base}) s WHERE {where} ORDER BY {order}"  # nosec B608 -- allow-listed sheet SQL; values are bound.
+     rows = (
+         (
+@@ -1543,6 +1621,7 @@ async def read(
+         "filter": q.filter.key,
+         "sort": q.sort.key,
+         "dir": "desc" if q.desc else "asc",
++        "match": match_out(q),
+         "total": total,
+         "offset": offset,
+         "rows": [row_out(q, offset + i + 1, r, now) for i, r in enumerate(rows)],
+diff --git a/src/account_intelligence/replica/table_export.py b/src/account_intelligence/replica/table_export.py
+index 2931d90..9f21d0d 100644
+--- a/src/account_intelligence/replica/table_export.py
++++ b/src/account_intelligence/replica/table_export.py
+@@ -50,7 +50,7 @@ async def rows(
+         tenant_id=await session_tenant(session),
+     )
+     order = f"{q.sort.sort} {'DESC' if q.desc else 'ASC'} NULLS LAST, {q.sheet.tiebreak}"
+-    where = f"({q.filter.where}) AND ({q.sheet.export_where})"
++    where = f"({q.filter.where}) AND ({q.sheet.export_where}) AND ({SH.match_where(q)})"
+     sql = (
+         f"SELECT * FROM ({SH.visible_base(q)}) s WHERE {where} ORDER BY {order} OFFSET :o LIMIT :l"  # nosec B608 -- allow-listed sheet SQL; values are bound.
+     )
+@@ -200,6 +200,8 @@ async def write_xlsx(
+         ["Rows", written],
+         ["Exported", datetime.now(UTC).strftime("%d %b %Y %H:%M UTC")],
+     ]
++    if q.match is not None:
++        lines.insert(3, ["Matched", f"{q.match[0].label} contains {q.match[1]}"])
+     if withheld:
+         lines.append(["Withheld", f"{withheld} cells held back for review"])
+     if not shareable:
+diff --git a/tests/isolation/test_sheet_isolation.py b/tests/isolation/test_sheet_isolation.py
+index 9d873a5..8c53f31 100644
+--- a/tests/isolation/test_sheet_isolation.py
++++ b/tests/isolation/test_sheet_isolation.py
+@@ -268,6 +268,12 @@ async def test_every_sheet_and_count_is_isolated_between_two_clients_with_the_sa
+                 assert own["total"] == totals["a"][(kind, key)], (kind, key)
+                 foreign = await SH.read(s, _query(kind, key, b.run), b.account, OWNER, now)
+                 assert foreign["total"] == 0 and not foreign["rows"], (kind, key)
++            # a match (an Ask citation's link) narrows A's rows and never reaches B's
++            match = SH.parse("jobs", None, None, None, match_col="location", match="Brentford")
++            assert (await SH.read(s, match, a.account, OWNER, now))["total"] > 0
++            foreign = await SH.read(s, match, b.account, OWNER, now)
++            assert foreign["total"] == 0 and not foreign["rows"]
++            assert not any(f["count"] for f in foreign["filters"])
+             foreign_counts = (await workspace(s, b.account, OWNER, now))["counts"]
+             assert not any(foreign_counts.values()), foreign_counts
+             # the delivered-run helpers and the table export hold the same line
+diff --git a/tests/replica/test_sheet_match.py b/tests/replica/test_sheet_match.py
+new file mode 100644
+index 0000000..e4f180d
+--- /dev/null
++++ b/tests/replica/test_sheet_match.py
+@@ -0,0 +1,329 @@
++"""An Ask citation opens the deep-dive sheet, narrowed to the rows it counted (owner,
++2026-11-04; ``docs/plans/ingestion-hardening-ask.md``). SYNTHETIC rows and a fake model, no
++database.
++
++* ``sheets.parse`` takes a match only on a matchable column of THAT sheet, with a bounded value;
++  the predicate is fixed SQL with the value bound and escaped for LIKE.
++* The delivered workbook's own table (``file_tabs``) matches on the column whose header is the
++  sheet column's label, and its chips count within the match.
++* A cited table that is a deliverable workbook of a workspace zip (or a research table) cites the
++  sheet, with the answer's own single filter, never a ``url``; the stored answer keeps it.
++"""
++
++from __future__ import annotations
++
++from datetime import UTC, datetime
++from typing import Any
++from uuid import uuid4
++
++import pytest
++
++from account_intelligence.api.contract import AnswerSource
++from account_intelligence.replica import answers as A
++from account_intelligence.replica import file_tabs as FT
++from account_intelligence.replica import sheets as SH
++from account_intelligence.replica.model_answer import stream_with_model
++from account_intelligence.replica.source_label import relabel_answer
++from documents import tables as T
++from documents.tables import ColumnInfo, TableInfo, ViewSource
++
++# ---- sheets.parse ----------------------------------------------------------------------------
++
++
++def test_parse_takes_a_match_on_a_matchable_column_of_that_sheet() -> None:
++    q = SH.parse("jobs", None, None, None, match_col="location", match="  San Francisco ")
++    assert q.match is not None
++    col, value = q.match
++    assert (col.key, col.label, value) == ("location", "Location", "San Francisco")
++    assert SH.match_out(q) == {"col": "location", "label": "Location", "value": "San Francisco"}
++    assert SH.parse("jobs", None, None, None).match is None
++    assert SH.match_out(SH.parse("jobs", None, None, None)) is None
++    # every live sheet the spec names has its matchable columns, and nothing else does
++    marked = {k: {c.key for c in s.cols if c.match} for k, s in SH.SHEETS.items()}
++    assert marked["people"] == {"name", "title", "area", "priority"}
++    assert marked["jobs"] == {"title", "lanes", "location", "status"}
++    assert marked["technology"] == {"technology"}
++    assert marked["news"] == {"headline", "category"}
++    assert marked["sources"] == {"title", "publisher"}
++    assert marked["teams"] == {"team", "function", "locations"}
++    assert marked["connections"] == {"company", "domain", "category"}
++    assert not marked["signals"] and not marked["calls"] and not marked["mail-and-drive"]
++
++
++@pytest.mark.parametrize(
++    ("match_col", "match"),
++    [
++        ("link", "x"),  # a column of the sheet that is not matchable
++        ("posted", "2026"),  # a date column
++        ("grade", "Confirmed"),  # not a column of the Jobs sheet at all
++        ("nope", "x"),
++        ("location", "x" * 201),  # over the bound
++        ("location", "San\x00Francisco"),
++        ("location", "   "),  # a column without a value
++        (None, "San Francisco"),  # a value without a column
++    ],
++)
++def test_parse_refuses_a_match_outside_the_allow_list(match_col: str | None, match: str) -> None:
++    with pytest.raises(SH.BadSheetQuery):
++        SH.parse("jobs", None, None, None, match_col=match_col, match=match)
++
++
++def test_a_match_names_a_column_of_the_sheet_it_opens() -> None:
++    # "location" is matchable on Job postings, not on People's live sheet
++    with pytest.raises(SH.BadSheetQuery):
++        SH.parse("people", None, None, None, match_col="location", match="Durham")
++    # the file-shaped sheets mark their text columns: the files' People list has a Location
++    q = SH.parse("people", None, None, None, run_id=uuid4(), match_col="location", match="Durham")
++    assert q.match is not None and q.match[0].key == "location"
++    file_jobs = {c.key: c.match for c in SH.file_sheet("jobs").cols}
++    assert file_jobs["location"] and file_jobs["title"] and file_jobs["status"]
++    assert not file_jobs["url"] and not file_jobs["description"] and not file_jobs["source_code"]
++
++
++def test_the_match_is_fixed_sql_with_the_value_bound_and_escaped() -> None:
++    assert SH.like_pattern("San Francisco") == "%San Francisco%"
++    assert SH.like_pattern("100%_off\\") == "%100\\%\\_off\\\\%"
++    q = SH.parse("jobs", None, None, None, match_col="location", match="50%")
++    assert SH.match_where(q) == "CAST(s.location AS text) ILIKE :match ESCAPE '\\'"
++    bound = SH.params(q, uuid4(), "u", datetime.now(UTC), tenant_id=uuid4())
++    assert bound["match"] == "%50\\%%"
++    # a file-shaped sheet matches on the file's text cell, never the sort's json
++    fq = SH.parse("jobs", None, None, None, run_id=uuid4(), match_col="location", match="x")
++    assert SH.match_where(fq) == "CAST(s.\"location\" AS text) ILIKE :match ESCAPE '\\'"
++    assert SH.match_where(SH.parse("jobs", None, None, None)) == "true"
++    assert "match" not in SH.params(
++        SH.parse("jobs", None, None, None), uuid4(), "u", datetime.now(UTC), tenant_id=uuid4()
++    )
++
++
++# ---- the delivered workbook's own table ----------------------------------------------------
++
++
++def _tab() -> FT.Tab:
++    rows = (
++        (FT.Cell("Analyst"), FT.Cell("San Francisco, US"), FT.Cell("Open")),
++        (FT.Cell("Engineer"), FT.Cell("Durham, US"), FT.Cell("Open")),
++        (FT.Cell("Lead"), FT.Cell("south san francisco"), FT.Cell("Closed")),
++    )
++    table = FT.Block("table", header=("Title", "Location", "Status"), rows=rows)
++    return FT.Tab("jobs", "Jobs", (table,), main=True)
++
++
++def test_the_files_own_table_matches_on_the_column_with_the_sheets_label() -> None:
++    tab = _tab()
++    q = FT.grid_query(tab, SH.SHEETS["jobs"], None, None, 0, 50, None, "location", "SAN FRAN")
++    page = FT.grid_page(tab, q)
++    assert [r["cells"]["c1"] for r in page["rows"]] == ["Analyst", "Lead"]
++    assert page["total"] == 2
++    assert page["match"] == {"col": "location", "label": "Location", "value": "SAN FRAN"}
++    counts = {f["key"]: f["count"] for f in page["filters"]}
++    assert counts["all"] == 2  # within the match
++    assert [r["n"] for r in FT.grid_rows(tab, q)] == [1, 2]
++    assert FT.grid_cell(tab, q, 2, "c1") == {"n": 2, "col": "c1", "text": "Lead", "href": None}
++    # the live sheet's "Role" and the files' "Title" are the same column
++    q = FT.grid_query(tab, SH.SHEETS["jobs"], None, None, 0, 50, None, "title", "eng")
++    assert [r["cells"]["c1"] for r in FT.grid_page(tab, q)["rows"]] == ["Engineer"]
++    assert FT.grid_query(tab, SH.SHEETS["jobs"], None, None, 0, 50).match is None
++    for col, value in (("lanes", "Salesforce"), ("posted", "2026"), ("location", "x" * 201)):
++        with pytest.raises(SH.BadSheetQuery):
++            FT.grid_query(tab, SH.SHEETS["jobs"], None, None, 0, 50, None, col, value)
++
++
++# ---- the citation ---------------------------------------------------------------------------
++
++MEMBER = "holdings/deliverables/Holdings_Job_Postings.xlsx"
++
++
++def _acct() -> A.Acct:
++    return A.Acct(uuid4(), "holdings.example", "Synthetic Holdings", [], None, None, 1)
++
++
++def _jobs_table(acct: A.Acct, member: str | None = MEMBER, view: ViewSource | None = None) -> Any:
++    columns = (
++        ColumnInfo("title", "Title", "text", False),
++        ColumnInfo("location", "Location", "text", False),
++        ColumnInfo("status", "Status", "text", False),
++        ColumnInfo("platforms_named", "Platforms named", "text", False),
++    )
++    return TableInfo(
++        id=uuid4(),
++        name="Jobs",
++        table=f"{member}:Jobs",
++        member=member,
++        document="Holdings_workspace.zip",
++        document_id=uuid4(),
++        account_id=acct.id,
++        columns=columns,
++        business_key=None,
++        row_count=644,
++        view=view,
++    )
++
++
++def test_a_tables_sheet_comes_from_its_zip_role_or_its_research_kind() -> None:
++    acct = _acct()
++    assert A.member_role(MEMBER) == "deliverable_jobs"
++    assert A.table_sheet(_jobs_table(acct)) == "jobs"
++    people = "holdings/deliverables/Holdings_People_List.xlsx"
++    tech = "Holdings/Deliverables/x/Holdings_Tech_Stack_and_Teams.xlsx"
++    assert A.table_sheet(_jobs_table(acct, people)) == "people"
++    assert A.table_sheet(_jobs_table(acct, tech)) == "technology"
++    # a raw pull, a build twin, an owner-only file and a loose upload are not sheets
++    for member in (
++        "holdings/data/jobs.json",
++        "holdings/build/jobs_twin.json",
++        "holdings/deliverables/Holdings_Owner_Only.docx",
++        "Holdings_Job_Postings.xlsx",
++        None,
++    ):
++        assert A.table_sheet(_jobs_table(acct, member)) is None, member
++    view = ViewSource("tech", (uuid4(),), (acct.id,))
++    assert A.table_sheet(_jobs_table(acct, None, view)) == "technology"
++    rows = A.table_rows(A.Workspace([acct], [], [], [], [], [], [], {}, False), [_jobs_table(acct)])
++    assert rows[0].extra["sheet"] == {"key": "jobs"}
++    # the sheet link is not part of what a question matches the row on
++    assert "{'key'" not in rows[0].haystack()
++
++
++def _stored(table: Any, where: list[dict[str, Any]], **extra: Any) -> dict[str, Any]:
++    query = T.parse(table, {"where": where, **extra})
++    return {"q1": (table, query, {})}
++
++
++def _row(table: Any, acct: A.Acct) -> A.Row:
++    (row,) = A.table_rows(A.Workspace([acct], [], [], [], [], [], [], {}, False), [table])
++    return row
++
++
++@pytest.mark.parametrize(
++    ("where", "extra", "expected"),
++    [
++        ([{"column": "location", "op": "icontains", "value": "San Francisco"}], {},
++         {"match_col": "location", "match": "San Francisco"}),
++        ([{"column": "Location", "op": "eq", "value": "Durham, US"}], {},
++         {"match_col": "location", "match": "Durham, US"}),
++        ([{"column": "title", "op": "contains", "value": "Analyst"}], {},
++         {"match_col": "title", "match": "Analyst"}),
++        # two conditions, another operator, a radius, a column with no matchable sheet column
++        ([{"column": "location", "op": "icontains", "value": "San Francisco"},
++          {"column": "status", "op": "eq", "value": "Open"}], {}, {}),
++        ([{"column": "location", "op": "neq", "value": "Durham"}], {}, {}),
++        ([{"column": "location", "op": "icontains", "value": "Durham"}], {"radius_miles": 25}, {}),
++        ([{"column": "platforms_named", "op": "icontains", "value": "Salesforce"}], {}, {}),
++        ([], {}, {}),
++    ],
++)  # fmt: skip
++def test_the_citation_carries_the_answers_one_filter(
++    where: list[dict[str, Any]], extra: dict[str, Any], expected: dict[str, str]
++) -> None:
++    acct = _acct()
++    table = _jobs_table(acct)
++    row = _row(table, acct)
++    A.carry_table_matches([row], _stored(table, where, **extra))
++    out = A.source_out(1, row)
++    assert out["url"] is None and out["label"] is None
++    assert out["title"] == "Job postings sheet"
++    assert out["sheet"] == {
++        "key": "jobs",
++        "match_col": expected.get("match_col"),
++        "match": expected.get("match"),
++    }
++    if expected:
++        assert out["meta"] == f"Filtered: {out['sheet']['match_col'].title()} contains" + (
++            f" {expected['match']}"
++        )
++    else:
++        assert out["meta"] == row.meta
++    AnswerSource.model_validate(out)  # the strict contract takes it
++
++
++def test_the_last_query_of_the_table_wins_and_another_tables_query_is_not_used() -> None:
++    acct = _acct()
++    table, other = _jobs_table(acct), _jobs_table(acct)
++    row = _row(table, acct)
++    first = T.parse(table, {"where": [{"column": "location", "op": "eq", "value": "Durham"}]})
++    last = T.parse(table, {"where": [{"column": "title", "op": "eq", "value": "Lead"}]})
++    elsewhere = T.parse(other, {"where": [{"column": "status", "op": "eq", "value": "Open"}]})
++    A.carry_table_matches(
++        [row], {"q1": (table, first, {}), "q2": (table, last, {}), "q3": (other, elsewhere, {})}
++    )
++    assert row.extra["sheet"]["match_col"] == "title" and row.extra["sheet"]["match"] == "Lead"
++
++
++def test_a_research_table_maps_its_columns_by_key() -> None:
++    acct = _acct()
++    view = ViewSource("jobs", (uuid4(),), (acct.id,))
++    table = _jobs_table(acct, None, view)
++    row = _row(table, acct)
++    assert row.extra["sheet"] == {"key": "jobs"}
++    A.carry_table_matches(
++        [row], _stored(table, [{"column": "location", "op": "icontains", "value": "Poznań"}])
++    )
++    assert A.source_out(2, row)["sheet"] == {
++        "key": "jobs",
++        "match_col": "location",
++        "match": "Poznań",
++    }
++
++
++def test_a_stored_answer_keeps_its_sheet_link_when_reopened() -> None:
++    source = {
++        "n": 1,
++        "title": "Job postings sheet",
++        "meta": "Filtered: Location contains San Francisco",
++        "date": None,
++        "url": None,
++        "label": None,
++        "kind": "file",
++        "account_domain": "holdings.example",
++        "account_name": "Synthetic Holdings",
++        "sheet": {"key": "jobs", "match_col": "location", "match": "San Francisco"},
++    }
++    (out,) = relabel_answer({"sources": [source]})["sources"]
++    assert out["sheet"] == source["sheet"] and out["url"] is None
++
++
++class _Fake:
++    """A model that answers with one citation of the table (no paid call)."""
++
++    def __init__(self, reply: str) -> None:
++        self.reply = reply
++
++    async def stream(self, *_a: Any, **_k: Any):  # type: ignore[no-untyped-def]
++        yield type("E", (), {"kind": "text", "text": self.reply, "usage": None, "tool": None})()
++        yield type("E", (), {"kind": "usage", "text": "", "usage": None, "tool": None})()
++
++
++@pytest.mark.asyncio
++async def test_an_answer_about_an_imported_workspace_cites_the_jobs_sheet_with_its_match() -> None:
++    """The Ask answer path (``api.routes.ask``): table rows, the model's reply, the stored
++    query's filter carried onto the citation, then the numbered sources."""
++    acct = _acct()
++    table = _jobs_table(acct)
++    ws = A.Workspace([acct], [], [], [], [], [], [], {}, False)
++    ws.tables = A.table_rows(ws, [table])
++    q, local = A.draft_local(
++        "How many job openings are there in San Francisco?", ws, datetime.now(UTC)
++    )
++    draft = local
++    async for kind, value in stream_with_model(
++        _Fake("There are **12** openings in San Francisco [R1]."),
++        object(),
++        q,
++        ws,
++        local,
++        user_id="u",
++        request_id="r",
++    ):
++        if kind == "done":
++            draft = value.draft
++    stored = _stored(table, [{"column": "location", "op": "icontains", "value": "San Francisco"}])
++    A.carry_table_matches(draft.rows.values(), stored)
++    answer = A.finish(draft, q, ws, datetime.now(UTC), None)
++    (source,) = answer["sources"]
++    assert source["sheet"] == {"key": "jobs", "match_col": "location", "match": "San Francisco"}
++    assert source["url"] is None
++    assert source["title"] == "Job postings sheet"
++    assert source["meta"] == "Filtered: Location contains San Francisco"
++    assert source["account_domain"] == "holdings.example"
++    AnswerSource.model_validate(source)
+diff --git a/tests/replica/test_sheet_match_db.py b/tests/replica/test_sheet_match_db.py
+new file mode 100644
+index 0000000..dbb2959
+--- /dev/null
++++ b/tests/replica/test_sheet_match_db.py
+@@ -0,0 +1,78 @@
++"""The Job postings sheet of an imported workspace, narrowed by a match (an Ask citation's link,
++owner 2026-11-04): only the rows whose Location contains the text, the total and every chip
++count within the match, and the CSV export holding the same rows. SYNTHETIC workspace zip
++(``tests.documents.workspace_zip``) through the production import path."""
++
++from __future__ import annotations
++
++import csv
++import io
++from datetime import UTC, datetime
++from pathlib import Path
++from uuid import UUID, uuid4
++
++import pytest
++
++from account_intelligence.db.session import tenant_txn
++from account_intelligence.replica import sheets as SH
++from account_intelligence.replica import table_export as TX
++from tests.conftest import _make_account
++from tests.documents import workspace_zip
++from tests.documents.test_workspace_zip_import_db import _zip_with_twins
++from tests.documents.world import service, upload
++
++pytestmark = [pytest.mark.requires_postgres, pytest.mark.asyncio]
++
++OWNER = "test-owner"  # the account's owner (tests.conftest._make_account)
++CITY = "brentford"  # one of the fixture's posting locations ("Brentford, UK"), typed in lower case
++
++
++async def test_the_jobs_sheet_with_a_location_match_reads_and_exports_only_those_rows(
++    tenant_a: UUID, tmp_path: Path
++) -> None:
++    account = _make_account(tenant_a, f"holdings-{uuid4().hex[:6]}.example")
++    svc = service(tmp_path)
++    done = await upload(svc, tenant_a, workspace_zip.ZIP_NAME, _zip_with_twins(), account)
++    assert await svc.process(tenant_a, UUID(done["document_id"])) == "indexed"
++    now = datetime.now(UTC)
++    whole = SH.parse("jobs", None, None, None, 0, SH.MAX_PAGE)
++    matched = SH.parse(
++        "jobs", None, None, None, 0, SH.MAX_PAGE, match_col="location", match=CITY.title()
++    )
++    async with tenant_txn(tenant_a, user=OWNER) as s:
++        everything = await SH.read(s, whole, account, OWNER, now)
++        every_row = [r async for r in TX.rows(s, whole, account, OWNER, now)]
++        page = await SH.read(s, matched, account, OWNER, now)
++        exported = [r async for r in TX.rows(s, matched, account, OWNER, now)]
++        csv_text = b"".join(
++            [c async for c in TX.csv_chunks(matched, TX.rows(s, matched, account, OWNER, now))]
++        ).decode("utf-8-sig")
++
++    assert len(every_row) == everything["total"]
++    expected = [r for r in every_row if CITY in r["cells"]["location"].lower()]
++    assert 0 < len(expected) < everything["total"]  # the match narrows, and something is left
++    assert page["match"] == {"col": "location", "label": "Location", "value": "Brentford"}
++    assert page["total"] == len(page["rows"]) == len(expected)
++    assert all(CITY in r["cells"]["location"].lower() for r in page["rows"])
++    assert sorted(r["cells"]["title"] for r in page["rows"]) == sorted(
++        r["cells"]["title"] for r in expected
++    )
++    # every chip counts within the match, as the same chip over the whole sheet's matching rows
++    chips = {f["key"]: f["count"] for f in page["filters"]}
++    assert chips["all"] == page["total"]
++    assert chips["open"] == sum(1 for r in expected if r["cells"]["status"] == "Open")
++    assert all(chips[f["key"]] <= f["count"] for f in everything["filters"])
++    # the export reads the same rows, in the same order, and the CSV holds them
++    assert [r["cells"] for r in exported] == [r["cells"] for r in page["rows"]]
++    lines = list(csv.reader(io.StringIO(csv_text)))
++    assert lines[0][:3] == ["#", "Role", "Lane"]
++    assert len(lines) - 1 == len(expected)
++    assert [line[1] for line in lines[1:]] == [r["cells"]["title"] for r in page["rows"]]
++
++    # a value no row holds reads empty, with every count at zero; LIKE wildcards are literal
++    for nothing in ("%", "_", "no such city"):
++        q = SH.parse("jobs", None, None, None, match_col="location", match=nothing)
++        async with tenant_txn(tenant_a, user=OWNER) as s:
++            empty = await SH.read(s, q, account, OWNER, now)
++        assert empty["total"] == 0 and not empty["rows"], nothing
++        assert not any(f["count"] for f in empty["filters"]), nothing
+diff --git a/tests/replica/test_workspace_api.py b/tests/replica/test_workspace_api.py
+index 239d78c..c9794aa 100644
+--- a/tests/replica/test_workspace_api.py
++++ b/tests/replica/test_workspace_api.py
+@@ -240,6 +240,51 @@ async def test_people_sheet_counts_filters_and_sorts_on_the_server(world: dict[s
+     assert [r["cells"]["title"] for r in desc["rows"]] == titles[::-1]
+ 
+ 
++async def test_a_sheet_link_with_a_match_narrows_the_page_counts_and_exports(
++    world: dict[str, Any],
++) -> None:
++    """An Ask citation's link (``?match_col=area&match=technology``): the page echoes the match,
++    its rows, total and chips are within it, and the Excel and CSV downloads hold the same rows."""
++    from openpyxl import load_workbook
++
++    plane = _plane(world["a"], "priya-test", world["payloads"])
++    base = "/v1/accounts/highmark.example/sheets/people"
++    match = "match_col=area&match=technology"
++    page = (await _call(plane, "GET", f"{base}?{match}")).json()
++    assert page["match"] == {"col": "area", "label": "Area", "value": "technology"}
++    assert page["total"] == len(page["rows"]) >= 17
++    assert all("technology" in r["cells"]["area"].lower() for r in page["rows"])
++    chips = {f["key"]: f["count"] for f in page["filters"]}
++    assert chips["all"] == page["total"] and chips["commercial"] == 0
++    assert (await _call(plane, "GET", base)).json()["match"] is None
++    sheet = load_workbook(io.BytesIO((await _call(plane, "GET", f"{base}/xlsx?{match}")).content))[
++        "Sheet 1"
++    ]
++    assert sheet.max_row - 1 == page["total"]
++    csv_rows = (await _call(plane, "GET", f"{base}/csv?{match}")).text.strip().splitlines()
++    assert len(csv_rows) - 1 == page["total"]
++
++
++@pytest.mark.parametrize(
++    "query",
++    [
++        "match_col=grade&match=Confirmed",  # a column that is not matchable
++        "match_col=location&match=x",  # not a column of People
++        "match_col=area",  # a column without a value
++        "match=technology",  # a value without a column
++        "match_col=Area;drop&match=x",
++        f"match_col=area&match={'x' * 201}",
++    ],
++)
++async def test_a_sheet_refuses_a_match_outside_its_allow_list(
++    world: dict[str, Any], query: str
++) -> None:
++    plane = _plane(world["a"], "priya-test", world["payloads"])
++    for path in ("", "/csv", "/xlsx"):
++        r = await _call(plane, "GET", f"/v1/accounts/highmark.example/sheets/people{path}?{query}")
++        assert r.status_code == 422, (path, query)
++
++
+ @pytest.mark.parametrize("query", ["sort=title;drop", "filter=nope", "dir=up", "sort=link"])
+ async def test_sheet_refuses_anything_outside_its_allow_lists(
+     world: dict[str, Any], query: str
+diff --git a/web/app/(client)/accounts/[domain]/[sheet]/page.tsx b/web/app/(client)/accounts/[domain]/[sheet]/page.tsx
+index 0f2d75b..1ffdfaa 100644
+--- a/web/app/(client)/accounts/[domain]/[sheet]/page.tsx
++++ b/web/app/(client)/accounts/[domain]/[sheet]/page.tsx
+@@ -9,6 +9,7 @@ import type { Sheet, SheetTab } from "@/lib/gen/api.gen";
+ import { serverGet, ServerApiError } from "@/lib/server-api";
+ import { StateCard } from "@/ui/design";
+ import { SheetView } from "@/components/accounts/SheetView";
++import { matchParams } from "@/components/accounts/sheet-match";
+ import { SheetTabs } from "@/components/accounts/SheetTabs";
+ import { TabView } from "@/components/accounts/TabView";
+ 
+@@ -68,7 +69,11 @@ export default async function SheetPage({ params, searchParams }: Props) {
+   const sp = {
+     tab: one(query.tab), limit: one(query.limit), offset: one(query.offset),
+     filter: one(query.filter), sort: one(query.sort), dir: one(query.dir),
++    match_col: one(query.match_col), match: one(query.match),
+   };
++  // the match an Ask citation opened (?match_col=location&match=San%20Francisco): forwarded to
++  // the API, which validates it, and kept on every link of the page (tabs included)
++  const asked: Record<string, string> = sp.match_col && sp.match ? { match_col: sp.match_col, match: sp.match } : {};
+   const base = `/accounts/${encodeURIComponent(domain)}/${encodeURIComponent(key)}`;
+   const back = `/accounts/${encodeURIComponent(domain)}`;
+   const api = `/v1/accounts/${encodeURIComponent(domain)}/sheets/${encodeURIComponent(key)}`;
+@@ -96,7 +101,7 @@ export default async function SheetPage({ params, searchParams }: Props) {
+           </div>
+           {download ? <a className="btn sm" href={download} download>Download the file</a> : null}
+         </div>
+-        <SheetTabs tabs={tabs} base={base} current={tab.tab ?? sp.tab} />
++        <SheetTabs tabs={tabs} base={base} current={tab.tab ?? sp.tab} keep={asked} />
+         <TabView tab={tab} />
+       </div>
+     );
+@@ -107,12 +112,13 @@ export default async function SheetPage({ params, searchParams }: Props) {
+   const q = new URLSearchParams({ limit: String(limit) });
+   if (offset) q.set("offset", String(offset));
+   for (const k of ["filter", "sort", "dir"] as const) if (sp[k]) q.set(k, sp[k]!);
++  for (const [k, v] of Object.entries(asked)) q.set(k, v);
+   let sheet: Sheet | null = null;
+   let failed = false;
+   let bad = false;
+   try {
+     sheet = await serverGet<Sheet>(`${api}?${q.toString()}`, base, [422]);
+-    if (sheet === null && (sp.filter || sp.sort || sp.dir)) bad = true;
++    if (sheet === null && (sp.filter || sp.sort || sp.dir || sp.match_col || sp.match)) bad = true;
+   } catch (e) {
+     if (!(e instanceof ServerApiError)) throw e;
+     failed = true;
+@@ -121,7 +127,7 @@ export default async function SheetPage({ params, searchParams }: Props) {
+   const rows = sheet.rows ?? [];
+   const start = Math.max(0, sheet.offset ?? offset);
+   const shown = start + rows.length;
+-  const view = { filter: sheet.filter, sort: sheet.sort, dir: sheet.dir };
++  const view = { filter: sheet.filter, sort: sheet.sort, dir: sheet.dir, ...matchParams(sheet) };
+   const at = (o: number, l: number) => `${base}?${new URLSearchParams({ ...view, limit: String(l), ...(o ? { offset: String(o) } : {}) }).toString()}`;
+   // "Show more rows" grows the page to 500 rows; past that the table pages by 500
+   const more = shown < sheet.total && limit < MAX_LIMIT && offset === 0 ? at(0, Math.min(MAX_LIMIT, limit + PAGE)) : null;
+@@ -141,7 +147,7 @@ export default async function SheetPage({ params, searchParams }: Props) {
+         {sheet.private ? <span className="pill internal big">Private to you</span> : null}
+         {download ? <a className="btn sm" href={download} download>Download the file</a> : null}
+       </div>
+-      <SheetTabs tabs={sheet.tabs ?? []} base={base} current={null} />
++      <SheetTabs tabs={sheet.tabs ?? []} base={base} current={null} keep={matchParams(sheet)} />
+       <SheetView sheet={sheet} domain={domain} base={base} moreHref={more} />
+       {prev || next ? (
+         <nav className="pager" aria-label="Pages of rows">
+diff --git a/web/components/accounts/SheetTabs.tsx b/web/components/accounts/SheetTabs.tsx
+index 17dd9f5..cf4cde2 100644
+--- a/web/components/accounts/SheetTabs.tsx
++++ b/web/components/accounts/SheetTabs.tsx
+@@ -6,12 +6,15 @@
+ import Link from "next/link";
+ import type { SheetTabRef } from "@/lib/gen/api.gen";
+ 
+-/** A tab's address: the main sheet is the table's own page, every other sheet is ``?tab=<key>``. */
+-export function tabHref(base: string, tab: SheetTabRef): string {
+-  return tab.main ? base : `${base}?${new URLSearchParams({ tab: tab.key }).toString()}`;
++/** A tab's address: the main sheet is the table's own page, every other sheet is ``?tab=<key>``.
++ * ``keep``: parameters every tab carries (the match an Ask citation opened), so going back to the
++ * main sheet keeps the matched rows. */
++export function tabHref(base: string, tab: SheetTabRef, keep: Record<string, string> = {}): string {
++  const q = new URLSearchParams({ ...(tab.main ? {} : { tab: tab.key }), ...keep }).toString();
++  return q ? `${base}?${q}` : base;
+ }
+ 
+-export function SheetTabs({ tabs, base, current }: { tabs: SheetTabRef[] | null | undefined; base: string; current: string | null }) {
++export function SheetTabs({ tabs, base, current, keep }: { tabs: SheetTabRef[] | null | undefined; base: string; current: string | null; keep?: Record<string, string> }) {
+   // an older response has no tabs; a tab without a key or label cannot be opened
+   const list = (tabs ?? []).filter((t) => t && t.key && t.label);
+   if (list.length < 2) return null;
+@@ -20,7 +23,7 @@ export function SheetTabs({ tabs, base, current }: { tabs: SheetTabRef[] | null
+       {list.map((t) => {
+         const on = current === null ? Boolean(t.main) : current === t.key;
+         return (
+-          <Link key={t.key} href={tabHref(base, t)} aria-current={on ? "page" : undefined} prefetch={false} scroll={false}>
++          <Link key={t.key} href={tabHref(base, t, keep)} aria-current={on ? "page" : undefined} prefetch={false} scroll={false}>
+             {t.label}
+           </Link>
+         );
+diff --git a/web/components/accounts/SheetView.tsx b/web/components/accounts/SheetView.tsx
+index 68f96af..debb2b9 100644
+--- a/web/components/accounts/SheetView.tsx
++++ b/web/components/accounts/SheetView.tsx
+@@ -9,6 +9,7 @@ import type { Sheet, SheetCellText } from "@/lib/gen/api.gen";
+ import { LINK_REL, ownHref, safeLink } from "@/lib/render";
+ import { Grade, Pill, type PillTone } from "@/ui/design";
+ import { fillClass, tdClass } from "./cell-fill";
++import { matchParams } from "./sheet-match";
+ 
+ // numbers are printed in one fixed locale: the server and the browser would otherwise disagree
+ // ("5,400" and "5.400") and React reports a hydration mismatch on every cut cell
+@@ -119,16 +120,20 @@ function sortedBy(sheet: Sheet): string {
+   return `Sorted by ${col.label} ${sheet.dir === "asc" ? "ascending" : "descending"}.`;
+ }
+ 
+-/** One whole cell of the table (the page cuts long cells), under the page's filter and sort. */
+-export function cellHref(domain: string, sheet: Pick<Sheet, "key" | "filter" | "sort" | "dir">): string {
+-  const q = new URLSearchParams({ filter: sheet.filter ?? "", sort: sheet.sort ?? "", dir: sheet.dir ?? "" });
+-  return `/v1/accounts/${encodeURIComponent(domain)}/sheets/${encodeURIComponent(sheet.key)}/cell?${q.toString()}`;
++type View = Pick<Sheet, "key" | "filter" | "sort" | "dir" | "match">;
++
++function viewParams(sheet: View): URLSearchParams {
++  return new URLSearchParams({ filter: sheet.filter ?? "", sort: sheet.sort ?? "", dir: sheet.dir ?? "", ...matchParams(sheet) });
++}
++
++/** One whole cell of the table (the page cuts long cells), under the page's filter, sort and match. */
++export function cellHref(domain: string, sheet: View): string {
++  return `/v1/accounts/${encodeURIComponent(domain)}/sheets/${encodeURIComponent(sheet.key)}/cell?${viewParams(sheet).toString()}`;
+ }
+ 
+-/** The table's own CSV or Excel download (every row under the chosen filter and sort). */
+-export function exportHref(domain: string, sheet: Pick<Sheet, "key" | "filter" | "sort" | "dir">, format: "csv" | "xlsx"): string {
+-  const q = new URLSearchParams({ filter: sheet.filter ?? "", sort: sheet.sort ?? "", dir: sheet.dir ?? "" });
+-  return `/v1/accounts/${encodeURIComponent(domain)}/sheets/${encodeURIComponent(sheet.key)}/${format}?${q.toString()}`;
++/** The table's own CSV or Excel download (every row under the chosen filter, sort and match). */
++export function exportHref(domain: string, sheet: View, format: "csv" | "xlsx"): string {
++  return `/v1/accounts/${encodeURIComponent(domain)}/sheets/${encodeURIComponent(sheet.key)}/${format}?${viewParams(sheet).toString()}`;
+ }
+ 
+ /** A short hash of text (cyrb53): row identity without keeping whole cells as React keys. */
+@@ -182,7 +187,7 @@ export function SheetView({ sheet, domain, base, moreHref }: { sheet: Sheet; dom
+   }, [measure, sheet, big]);
+   // a new page, filter or sort opens at its first row (the frame keeps its scroll otherwise;
+   // the sideways scroll stays, so a heading sorted at the right stays in view)
+-  const view = `${sheet.filter}|${sheet.sort}|${sheet.dir}|${sheet.offset}`;
++  const view = `${sheet.filter}|${sheet.sort}|${sheet.dir}|${sheet.offset}|${sheet.match?.col ?? ""}|${sheet.match?.value ?? ""}`;
+   useEffect(() => {
+     const el = frame.current;
+     if (el) el.scrollTop = 0;
+@@ -190,10 +195,11 @@ export function SheetView({ sheet, domain, base, moreHref }: { sheet: Sheet; dom
+   const columns = sheet.columns ?? [];
+   const rows = sheet.rows ?? [];
+   const filters = sheet.filters ?? [];
+-  const query = (change: Record<string, string>) => {
+-    const q = new URLSearchParams({ filter: sheet.filter ?? "", sort: sheet.sort ?? "", dir: sheet.dir ?? "", ...change });
++  const query = (change: Record<string, string>, keepMatch = true) => {
++    const q = new URLSearchParams({ filter: sheet.filter ?? "", sort: sheet.sort ?? "", dir: sheet.dir ?? "", ...(keepMatch ? matchParams(sheet) : {}), ...change });
+     return `${base}?${q.toString()}`;
+   };
++  const match = sheet.match && sheet.match.col && sheet.match.value ? sheet.match : null;
+   // every row of the table, whatever the filter (a table without an "all" chip counts its total)
+   const all = filters.find((f) => f.key === "all")?.count ?? sheet.total ?? 0;
+   const cell = cellHref(domain, sheet);
+@@ -201,6 +207,12 @@ export function SheetView({ sheet, domain, base, moreHref }: { sheet: Sheet; dom
+   return (
+     <>
+       <div className="sheet-bar">
++        {match ? (
++          // the rows an Ask citation opened: removing the chip shows the whole table again
++          <Link className="fc" href={query({}, false)} aria-current="true" aria-label={`Remove the match ${match.label}: ${match.value}`} prefetch={false} scroll={false}>
++            {match.label}: {match.value} <span aria-hidden="true">×</span>
++          </Link>
++        ) : null}
+         {filters.map((f) => (
+           <Link key={f.key} className="fc" href={query({ filter: f.key })} aria-current={sheet.filter === f.key ? "true" : undefined} prefetch={false} scroll={false}>
+             {f.key === "all" ? `All ${f.count}` : `${f.label} · ${f.count}`}
+@@ -258,8 +270,8 @@ export function SheetView({ sheet, domain, base, moreHref }: { sheet: Sheet; dom
+         ) : null}
+         {rows.length ? null : (
+           <div className="state">
+-            <h2>{all ? "No rows match this filter" : "Nothing here yet"}</h2>
+-            <p>{all ? "Choose another filter above." : "Rows appear here when research finds them."}</p>
++            <h2>{all ? "No rows match this filter" : match ? `No rows match ${match.label}: ${match.value}` : "Nothing here yet"}</h2>
++            <p>{all ? "Choose another filter above." : match ? "Remove the match above to see the whole table." : "Rows appear here when research finds them."}</p>
+           </div>
+         )}
+       </div>
+diff --git a/web/components/accounts/sheet-match.ts b/web/components/accounts/sheet-match.ts
+new file mode 100644
+index 0000000..74a8b14
+--- /dev/null
++++ b/web/components/accounts/sheet-match.ts
+@@ -0,0 +1,10 @@
++// The match a deep-dive table is narrowed by (an Ask citation's link: ?match_col=location&match=…)
++// as query parameters. A plain module (no "use client"), so the server page and the client table
++// build their links with the same rule: every link carries the match, so a sort, a chip, a page,
++// a tab or a download stays within the matched rows.
++import type { Sheet } from "@/lib/gen/api.gen";
++
++export function matchParams(sheet: Pick<Sheet, "match">): Record<string, string> {
++  const m = sheet.match;
++  return m && m.col && m.value ? { match_col: m.col, match: m.value } : {};
++}
+diff --git a/web/components/ask/AnswerView.tsx b/web/components/ask/AnswerView.tsx
+index 0903eca..c04a759 100644
+--- a/web/components/ask/AnswerView.tsx
++++ b/web/components/ask/AnswerView.tsx
+@@ -14,9 +14,31 @@ type Source = ChatAnswer["sources"][number];
+ 
+ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+ 
+-// A cited source as a hyperlink to its original page, labelled "6th / <site>". A row with no web
+-// page (an uploaded file, a provider's own page) has no link.
++/** The deep-dive sheet a cited table opens in (``source.sheet``), narrowed by the answer's own
++ * filter when it has one: ``/accounts/<domain>/<sheet>?match_col=…&match=…``. None for any other
++ * source. The sheet page shows the rows, and each row's own link opens its web page. */
++export function sheetHref(source: Source): string | null {
++  const sheet = source.sheet;
++  if (!sheet || !sheet.key || !source.account_domain) return null;
++  const base = `/accounts/${encodeURIComponent(source.account_domain)}/${encodeURIComponent(sheet.key)}`;
++  if (!sheet.match_col || !sheet.match) return base;
++  return `${base}?match_col=${encodeURIComponent(sheet.match_col)}&match=${encodeURIComponent(sheet.match)}`;
++}
++
++export const DEEP_DIVE = "Open in the deep dive";
++
++// A cited source as a hyperlink to its original page, labelled "6th / <site>"; a cited table that
++// is a deep-dive sheet opens that sheet in the app instead. A row with no web page (an uploaded
++// file, a provider's own page) has no link.
+ export function SourceLink({ source }: { source: Source }) {
++  const sheet = sheetHref(source);
++  if (sheet) {
++    return (
++      <Link className="src-link" href={sheet} prefetch={false} aria-label={`${DEEP_DIVE}: source ${source.n}, ${source.title}`}>
++        {DEEP_DIVE}
++      </Link>
++    );
++  }
+   const href = safeLink(source.url ?? "");
+   if (!href) return null;
+   return (
+@@ -51,6 +73,7 @@ export function AnswerView({
+ }) {
+   const source: Source | undefined = answer.sources.find((s) => s.n === openSource);
+   const href = source ? safeLink(source.url ?? "") : null;
++  const sheet = source ? sheetHref(source) : null;
+   const offer = answer.offer;
+   // citation n as a chip that opens its source card, then the source itself as a hyperlink
+   // ("6th / LinkedIn") that opens the original page directly
+@@ -103,7 +126,11 @@ export function AnswerView({
+           <span className="cite static" aria-hidden="true">{source.n}</span>
+           <span className="grow"><b>{source.title}</b><br /><span className="mut meta">{source.meta}</span></span>
+           <span className="acts">
+-            {href ? <a className="link" href={href} target="_blank" rel={LINK_REL}>{source.label ?? "Open source"}</a> : null}
++            {sheet ? (
++              <Link className="link" href={sheet} prefetch={false}>{DEEP_DIVE}</Link>
++            ) : href ? (
++              <a className="link" href={href} target="_blank" rel={LINK_REL}>{source.label ?? "Open source"}</a>
++            ) : null}
+             <button type="button" className="link" onClick={() => onOpenSource(null)}>Close</button>
+           </span>
+         </div>
+diff --git a/web/tests/unit/answer-view.test.tsx b/web/tests/unit/answer-view.test.tsx
+index eb6fae4..3d2da52 100644
+--- a/web/tests/unit/answer-view.test.tsx
++++ b/web/tests/unit/answer-view.test.tsx
+@@ -3,7 +3,7 @@
+ // link only when its address is an absolute http(s) URL (a scheme-relative "//host" is refused).
+ import { cleanup, render, screen } from "@testing-library/react";
+ import { afterEach, expect, test } from "vitest";
+-import { AnswerView, dayMonth } from "@/components/ask/AnswerView";
++import { AnswerView, dayMonth, UsedPanel } from "@/components/ask/AnswerView";
+ import type { ChatAnswer } from "@/lib/gen/api.gen";
+ 
+ afterEach(cleanup);
+@@ -71,3 +71,60 @@ test("a source with no web page (a provider's own page) has no link in the answe
+   const { container } = view(a);
+   expect(container.querySelector("a.src-link")).toBeNull();
+ });
++
++// --- an Ask citation of a deep-dive table opens the sheet (owner, 2026-11-04) ------------------
++
++function sheetAnswer(match: { match_col: string; match: string } | null): ChatAnswer {
++  const a = answer(null, "12 openings in San Francisco [1]");
++  a.sources[0] = {
++    account_domain: "holdings.example", account_name: "Synthetic Holdings", date: null, kind: "file",
++    meta: match ? `Filtered: Location contains ${match.match}` : "Internal · 644 rows, queried whole",
++    n: 1, title: "Job postings sheet", url: null, label: null,
++    sheet: { key: "jobs", ...(match ?? {}) },
++  };
++  return a;
++}
++
++test("a cited sheet opens the deep dive with its match encoded, in the answer and the source card", () => {
++  const a = sheetAnswer({ match_col: "location", match: "San Francisco & Bay/Area" });
++  const { container } = view(a);
++  const href = "/accounts/holdings.example/jobs?match_col=location&match=San%20Francisco%20%26%20Bay%2FArea";
++  const inline = container.querySelector(".reply .md a.src-link");
++  expect(inline?.textContent).toBe("Open in the deep dive");
++  expect(inline?.getAttribute("href")).toBe(href);
++  // an in-app page: no new tab, no external rel
++  expect(inline?.getAttribute("target")).toBeNull();
++  const card = container.querySelector(".src-card a.link");
++  expect(card?.textContent).toBe("Open in the deep dive");
++  expect(card?.getAttribute("href")).toBe(href);
++  expect(container.querySelector(".src-card")?.textContent).toContain("Filtered: Location contains San Francisco & Bay/Area");
++});
++
++test("a cited sheet without a match opens the whole sheet; a sheet without an account has no link", () => {
++  const { container, unmount } = view(sheetAnswer(null));
++  expect(container.querySelector(".reply .md a.src-link")?.getAttribute("href")).toBe("/accounts/holdings.example/jobs");
++  unmount();
++  const orphan = sheetAnswer(null);
++  orphan.sources[0]!.account_domain = null;
++  const again = view(orphan);
++  expect(again.container.querySelector("a.src-link")).toBeNull();
++});
++
++test("a cited cell of the structured answer and the used panel open the same sheet", () => {
++  const a = sheetAnswer({ match_col: "location", match: "San Francisco" });
++  a.structured = {
++    headline: "12 openings [1]",
++    stats: [],
++    sections: [{ kind: "table", title: "Openings", columns: ["City", "Openings"], rows: [["San Francisco [1]", "12"]] }],
++  };
++  const { container } = view(a);
++  const href = "/accounts/holdings.example/jobs?match_col=location&match=San%20Francisco";
++  const links = [...container.querySelectorAll(".reply a.src-link")].map((l) => l.getAttribute("href"));
++  expect(links.length).toBeGreaterThanOrEqual(2); // the headline and the table cell
++  expect(new Set(links)).toEqual(new Set([href]));
++  cleanup();
++  const used = render(<UsedPanel answer={a} onOpenSource={() => undefined} />);
++  const link = used.getByRole("link", { name: /Open in the deep dive: source 1/ });
++  expect(link.getAttribute("href")).toBe(href);
++  expect(used.container.textContent).toContain("Job postings sheet");
++});
+diff --git a/web/tests/unit/sheet-page.test.tsx b/web/tests/unit/sheet-page.test.tsx
+new file mode 100644
+index 0000000..0d95157
+--- /dev/null
++++ b/web/tests/unit/sheet-page.test.tsx
+@@ -0,0 +1,61 @@
++// @vitest-environment jsdom
++// The deep-dive page opened from an Ask citation (?match_col=location&match=…, owner 2026-11-04):
++// it forwards the match to the API, shows the removable chip the API echoes, and keeps the match
++// on its paging links and tabs. A refused match reads as an unavailable view, never a crash.
++import { cleanup, render, screen } from "@testing-library/react";
++import { afterEach, expect, test, vi } from "vitest";
++import type { Sheet } from "@/lib/gen/api.gen";
++
++const serverGet = vi.fn();
++vi.mock("@/lib/server-api", async (original) => ({
++  ...(await original<typeof import("@/lib/server-api")>()),
++  serverGet: (...args: unknown[]) => serverGet(...args),
++}));
++
++import SheetPage from "@/app/(client)/accounts/[domain]/[sheet]/page";
++
++afterEach(cleanup);
++
++const SHEET: Sheet = {
++  key: "jobs", title: "Job postings", file: "Job postings.xlsx", scope: "Open roles.", footnote: "Note.",
++  private: false, account_name: "Synthetic Holdings", from_file: false, sheet_name: "Sheet 1",
++  columns: [{ key: "title", label: "Role", sortable: true, kind: "strong" }, { key: "location", label: "Location", sortable: true, kind: "text" }],
++  filters: [{ key: "all", label: "All", count: 450 }],
++  filter: "all", sort: "posted", dir: "desc", total: 450, offset: 0,
++  match: { col: "location", label: "Location", value: "San Francisco" },
++  rows: Array.from({ length: 200 }, (_, i) => ({ n: i + 1, cells: { title: `Role ${i + 1}`, location: "San Francisco, US" }, links: {}, link: null })),
++  tabs: [{ key: "summary", label: "Summary", main: false }, { key: "jobs", label: "Jobs", main: true }],
++  file_id: null,
++};
++
++function open(search: Record<string, string>) {
++  return SheetPage({ params: Promise.resolve({ domain: "holdings.example", sheet: "jobs" }), searchParams: Promise.resolve(search) });
++}
++
++test("the page forwards the match, shows its chip and keeps it on the paging links and tabs", async () => {
++  serverGet.mockClear();
++  serverGet.mockResolvedValue(SHEET);
++  render(await open({ match_col: "location", match: "San Francisco" }));
++  expect(serverGet.mock.calls[0]![0]).toBe("/v1/accounts/holdings.example/sheets/jobs?limit=200&match_col=location&match=San+Francisco");
++  const chip = screen.getByRole("link", { name: "Remove the match Location: San Francisco" });
++  expect(chip.getAttribute("href")).toBe("/accounts/holdings.example/jobs?filter=all&sort=posted&dir=desc");
++  expect(screen.getByRole("link", { name: "Show more rows" }).getAttribute("href")).toContain("match_col=location&match=San+Francisco");
++  expect(screen.getByRole("link", { name: "Summary" }).getAttribute("href")).toBe("/accounts/holdings.example/jobs?tab=summary&match_col=location&match=San+Francisco");
++  expect(screen.getByRole("link", { name: "Jobs" }).getAttribute("href")).toBe("/accounts/holdings.example/jobs?match_col=location&match=San+Francisco");
++});
++
++test("a page without a match sends none and shows no chip", async () => {
++  serverGet.mockClear();
++  serverGet.mockResolvedValue({ ...SHEET, match: null });
++  render(await open({}));
++  expect(serverGet.mock.calls[0]![0]).toBe("/v1/accounts/holdings.example/sheets/jobs?limit=200");
++  expect(screen.queryByRole("link", { name: /Remove the match/ })).toBeNull();
++  expect(screen.getByRole("link", { name: "Jobs" }).getAttribute("href")).toBe("/accounts/holdings.example/jobs");
++});
++
++test("a match the API refuses reads as a view that is not available", async () => {
++  serverGet.mockClear();
++  serverGet.mockResolvedValue(null); // a 422 the page asked serverGet to pass through as null
++  const { container } = render(await open({ match_col: "grade", match: "x" }));
++  expect(container.textContent).toContain("That filter or sort is not available");
++});
+diff --git a/web/tests/unit/sheet-view.test.tsx b/web/tests/unit/sheet-view.test.tsx
+index 7143162..42eec0a 100644
+--- a/web/tests/unit/sheet-view.test.tsx
++++ b/web/tests/unit/sheet-view.test.tsx
+@@ -236,3 +236,41 @@ test("a long title wraps in its cell instead of widening the table", () => {
+   const title = within(screen.getByRole("table")).getByText(/Senior Salesforce Marketing Cloud/).closest("td");
+   expect(title?.className).toContain("wrap");
+ });
++
++// --- a match from an Ask citation (owner, 2026-11-04) ----------------------------------------
++
++test("a matched sheet shows a removable chip and keeps the match on every link it builds", async () => {
++  const matched: Sheet = {
++    ...jobs,
++    total: 1,
++    filter: "all",
++    sort: "c1",
++    dir: "asc",
++    match: { col: "location", label: "Location", value: "San Francisco" },
++    filters: [{ key: "all", label: "All", count: 1 }, { key: "status_open", label: "Open", count: 1 }],
++  };
++  const fetched = vi.fn().mockResolvedValue(new Response(JSON.stringify({ n: 1, col: "c3", text: "whole", href: null, withheld: false }), { status: 200, headers: { "content-type": "application/json" } }));
++  vi.stubGlobal("fetch", fetched);
++  render(<SheetView sheet={matched} domain="synthetic.example" base="/accounts/synthetic.example/jobs" moreHref={null} />);
++  const m = "match_col=location&match=San+Francisco";
++  // the chip reads the column and the text; removing it opens the same view without the match
++  const chip = screen.getByRole("link", { name: "Remove the match Location: San Francisco" });
++  expect(chip.textContent).toContain("Location: San Francisco");
++  expect(chip.getAttribute("href")).toBe("/accounts/synthetic.example/jobs?filter=all&sort=c1&dir=asc");
++  // the chips, the sort headings and the downloads stay within the match
++  expect(screen.getByRole("link", { name: "Open · 1" }).getAttribute("href")).toBe(`/accounts/synthetic.example/jobs?filter=status_open&sort=c1&dir=asc&${m}`);
++  expect(screen.getByRole("link", { name: /^Title/ }).getAttribute("href")).toBe(`/accounts/synthetic.example/jobs?filter=all&sort=c1&dir=desc&${m}`);
++  expect(screen.getByRole("link", { name: "Download CSV" }).getAttribute("href")).toBe(`/v1/accounts/synthetic.example/sheets/jobs/csv?filter=all&sort=c1&dir=asc&${m}`);
++  expect(screen.getByRole("link", { name: "Download table as Excel" }).getAttribute("href")).toBe(`/v1/accounts/synthetic.example/sheets/jobs/xlsx?filter=all&sort=c1&dir=asc&${m}`);
++  // a cut cell is fetched under the same match (the row number counts within it)
++  fireEvent.click(screen.getByRole("button", { name: /Show the whole Full description cell of row 1/ }));
++  await waitFor(() => expect(fetched).toHaveBeenCalled());
++  expect(String(fetched.mock.calls[0]![0])).toContain(`/cell?filter=all&sort=c1&dir=asc&${m}&n=1&col=c3`);
++  vi.unstubAllGlobals();
++});
++
++test("a sheet without a match has no match chip and no match in its links", () => {
++  render(<SheetView sheet={{ ...jobs, match: null }} domain="synthetic.example" base="/accounts/synthetic.example/jobs" moreHref={null} />);
++  expect(screen.queryByRole("link", { name: /Remove the match/ })).toBeNull();
++  expect(screen.getByRole("link", { name: "Download CSV" }).getAttribute("href")).not.toContain("match");
++});

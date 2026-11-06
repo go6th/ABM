@@ -38,3 +38,6 @@ to match afterwards so the next plan does not undo the release.
 
 Gates: `make infra-fmt`, `make infra-validate` (both roots), `make infra-test` (offline plan with
 mock providers). No CI job ever applies; the owner applies.
+
+The upload quarantine bucket (2026-11-04) and the exact targeted `plan`/`apply` for it are in
+`docs/deploy/RUNBOOK.md` section "2.1a Quarantine bucket (2026-11-04)".

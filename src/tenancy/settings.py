@@ -238,7 +238,7 @@ async def current(session: AsyncSession) -> SettingsVersion:
         await session.execute(
             text(
                 "SELECT version, settings_json, settings_hash FROM tenant_settings_versions"
-                " ORDER BY version DESC LIMIT 1"
+                " WHERE tenant_id = app_tenant() ORDER BY version DESC LIMIT 1"
             )
         )
     ).first()

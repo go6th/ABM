@@ -316,10 +316,26 @@ class TestPlatformsAndLanes:
         assert p.posting_class == "Not applicable"
 
     def test_platforms_are_separate(self):
+        # every dictionary platform is listed, each under its own lane: Power BI is a ranking
+        # platform of the Data and AI lane, not part of MuleSoft's (UCB, 2026-11-05)
         r = rec(11111, title="Integration Lead", description="MuleSoft Anypoint and Power BI.")
         (p,) = resolve_jobs(zephyr(), [r])
-        assert p.platforms == ("MuleSoft",)
-        assert p.lanes == ("Salesforce",)
+        assert p.platforms == ("MuleSoft", "Power BI")
+        assert p.lanes == ("Salesforce", "Data and AI")
+
+    def test_a_posting_naming_only_a_ranking_platform_is_listed_outside_the_lanes(self):
+        r = rec(11112, title="BI Developer", description="Builds Power BI and Snowflake models.")
+        (p,) = resolve_jobs(zephyr(), [r])
+        assert p.platforms == ("Snowflake", "Power BI")
+        assert p.lanes == ("Data and AI",)
+        assert p.posting_class == "Outside the lanes, not classified"
+
+    def test_a_stored_vendor_spelling_maps_to_the_dictionary_name(self):
+        r = rec(
+            11113, title="Analyst", description="Reports.", stored_platforms=("Microsoft Power BI",)
+        )
+        (p,) = resolve_jobs(zephyr(), [r])
+        assert p.platforms == ("Power BI",)
 
     def test_sap_is_case_sensitive(self):
         low = rec(11111, title="Clerk", description="do a sap of the tree")

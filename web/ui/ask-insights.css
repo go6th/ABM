@@ -1,0 +1,18 @@
+/* Ask: an open question's insights, the collapsed facts table under "Sources" and the model's
+   thinking summary (2026-11-03). Tokens only; no inline styles (the CSP forbids them). */
+.sa-insights { margin: 0; padding: 0; list-style: none; counter-reset: insight; display: flex; flex-direction: column; gap: 12px; }
+.sa-insight { counter-increment: insight; position: relative; padding: 14px 18px 14px 52px; display: flex; flex-direction: column; gap: 10px; }
+.sa-insight::before { content: counter(insight); position: absolute; left: 16px; top: 14px; width: 24px; height: 24px; border-radius: 8px; background: var(--lav-bg); color: var(--lav-ink); font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+.reply .sa-insight-text, .sa-insight-text { margin: 0; font-size: 16px; line-height: 1.65; color: var(--ink-2); overflow-wrap: anywhere; }
+.sa-insight-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; font-size: 14px; line-height: 1.5; color: var(--text-3); }
+.sa-insight-label { font-weight: 700; color: var(--ink); }
+.sa-grade { flex: none; padding: 2px 10px; border-radius: var(--r-pill); font-size: 12.5px; font-weight: 700; }
+.sa-grade.confirmed { background: var(--ok-bg); color: var(--ok-ink); }
+.sa-grade.probable { background: var(--probable-bg); color: var(--probable-ink); }
+.sa-grade.hypothesis { background: var(--warn-bg); color: var(--warn-ink); }
+.sa-sources, .sa-thinking { border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
+.sa-sources > summary, .sa-thinking > summary { cursor: pointer; padding: 10px 16px; min-height: 44px; display: flex; align-items: center; font-size: 14px; font-weight: 600; color: var(--text-3); }
+.sa-sources > summary:focus-visible, .sa-thinking > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 14px; }
+.sa-sources[open] > summary, .sa-thinking[open] > summary { border-bottom: 1px solid var(--line); }
+.sa-sources > .sa-section { padding: 12px 16px 16px; }
+.reply .sa-thinking-text, .sa-thinking-text { margin: 0; padding: 12px 16px 16px; display: flex; flex-direction: column; gap: 8px; font-size: 14.5px; line-height: 1.6; color: var(--text-3); white-space: pre-wrap; overflow-wrap: anywhere; }

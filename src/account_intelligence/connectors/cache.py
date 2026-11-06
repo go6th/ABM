@@ -58,6 +58,9 @@ class ResearchCacheConfig(BaseModel):
     ttl_days_by_operation: dict[str, float | None] = Field(default_factory=dict)
     model_replies: ModelRepliesCfg
     redis_ttl_s: int = Field(ge=60)
+    # the version of the replay keys (ledger args_hash, model reply_key): bumped whenever a change
+    # makes earlier runs' keys miss (ADR-0129; tests/golden/replay_keys.json)
+    replay_key_version: int = Field(ge=1)
 
     def ttl_for(self, operation: str | None) -> timedelta | None:
         """How long a stored call of ``operation`` may be reused; None when never."""
@@ -74,6 +77,11 @@ def load_research_cache_config(path: Path | None = None) -> ResearchCacheConfig:
     """Load and validate the file once."""
     data = yaml.safe_load((path or CONFIG_DIR / "research_cache.yaml").read_text())
     return ResearchCacheConfig.model_validate(data)
+
+
+def replay_key_version() -> int:
+    """REPLAY_KEY_VERSION: the one place it is read (``config/research_cache.yaml``)."""
+    return load_research_cache_config().replay_key_version
 
 
 @dataclass(frozen=True)
@@ -271,6 +279,6 @@ class ResearchCache:
 
 def redis_index(url: str) -> RedisCacheIndex:
     """A Redis index on ``url`` (``redis://host:6379/0``; ``rediss://`` for TLS)."""
-    import redis.asyncio as redis
+    from account_intelligence.platform.redis_url import redis_from_url
 
-    return RedisCacheIndex(redis.Redis.from_url(url))
+    return RedisCacheIndex(redis_from_url(url))

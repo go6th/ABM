@@ -23,7 +23,12 @@ from tests.phase3.conftest import BASE, Plane, add_member, make_app, new_tenant
 
 
 def file_body(*documents: UUID) -> dict[str, Any]:
-    return {"input_mode": "file", "file": {"document_ids": [str(d) for d in documents]}}
+    return {
+        "input_mode": "file",
+        "file": {"document_ids": [str(d) for d in documents]},
+        "confirm": True,
+        "confirm_again": True,
+    }
 
 
 def idem() -> dict[str, str]:

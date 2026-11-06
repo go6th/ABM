@@ -64,6 +64,7 @@ RETIRED = [
     ("OBJECT_STORE_ACCESS_KEY", "S3-compatible store replaced by Cloud Storage; never read."),
     ("OBJECT_STORE_SECRET_KEY", "S3-compatible store replaced by Cloud Storage; never read."),
     ("OBJECT_STORE_REGION", "S3-compatible store replaced by Cloud Storage; never read."),
+    ("MODEL_ROUTER", "The dormant model router was removed (ADR-0113); never read."),
 ]
 
 

@@ -24,7 +24,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Collection
 from datetime import date
 from typing import Any
 from urllib.parse import quote, urlparse
@@ -82,6 +82,7 @@ from jobs.models import CountBlock, NotSearched, PostingCounts
 from jobs.repo import PgPostingRepo, register_posting_sources
 from people.config import load_people_config
 from people.export import build_export
+from people.names import looks_like_person
 from people.repo import PgPeopleRepo
 from tenancy.settings import ExclusionFilter, SettingsInvalid, TenantSettings
 from tenancy.settings import current as current_settings
@@ -213,6 +214,21 @@ def _web_hits(body: bytes, lock: dict[str, Any] | None) -> tuple[WebHit, ...]:
             WebHit(host=host, names_account=text_names_account(lock, text) if lock else None)
         )
     return tuple(hits)
+
+
+def may_be_named(p: Any, listed: Collection[str], erased: Collection[str]) -> bool:
+    """Whether the client files may print this person's name: a person on the People List, or one
+    named on a public page the research read (a ``mention``, such as the CEO in a press release)
+    who is neither on the tenant's exclusion list nor erased (owner decision 2026-11-06). Every
+    other named person is guarded (B9)."""
+    if p.person_key in listed:
+        return True
+    return (
+        p.origin == "mention"
+        and bool(p.mention_url)
+        and p.classification.reason != "tenant_exclusion"
+        and p.person_key not in erased
+    )
 
 
 class PgContentReader:
@@ -756,6 +772,7 @@ class PgContentReader:
                 erased,
                 result.profiles,
                 load_people_config().si_firms,
+                list_internal=load_people_config().internal_listed_in_files,
             )
         except ClientOutputLeak as leak:
             raise LeakError("people export", tuple(h.pattern for h in leak.hits)) from None
@@ -792,13 +809,25 @@ class PgContentReader:
                     )
                     for v in r.found_via
                 ),
+                internal=r.internal,
             )
             for r in export.rows
         )
         return {
             "people": rows,
+            # a record whose name is not a person's ("Olympus Corporation", a title, a quote) is
+            # never guarded: guarding it withheld every text naming the company itself. A person
+            # named on a public page the research read (a "mention": the CEO in a press release)
+            # is not guarded either, unless the tenant excluded them or they were erased: the
+            # company published the name itself (owner decision 2026-11-06, Olympus: 91 texts of
+            # appointments and executive roles were withheld for naming executives such as the
+            # CEO, whom the people provider did not return)
             "people_names": tuple(
-                sorted((p.name, p.person_key in listed) for p in result.people if p.name)
+                sorted(
+                    (p.name, may_be_named(p, listed, erased))
+                    for p in result.people
+                    if p.name and looks_like_person(p.name)
+                )
             ),
             "people_counts": PeopleCounts(
                 summary=export.summary,
@@ -885,6 +914,9 @@ class PgContentReader:
             # verified) and a keyword rule over the sentences (a class, not a finding): both are
             # rows of the file, only the first is graded in the Evidence file
             by_reading = sum(1 for r in rows if r.classified_by == "extractor")
+            # a listed posting that names no platform carries no class (owner decision
+            # 2026-11-06: every read posting is listed, not only those naming a platform)
+            no_platform = sum(1 for r in rows if not r.platforms)
             base = "postings listed on the Jobs sheet"
             counts = counts.model_copy(
                 update={
@@ -899,7 +931,13 @@ class PgContentReader:
                         (
                             "classed_by_rule",
                             "Postings classed by a keyword rule over their sentences (no finding)",
-                            len(rows) - by_reading,
+                            len(rows) - by_reading - no_platform,
+                            base,
+                        ),
+                        (
+                            "listed_no_platform",
+                            "Postings listed that name no platform (not classed)",
+                            no_platform,
                             base,
                         ),
                     )

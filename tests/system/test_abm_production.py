@@ -21,6 +21,7 @@ from uuid import UUID
 import pytest
 from sqlalchemy import text
 
+from account_intelligence.agents.fence import unfence
 from account_intelligence.db.session import tenant_txn
 from account_intelligence.platform.checkpoint import checkpointer_factory
 from account_intelligence.platform.hermetic import InProcessScheduler, ScriptedLlm
@@ -71,7 +72,8 @@ class AbmScript:
         if agent in ("pass1", "pass2"):
             out = []
             for p in data["payloads"][:2]:
-                sentence = _sentence(p["text"])
+                # the page text arrives in its <payload> fence (ADR-0120); a model quotes inside it
+                sentence = _sentence(unfence(p["text"]))
                 if len(sentence) < 8:
                     continue
                 candidate: dict[str, Any] = {
@@ -348,7 +350,9 @@ async def test_full_abm_run_grades_through_the_engine_and_tracks_every_row(
     assert settled_once(run.run)
 
 
-async def test_full_runs_stay_on_workflow_v1_unless_the_flag_is_on(harness: Harness) -> None:
+async def test_a_run_driven_without_the_abm_factory_stays_on_workflow_v1(harness: Harness) -> None:
+    """A slice driven with no graph factory runs Workflow v1 (deprecated, ADR-0135); whether a
+    tenant gets the factory is ``abm_flag_on`` (tests/unit/test_abm_flag_default.py)."""
     from tests.system.world import Script, start_run
 
     started = await start_run(harness, Script())

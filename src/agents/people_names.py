@@ -84,10 +84,10 @@ def names_a_person(value: str) -> bool:
 def people_named(facts: Iterable[StoredFact], limit: int | None = None) -> tuple[str, ...]:
     """Distinct names from the executive facts, in fact order, at most ``limit`` (the skill's
     top ten; every executive found when the research caps are off)."""
-    from account_intelligence.dev_limits import UNCAPPED, research_uncapped
+    from account_intelligence.dev_limits import UNCAPPED, breadth_follows_source
 
     if limit is None:
-        limit = UNCAPPED if research_uncapped() else MAX_PEOPLE
+        limit = UNCAPPED if breadth_follows_source() else MAX_PEOPLE
     out: list[str] = []
     seen: set[str] = set()
     for fact in facts:

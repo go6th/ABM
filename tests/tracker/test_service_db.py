@@ -70,6 +70,9 @@ async def test_seed_is_the_checklist_pinned_and_idempotent() -> None:
             "not_in_uploaded_data",
             "not_searched_file_only",
             "no_internal_access",
+            "consent_required",
+            "pull_not_approved",
+            "careers_site_not_found",
         ],
     }
     async with txn(w) as t:
@@ -146,10 +149,12 @@ async def test_guard_never_completes_with_gaps_and_the_db_refuses_it_directly() 
     async with tenant_txn(w.tenant) as session:
         result = await finish_run(session, tracker(session), w.run, "RUNNING", "COMPLETED")
     assert result.status == "PARTIAL" and not result.verdict.can_complete
-    ((status, reason),) = fetch(
-        "SELECT status, finished_reason FROM account_runs WHERE id = %s", w.run
+    ((status, reason, detail),) = fetch(
+        "SELECT status, finished_reason, stop_detail FROM account_runs WHERE id = %s", w.run
     )
-    assert status == "PARTIAL" and len(json.loads(reason)["blocked_by"]) == 33
+    # one reason code (ADR-0128); the blocking rows (12 named, the rest counted) in the detail
+    assert status == "PARTIAL" and reason == "tracker_verdict"
+    assert detail.startswith("blocked_by: ") and detail.endswith(" and 21 more")
     assert fetch("SELECT status, error FROM runs WHERE id = %s", w.run)[0][0] == "failed"
 
 

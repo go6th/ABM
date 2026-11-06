@@ -91,6 +91,8 @@ def _deps(**extra: Any) -> Any:
         "connectors": None,
         "clock": Clock(),
         "spec": Spec(),
+        # G12 run-start check: these runs have no configured routes to compare
+        "ensure_independent_judge": lambda self: None,
         **extra,
     }
     return type("D", (), fields)()

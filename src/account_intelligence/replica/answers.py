@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import re
 from collections import defaultdict
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
@@ -35,6 +35,7 @@ from account_intelligence.replica.current import (
     NEWEST_POSTING,
 )
 from account_intelligence.replica.settings import CADENCE_DAYS
+from people.config import internal_people_sql
 
 # ---------------------------------------------------------------------------------------------
 # Vocabulary
@@ -227,7 +228,7 @@ class Row:
 
     def haystack(self) -> str:
         """Every searchable field of the row, lower case and space padded for word matches."""
-        extra = " ".join(map(str, self.extra.values()))
+        extra = " ".join(str(v) for k, v in self.extra.items() if k != "sheet")
         return f" {self.text} {self.title} {self.meta} {self.lane or ''} {extra} ".lower()
 
 
@@ -408,7 +409,7 @@ async def load_workspace(
                 " FROM people p LEFT JOIN sources s ON s.account_id = p.account_id AND"
                 " s.source_code = p.source_ref"
                 " WHERE NOT p.excluded AND p.merged_into IS NULL AND p.erased_at IS NULL"
-                " AND coalesce(p.internal_only, false) = false" + NEWEST_PERSON + " LIMIT 3000"
+                f" AND {internal_people_sql()}" + NEWEST_PERSON + " LIMIT 3000"
             )
         )
     ).all():
@@ -614,7 +615,8 @@ async def _file_rows(session: Any, by_id: dict[UUID, Acct], scope: set[UUID]) ->
                 kind="file",
                 account=acct,
                 text=str(r.v),
-                title=f"From your files: {r.document}",
+                title="From your files: "
+                + file_label(str(r.document), (r.document_location or {}).get("member")),
                 meta=f"Internal · {where}" if where else "Internal · from your files",
                 when=when,
                 url=None,
@@ -644,7 +646,7 @@ async def passage_rows(
                 kind="file",
                 account=acct,
                 text=p.content,
-                title=f"From your files: {p.document}",
+                title=f"From your files: {file_label(p.document, p.member)}",
                 meta=f"Internal · {p.cite}" if p.cite else "Internal · from your files",
                 when=None,
                 url=None,
@@ -655,15 +657,63 @@ async def passage_rows(
     return out
 
 
+def file_label(document: str, member: str | None) -> str:
+    """A source's file as the chip names it: the file inside an archive first (``People.xlsx in
+    Acme_workspace.zip``), so eleven sources from one zip are not eleven identical chips."""
+    if not member:
+        return document
+    name = member.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
+    return f"{name} in {document}" if name and name != document else document
+
+
+# the deep-dive sheet a deliverable workbook of a workspace zip is (``documents.workspace``)
+_ROLE_SHEET = {
+    "deliverable_jobs": "jobs",
+    "deliverable_people": "people",
+    "deliverable_tech": "technology",
+}
+
+
+def member_role(member: str | None) -> str | None:
+    """The role of a workspace zip member from its path (``documents.workspace.classify_member``
+    under the folder that holds its ``deliverables/``), or None for a loose upload."""
+    from documents.workspace import classify_member
+
+    if not member:
+        return None
+    parts = [p for p in member.replace("\\", "/").split("/") if p and p != "."]
+    for i, part in enumerate(parts[:-1]):
+        if part.lower() == "deliverables":
+            root = "/".join(parts[:i])
+            return str(classify_member(member, f"{root}/" if root else ""))
+    return None
+
+
+def table_sheet(t: Any) -> str | None:
+    """The deep-dive sheet a table is (``sheets.SHEETS`` / ``FILE_TABLES`` key): a research
+    table by its client table kind, a zip's deliverable workbook by its role; None otherwise."""
+    from account_intelligence.replica.sheets import FILE_TABLES
+
+    if t.view is not None:
+        return next((k for k, kind in FILE_TABLES.items() if kind == t.view.kind), None)
+    return _ROLE_SHEET.get(member_role(t.member) or "")
+
+
 def table_rows(ws: Workspace, tables: list[Any]) -> list[Row]:
     """The workspace's ingested tables (``documents.tables.list_tables``) as citable rows: the
-    model cites the table it queried, and the answer's source list names the file."""
+    model cites the table it queried, and the answer's source list names the file. A table that
+    is a deep-dive sheet (``table_sheet``) carries ``extra["sheet"]``: its citation opens that
+    sheet (``carry_table_matches`` adds the answer's filter)."""
     by_id = {a.id: a for a in ws.accounts}
     out = []
     for t in tables:
         acct = by_id.get(t.account_id)
         if acct is None:
             continue
+        # a research table that spans several accounts has no one account's sheet to open (its
+        # ``account_id`` is only the first of them): it is cited without a deep-dive link
+        many = t.view is not None and len(t.view.account_ids) != 1
+        sheet = None if many else table_sheet(t)
         columns = ", ".join(c.raw for c in t.columns if not c.payload)[:400]
         out.append(
             Row(
@@ -674,7 +724,7 @@ def table_rows(ws: Workspace, tables: list[Any]) -> list[Row]:
                 title=(
                     f"From the research results: {t.name}"
                     if t.view
-                    else f"From your files: {t.document} (table {t.name})"
+                    else f"From your files: {file_label(t.document, t.member)} (table {t.name})"
                 ),
                 meta=f"Internal · {t.row_count} rows, queried whole",
                 when=None,
@@ -687,6 +737,7 @@ def table_rows(ws: Workspace, tables: list[Any]) -> list[Row]:
                     # one table holds every account's rows: it is cited whichever account the
                     # question names (pick_rows)
                     **({"research": True} if t.view else {}),
+                    **({"sheet": {"key": sheet}} if sheet else {}),
                 },
             )
         )
@@ -698,7 +749,13 @@ def table_rows(ws: Workspace, tables: list[Any]) -> list[Row]:
 _MEMBER = "coalesce(p.location->>'member', p.location->'from'->>'member')"
 
 
-async def take_whole_file(session: Any, ws: Workspace, max_chars: int) -> None:
+async def take_whole_file(
+    session: Any,
+    ws: Workspace,
+    max_chars: int,
+    prefer_summary: bool = False,
+    accounts: Sequence[UUID] | None = None,
+) -> None:
     """Give the model the whole of the file the question is about (owner decision 2026-10-17:
     an answer over a spreadsheet must count every row, as a file attached to a chat does).
 
@@ -712,37 +769,133 @@ async def take_whole_file(session: Any, ws: Workspace, max_chars: int) -> None:
     see ``documents.chunking.cite``). There the file is the member the best passage came from:
     only its passages are loaded, measured against the budget and dropped from the retrieved
     list, and the row is named "<member> in <archive>". A document that is not an archive has
-    no member and is read whole as before."""
-    if not ws.passages or max_chars <= 0:
+    no member and is read whole as before.
+
+    ``prefer_summary`` (an open question, ``replica.open_question``; Ask insight-answers plan,
+    2026-11-03): the account's Account Summary goes whole first (a workspace zip's
+    ``deliverable_summary`` member, by its recorded role or its file name), then the best hit's
+    file when it is another file and the rest of the budget holds it. An open question is built
+    from the summary's signal tables and counts, which search alone did not reach. The summary is
+    the one of the account the turn is about, in any workspace of any number of accounts:
+    ``accounts`` (the chat's scoped account or the accounts the question names), else the best
+    hit's account, else the workspace's only account; never another account's summary."""
+    if max_chars <= 0:
         return
-    best = ws.passages[0].key  # passage:<document id>:<seq>
-    parts = best.split(":")
+    # (document id, member, key suffix): the summary first when asked for, then the best hit
+    targets: list[tuple[UUID, str | None, str]] = []
+    hit = await _best_hit_member(session, ws)
+    if prefer_summary:
+        held = {a.id for a in ws.accounts}
+        about = [a for a in accounts or () if a in held]
+        if not about and hit is not None:
+            about = [hit[2]]
+        if not about and len(held) == 1:
+            about = list(held)
+        summary = await _summary_member(session, about) if about else None
+        if summary is not None:
+            targets.append((summary[0], summary[1], ":summary"))
+    if hit is not None and all((hit[0], hit[1]) != (d, m) for d, m, _ in targets):
+        targets.append((hit[0], hit[1], ""))
+    left = max_chars
+    loaded: list[Row] = []
+    for doc_id, member, suffix in targets:
+        got = await _whole_member(session, ws, doc_id, member, left, suffix)
+        if got is None:
+            continue
+        row, taken, size = got
+        loaded.append(row)
+        left -= size
+        ws.passages = [r for r in ws.passages if r.key not in taken]
+    if loaded:
+        ws.whole_files = loaded
+
+
+async def _best_hit_member(session: Any, ws: Workspace) -> tuple[UUID, str | None, UUID] | None:
+    """The document, member and account of the best-ranked retrieved passage."""
+    if not ws.passages:
+        return None
+    parts = ws.passages[0].key.split(":")  # passage:<document id>:<seq>
     if len(parts) != 3:
-        return
+        return None
     try:
         doc_id, seq = UUID(parts[1]), int(parts[2])
     except ValueError:
-        return
-    head = (
+        return None
+    member = (
         await session.execute(
             text(
-                "WITH best AS (SELECT " + _MEMBER + " AS member FROM document_passages p"
-                " WHERE p.document_id = :d AND p.seq = :s)"
-                " SELECT d.name, d.account_id, best.member, count(p.id) AS n,"
-                " coalesce(sum(length(p.content)), 0) AS chars"
-                " FROM documents d JOIN best ON true JOIN document_passages p"
-                " ON p.document_id = d.id AND " + _MEMBER + " IS NOT DISTINCT FROM best.member"
-                " WHERE d.id = :d GROUP BY d.id, d.name, d.account_id, best.member"
+                "SELECT " + _MEMBER + " AS member, p.account_id FROM document_passages p"
+                " WHERE p.document_id = :d AND p.seq = :s"
             ),
             {"d": doc_id, "s": seq},
         )
     ).first()
+    if member is None:
+        return None
+    return doc_id, (str(member.member) if member.member else None), member.account_id
+
+
+# an Account Summary by name: a workspace zip member or a loose upload (documents.workspace
+# names it "<Account>_Account_Summary.docx")
+_SUMMARY_NAME = "%account_summary%.docx"
+
+
+async def _summary_member(session: Any, accounts: Sequence[UUID]) -> tuple[UUID, str | None] | None:
+    """The newest Account Summary of these accounts, the first listed account preferred: a zip
+    member whose recorded role is ``deliverable_summary`` or whose name says so, or a loose
+    summary upload (any account's "<Account>_Account_Summary.docx")."""
+    if not accounts:
+        return None
+    row = (
+        await session.execute(
+            text(
+                "SELECT p.document_id, " + _MEMBER + " AS member FROM document_passages p"
+                " JOIN documents d ON d.id = p.document_id"
+                " LEFT JOIN document_members m ON m.document_id = d.id"
+                " AND m.member_path = " + _MEMBER + ""
+                " WHERE p.account_id = ANY(:accts) AND d.status = 'indexed' AND ("
+                " m.role = 'deliverable_summary'"
+                " OR lower(coalesce(" + _MEMBER + ", '')) LIKE :name"
+                " OR (" + _MEMBER + " IS NULL AND lower(d.name) LIKE :name))"
+                " ORDER BY array_position(CAST(:accts AS uuid[]), p.account_id),"
+                " d.created_at DESC, p.seq LIMIT 1"
+            ),
+            {"accts": list(accounts), "name": _SUMMARY_NAME},
+        )
+    ).first()
+    if row is None:
+        return None
+    return UUID(str(row.document_id)), (str(row.member) if row.member else None)
+
+
+async def _whole_member(
+    session: Any,
+    ws: Workspace,
+    doc_id: UUID,
+    member: str | None,
+    max_chars: int,
+    key_suffix: str,
+) -> tuple[Row, set[str], int] | None:
+    """One file (a document, or one member of an archive) as a ``whole_file`` row, the passage
+    keys it covers and its size against the budget (its stored passages' characters); None when
+    it is empty, over ``max_chars`` or outside the scope."""
+    head = (
+        await session.execute(
+            text(
+                "SELECT d.name, d.account_id, count(p.id) AS n,"
+                " coalesce(sum(length(p.content)), 0) AS chars"
+                " FROM documents d JOIN document_passages p ON p.document_id = d.id"
+                " AND " + _MEMBER + " IS NOT DISTINCT FROM CAST(:m AS text)"
+                " WHERE d.id = :d GROUP BY d.id, d.name, d.account_id"
+            ),
+            {"d": doc_id, "m": member},
+        )
+    ).first()
     if head is None or not head.n or int(head.chars) > max_chars:
-        return
+        return None
     acct = next((a for a in ws.accounts if a.id == head.account_id), None)
     if acct is None:
-        return
-    member = str(head.member) if head.member else None
+        return None
     rows = (
         await session.execute(
             text(
@@ -754,30 +907,27 @@ async def take_whole_file(session: Any, ws: Workspace, max_chars: int) -> None:
     ).all()
     body = "\n".join(str(r.content).strip() for r in rows if r.content)
     if not body.strip():
-        return
+        return None
     archive = str(head.name or "an uploaded file")
     name = f"{member} in {archive}" if member else archive
-    ws.whole_files = [
-        Row(
-            key=f"whole:{doc_id}",
-            kind="file",
-            account=acct,
-            text=body,
-            title=f"From your files: {name} (the whole file)",
-            meta=f"Internal · {int(head.n)} passages, read whole",
-            when=None,
-            url=None,
-            grade="internal",
-            extra={
-                "whole_file": True,
-                "document": name,
-                "lines": body.count("\n") + 1,
-                **({"member": member} if member else {}),
-            },
-        )
-    ]
-    taken = {f"passage:{doc_id}:{r.seq}" for r in rows}
-    ws.passages = [r for r in ws.passages if r.key not in taken]
+    row = Row(
+        key=f"whole:{doc_id}{key_suffix}",
+        kind="file",
+        account=acct,
+        text=body,
+        title=f"From your files: {name} (the whole file)",
+        meta=f"Internal · {int(head.n)} passages, read whole",
+        when=None,
+        url=None,
+        grade="internal",
+        extra={
+            "whole_file": True,
+            "document": name,
+            "lines": body.count("\n") + 1,
+            **({"member": member} if member else {}),
+        },
+    )
+    return row, {f"passage:{doc_id}:{r.seq}" for r in rows}, int(head.chars)
 
 
 async def _tracker_rows(session: Any, by_id: dict[UUID, Acct], scope: set[UUID]) -> list[Row]:
@@ -967,6 +1117,9 @@ class Draft:
         # the model's render_answer call (replica.render), validated and with row-key
         # citations; finish() numbers it for the client, which renders it as cards and tables
         self.structured: dict[str, Any] | None = None
+        # the model's readable thinking summary (a ``summarized`` display, models.yaml
+        # ``ask_model_settings``): shown under "How this was worked out", scrubbed with the answer
+        self.thinking: str | None = None
 
     def cite(self, *rows: Row) -> str:
         """Number the rows as citations (reusing a row's number) and return the markers."""
@@ -1540,12 +1693,120 @@ def plain_text(paragraphs: list[list[dict[str, str]]]) -> str:
     return "\n\n".join(out)
 
 
+_MATCH_OPS = frozenset({"eq", "contains", "icontains"})
+
+
+def _sheet_forms(key: str) -> list[Any]:
+    """Every form of a deep-dive sheet a link may open: the live sheet and, for a table the
+    files print, the file-shaped one (``sheets.parse`` picks one by the account's delivery)."""
+    from account_intelligence.replica import sheets as SH
+
+    forms = [SH.SHEETS[key]] if key in SH.SHEETS else []
+    if key in SH.FILE_TABLES:
+        forms.append(SH.file_sheet(key))
+    return forms
+
+
+def sheet_column(key: str, column: Any, *, by_key: bool = False) -> tuple[str, str] | None:
+    """The sheet column (key, label) a table column maps to: a matchable column of the sheet
+    whose label is the table column's header, case folded (a workbook's "Location" is the Jobs
+    sheet's ``location``; ``by_key``: a research table's column is also the sheet's by its key).
+    The column must be matchable in every form of the sheet, so the link opens whichever form the
+    account shows; None otherwise."""
+    forms = _sheet_forms(key)
+    header = str(column.raw).strip().casefold()
+    for form in forms:
+        for c in form.cols:
+            if not c.match or (
+                c.label.strip().casefold() != header and not (by_key and c.key == column.name)
+            ):
+                continue
+            if all(any(o.key == c.key and o.match for o in other.cols) for other in forms):
+                return c.key, c.label
+    return None
+
+
+def carry_table_matches(rows: Any, stored: Mapping[str, tuple[Any, Any, Any]]) -> None:
+    """Copy the filter of each cited sheet table's last stored query onto its citation
+    (``extra["sheet"]``): one equality or contains test on a column that maps to a matchable
+    sheet column (``sheet_column``) opens the sheet narrowed to those rows; any other query
+    (several conditions, another operator, a radius) opens the whole sheet."""
+    last: dict[str, Any] = {}
+    for table, query, _ in stored.values():
+        last[f"table:{table.id}"] = (table, query)
+    for row in rows:
+        link = row.extra.get("sheet")
+        if not isinstance(link, dict) or row.key not in last:
+            continue
+        table, query = last[row.key]
+        for k in ("match_col", "match", "match_label"):
+            link.pop(k, None)
+        if len(query.where) != 1 or getattr(query, "radius_miles", None) is not None:
+            continue
+        if getattr(query, "distinct_on", None):
+            continue  # the answer counted distinct rows; the sheet would list every copy
+        where = query.where[0]
+        if getattr(where, "also", ()):
+            continue  # the answer also matched other spellings; the sheet matches one
+        value = str(where.value).strip() if isinstance(where.value, str) else ""
+        if where.op not in _MATCH_OPS or not value or len(value) > 200 or "\x00" in value:
+            continue
+        if not _client_safe(value):
+            continue  # the value is printed in the source's line; the answer gate must pass it
+        found = sheet_column(str(link["key"]), where.column, by_key=table.view is not None)
+        if found is not None:
+            link.update({"match_col": found[0], "match": value, "match_label": found[1]})
+
+
+def _client_safe(value: str) -> bool:
+    """Whether a filter value may be printed in a source's line: the client-text guard passes it
+    unchanged (no provider or tool name, person name or provider domain) and it carries no dash
+    the answer gate refuses."""
+    from account_intelligence.replica.sheets import _GATE_DASHES
+    from agents.naming import scrub_client_text
+
+    shown, withheld = scrub_client_text(value)
+    return not withheld and shown == value and not _GATE_DASHES.search(value)
+
+
+def _sheet_title(key: str) -> str:
+    """The title of a deep-dive sheet as a source names it ("Job postings sheet")."""
+    forms = _sheet_forms(key)
+    return f"{forms[0].title} sheet" if forms else "Deep-dive sheet"
+
+
 def source_out(n: int, r: Row) -> dict[str, Any]:
     """One numbered source as the answer's SOURCES list shows it: the link opens the original
-    page and reads "6th / LinkedIn" (``source_label``; a data provider's own page has none)."""
+    page and reads "6th / LinkedIn" (``source_label``; a data provider's own page has none). A
+    cited table that is a deep-dive sheet names the sheet and carries ``sheet`` (the browser
+    opens the sheet, matched by the answer's filter); its ``url`` stays None."""
     from account_intelligence.replica.source_label import source_link
 
     link = source_link(r.url)
+    sheet = r.extra.get("sheet")
+    if isinstance(sheet, dict) and sheet.get("key"):
+        matched = bool(sheet.get("match_col") and sheet.get("match"))
+        return {
+            "n": n,
+            "title": _sheet_title(str(sheet["key"])),
+            "meta": (
+                f"Filtered: {sheet.get('match_label') or sheet['match_col']} contains"
+                f" {sheet['match']}"
+                if matched
+                else r.meta
+            ),
+            "date": r.when.date().isoformat() if r.when else None,
+            "url": None,
+            "label": None,
+            "kind": r.kind,
+            "account_domain": r.account.domain,
+            "account_name": r.account.name,
+            "sheet": {
+                "key": str(sheet["key"]),
+                "match_col": sheet["match_col"] if matched else None,
+                "match": sheet["match"] if matched else None,
+            },
+        }
     return {
         "n": n,
         "title": r.title,
@@ -1556,6 +1817,8 @@ def source_out(n: int, r: Row) -> dict[str, Any]:
         "kind": r.kind,
         "account_domain": r.account.domain,
         "account_name": r.account.name,
+        # every source carries the key, as the thread's stored answer reads back (AnswerSource)
+        "sheet": None,
     }
 
 
@@ -1575,6 +1838,13 @@ def offer_for(
         return None
     newest = max((r.when for r in cited if r.account.id == acct.id and r.when), default=None)
     limit = CADENCE_DAYS.get(acct.cadence or "", 7)
+    if newest is None and any(r.account.id == acct.id and r.kind == "file" for r in cited):
+        # the uploaded files' passages and tables carry no date of their own: an answer resting
+        # on them is as fresh as the account's last refresh, not "undated" (staging 2026-11-03:
+        # three of six answers from one zip offered the web, three did not, at random)
+        days = acct.refreshed_days(now)
+        if days is not None and days <= limit:
+            return None
     if newest is None or (now - newest).days > limit:
         return {
             "account_domain": acct.domain,
@@ -1609,18 +1879,35 @@ def suggestions(ws: Workspace, now: datetime, limit: int = 5) -> list[str]:
         )
     if _recent(ws.signals, now, 7):
         out.append("What changed this week?")
+    # the account the workspace knows most about: confirmed facts first, then any research row;
+    # an account with no research at all is never suggested (2026-11-03: the tenant's own
+    # company, first by name and with nothing held, was offered as "What do we know about 6th?")
+    held = _research_counts(ws)
     best = max(
-        ws.accounts,
-        key=lambda a: sum(1 for f in ws.facts if f.account.id == a.id and f.grade == "confirmed"),
+        (a for a in ws.accounts if held.get(a.id)),
+        key=lambda a: (
+            sum(1 for f in ws.facts if f.account.id == a.id and f.grade == "confirmed"),
+            held[a.id],
+        ),
         default=None,
     )
     if best is not None and any(f.account.id == best.id for f in ws.facts):
         out.append(f"First call questions for {best.name}")
     if len(lane_accounts.get("data_and_ai", set())) >= 2:
         out.append("Which accounts hired in data and AI?")
-    if not out and ws.accounts:
-        out.append(f"What do we know about {ws.accounts[0].name}?")
+    if not out and best is not None:
+        out.append(f"What do we know about {best.name}?")
     return list(dict.fromkeys(out))[:limit]
+
+
+def _research_counts(ws: Workspace) -> dict[UUID, int]:
+    """How many research rows (facts, postings, people, signals, stack, files) each account
+    holds."""
+    counts: dict[UUID, int] = defaultdict(int)
+    for rows in (ws.facts, ws.jobs, ws.people, ws.signals, ws.tech, ws.files):
+        for r in rows:
+            counts[r.account.id] += 1
+    return counts
 
 
 def followups(ws: Workspace, q: Question, focus: Acct | None, now: datetime) -> list[str]:
@@ -1675,7 +1962,28 @@ def finish(
         "account_domain": focus.domain if focus else None,
         "account_name": focus.name if focus else None,
         "answered": answered,
+        "thinking": _thinking_out(d.thinking),
     }
+
+
+# the longest thinking summary an answer carries (the model's own summary, already short)
+THINKING_MAX_CHARS = 6000
+_ANY_CITE = re.compile(r"\[\[[^\]]+\]\]|\[(?:R\d{1,3}|W\d{1,2}|K)\]")
+
+
+def _thinking_out(text: str | None) -> str | None:
+    """The thinking summary as the client shows it: citation markers removed (they number
+    nothing here), whitespace kept to paragraphs, bounded; None when there is none."""
+    if not text:
+        return None
+    clean = _ANY_CITE.sub("", text)
+    clean = "\n\n".join(" ".join(p.split()) for p in clean.split("\n\n") if p.strip())
+    clean = re.sub(r" +([,;.:!?])", r"\1", clean)  # a removed citation leaves no gap
+    if not clean:
+        return None
+    if len(clean) > THINKING_MAX_CHARS:
+        clean = clean[: THINKING_MAX_CHARS - 1].rstrip() + "…"
+    return clean
 
 
 def draft_local(

@@ -21,14 +21,9 @@ from documents.embed import HashingEmbedder, cosine
 from documents.leakcheck import LeakChecker
 from documents.redact import Redactor
 from documents.sandbox import ParsedUnit, SandboxFailed, parse_in_sandbox
-from documents.scan import (
-    ClamdScanner,
-    SignatureScanner,
-    UnavailableScanner,
-    scan_bytes,
-    scanner_for,
-)
+from documents.scan import ClamdScanner, UnavailableScanner, scanner_for
 from tests.documents import fixtures
+from tests.fakes.scanner import scan_bytes
 
 CFG = load_config()
 
@@ -206,14 +201,17 @@ def test_the_kernel_filter_refuses_a_native_socket_and_a_process_but_not_a_threa
 
 
 def test_scanner_verdicts() -> None:
+    # the double answers like clamd: content only, no file-name rules (.py and .js pass)
     assert scan_bytes(fixtures.eicar_txt()).result == "infected"
-    assert scan_bytes(fixtures.exe_as_pdf()).signature == "executable"
-    assert scan_bytes(fixtures.macro_docx()).signature == "office-macro"
-    assert scan_bytes(b"%PDF-1.4\n/OpenAction << /JS (app.alert(1)) >>").result == "infected"
     assert scan_bytes(fixtures.notes_docx()).result == "clean"
     assert scan_bytes(fixtures.meeting_pdf()).result == "clean"
-    assert isinstance(scanner_for("production", "signature", None, 3310), UnavailableScanner)
-    assert isinstance(scanner_for("dev", "signature", None, 3310), SignatureScanner)
+    assert scan_bytes(b"print('hello')\n").result == "clean"
+    assert scan_bytes(b"console.log('hello')\n").result == "clean"
+    # no signature stand-in anywhere: an unconfigured scanner is unavailable in every environment
+    for env in ("production", "staging", "dev", "test"):
+        assert isinstance(scanner_for(env, "clamd", None, 3310).inner, UnavailableScanner)  # type: ignore[attr-defined]
+        assert isinstance(scanner_for(env, "signature", "clamav", 3310).inner, UnavailableScanner)  # type: ignore[attr-defined]
+    assert isinstance(scanner_for("dev", "clamd", "clamav", 3310).inner, ClamdScanner)  # type: ignore[attr-defined]
 
 
 def test_an_unreachable_scanner_fails_closed() -> None:
@@ -499,8 +497,12 @@ def test_a_long_row_is_split_into_exact_parts_that_join_back() -> None:
     assert all(p.location["parts"] == len(parts) for p in parts)
     assert (
         cite(parts[1].location)
-        == f"data/jobs.json, row 1 of data/jobs.json (part 2 of {len(parts)})"
+        == f"data/jobs.json, row 1 of data/jobs.json (part 2 of {len(parts)}), the row of Architect"
     )
+    # a later part names its row (who it is), so a search hit on it is never anonymous; the
+    # first part already holds the short fields and carries no label
+    assert all(p.location["label"] == "Architect" for p in parts[1:])
+    assert "label" not in parts[0].location
     assert _row_parts(["a: 1", "b: 2"], [], 100) == ["a: 1; b: 2"]
     long_field = "a: " + "x" * 90  # longer than a piece: stays whole, never cut inside a field
     assert _row_parts(["k: 1"], [long_field, "b: 2", "c: 3"], 60) == [

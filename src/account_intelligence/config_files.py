@@ -4,7 +4,9 @@ the content hashes, so startup fails fast on a bad file and a run can pin what i
 
 Files and their models: checklist and tracker rules (``tracker.config``), workflow
 (``workflow.spec``), grading (``grading.config``), providers (``connectors.settings``), model
-routes (``platform.llm``), job pipeline (``jobs.config``), billing and the output spec (here).
+routes (``platform.llm``), job pipeline (``jobs.config``) and the output spec (here). The billing
+proposal that used to be validated here (``billing.yaml``) had no reader of its values and moved to
+``docs/registers/billing.yaml`` (ADR-0136).
 """
 
 from __future__ import annotations
@@ -78,24 +80,6 @@ class OutputSpec(_Model):
         return self
 
 
-class ReserveCredits(_Model):
-    """One depth's credit reservation and its source."""
-
-    value: float = Field(gt=0)
-    status: str
-    source: str
-
-
-class Billing(_Model):
-    """``config/billing.yaml`` (D-04 proposals; nothing here is a price)."""
-
-    version: str
-    status: str
-    source: str
-    reserve_credits: dict[str, ReserveCredits]
-    settlement_rule: dict[str, str]
-
-
 def _yaml(name: str, directory: Path) -> tuple[object, str]:
     raw = (directory / name).read_bytes()
     return yaml.safe_load(raw), hashlib.sha256(raw).hexdigest()
@@ -105,12 +89,6 @@ def load_output_spec(directory: Path | None = None) -> OutputSpec:
     """Validate ``output_spec.yaml``."""
     data, _ = _yaml("output_spec.yaml", directory or CONFIG_DIR)
     return OutputSpec.model_validate(data)
-
-
-def load_billing(directory: Path | None = None) -> Billing:
-    """Validate ``billing.yaml``."""
-    data, _ = _yaml("billing.yaml", directory or CONFIG_DIR)
-    return Billing.model_validate(data)
 
 
 @lru_cache(maxsize=1)
@@ -131,7 +109,6 @@ def load_all() -> dict[str, str]:
     load_routes()
     load_jobs_config()
     load_output_spec()
-    load_billing()
     return {
         p.name: hashlib.sha256(p.read_bytes()).hexdigest()
         for p in sorted(CONFIG_DIR.glob("*.yaml"))

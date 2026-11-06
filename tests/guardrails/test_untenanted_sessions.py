@@ -63,3 +63,15 @@ def test_only_the_allow_listed_api_modules_bypass_tenant_scope() -> None:
         f"new callers (review before allowing): {sorted(callers - ALLOWED)};"
         f" stale allow-list entries (remove): {sorted(ALLOWED - callers)}"
     )
+
+
+def test_the_tenant_session_module_does_not_carry_the_way_out() -> None:
+    """ADR-0123: the system scope and the untenanted session live in ``db.system_scope`` alone,
+    which import-linter lets only the allow-listed modules import; a re-export from
+    ``db.session`` (imported everywhere) would bypass that contract."""
+    import account_intelligence.db.session as session
+    import account_intelligence.db.system_scope as scope
+
+    for name in ("untenanted_session", "set_system", "system_scope"):
+        assert not hasattr(session, name), name
+        assert callable(getattr(scope, name)), name

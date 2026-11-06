@@ -32,6 +32,6 @@ staff = {
 # moonshot_enabled   = false # true only after moonshot-api-key has a version
 # moonshot_api = { base_url = "https://ollama.com/v1", dialect = "ollama", model = "kimi-k3:cloud" } # Kimi K3 through Ollama Cloud
 # maildrive = { google_client_id = "", microsoft_client_id = "" } # an id here needs its secret
-# archive_lock       = false # true locks the audit archive for 7 years (irreversible)
+# archive_lock       = true # default (ADR-0125): locks the audit archive for 7 years; IRREVERSIBLE once applied
 # workload_alerts_enabled = false # true once the OTLP exporter ships metrics (V-OBS-1)
 # mail = { host = "smtp.gmail.com", port = 587, username = "sender@example.com", from = "sender@example.com", from_name = "Account Intelligence by 6th" } # set once smtp-password has a version

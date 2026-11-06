@@ -163,7 +163,6 @@ definer-owner and IAM-user tests) is part of that run.
 | --- | --- | --- |
 | route catalog | `uv run --frozen python scripts/check_route_catalog.py` | exit 0, "every route has a policy, an audit class and a session tenant" |
 | guarantees | `uv run --frozen python scripts/check_guarantees.py` | exit 0, 429 tags, 0 dangling, 0 untagged guards |
-| routing governance | `uv run --frozen python scripts/check_routing_governance.py` | exit 0 |
 | comments | `uv run --frozen python scripts/check_comments.py` | exit 0 |
 | loop inventory | `uv run --frozen python scripts/gen_loops.py --check` | exit 0 (regenerated `docs/architecture/loops.md`) |
 | environment docs | `uv run --frozen python scripts/gen_env_docs.py --check` | exit 0, "docs/ENVIRONMENT.md is current" (regenerated) |

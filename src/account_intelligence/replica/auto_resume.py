@@ -47,7 +47,8 @@ from uuid import UUID
 
 from sqlalchemy import text
 
-from account_intelligence.db.session import tenant_txn, untenanted_session
+from account_intelligence.db.session import tenant_txn
+from account_intelligence.db.system_scope import untenanted_session
 from account_intelligence.replica import credits as CR
 from account_intelligence.replica.notifications import notify
 from account_intelligence.runs import lifecycle

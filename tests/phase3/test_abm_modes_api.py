@@ -32,7 +32,10 @@ async def _signed_in(plane: Plane, browser: Browser, name: str) -> UUID:
 
 async def _start(browser: Browser, body: dict, key: str | None = None):  # type: ignore[no-untyped-def,type-arg]
     return await browser.call(
-        "POST", "/v1/runs", json=body, headers={"Idempotency-Key": key or uuid4().hex}
+        "POST",
+        "/v1/runs",
+        json={**body, "confirm": True, "confirm_again": True},
+        headers={"Idempotency-Key": key or uuid4().hex},
     )
 
 
@@ -94,8 +97,6 @@ async def test_mode_is_a_typed_field_only(plane: Plane, browser: Browser) -> Non
 async def test_phase_one_then_phase_two(plane: Plane, browser: Browser) -> None:
     t = await _signed_in(plane, browser, "abm-split")
     domain = "split-abm.example"
-    option = await browser.client.get("/v1/runs/pull-option", params={"domain": domain})
-    assert option.status_code == 200 and option.json() == {"available": False}
     pull = await _start(browser, {"domain": domain, "mode": "pull"})
     assert pull.status_code == 202 and _row(pull.json()["run_id"])[0] == "pull"
     no_data = await _start(
@@ -103,8 +104,6 @@ async def test_phase_one_then_phase_two(plane: Plane, browser: Browser) -> None:
     )
     assert no_data.status_code == 422 and "no_pulled_data" in no_data.text  # no manifest yet
     _store_manifest(t, pull.json()["run_id"], domain)
-    option = (await browser.client.get("/v1/runs/pull-option", params={"domain": domain})).json()
-    assert option["available"] and option["rows_stored"] == 1 and option["pulled_at"]
     build = await _start(
         browser, {"domain": domain, "mode": "build", "parent_run_id": pull.json()["run_id"]}
     )

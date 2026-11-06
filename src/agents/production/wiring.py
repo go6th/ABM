@@ -1,26 +1,31 @@
 """Build the agent layer for one run from the workflow's ``RunDeps`` and plug it into the runner.
 
 * ``abm_deps`` binds every port to its production adapter for one run.
-* ``RunDepsModel`` is the ``AgentModel``: ``RunDeps.model`` routes by task kind (router or legacy
-  tier, recorded) and ``llm.schema.validate`` checks the output (one implementation each).
+* ``RunDepsModel`` is the ``AgentModel``: ``RunDeps.model`` routes by task kind (``llm.route``,
+  recorded) and ``llm.schema.validate`` checks the output (one implementation each).
 * ``AbmGraphFactory`` is what ``workflow.runner.execute_slice`` runs instead of Workflow v1 for an
   ABM run: the compiled graph, its initial state from the run row, and the terminal mapping.
 * ``uses_abm`` decides per run: a ``pull`` or ``build`` run always (those modes exist only here);
   a run started by the research job engine (``run_input.job_id``) or the public-sources run
   linked to a file analysis (``run_input.linked_file_run``) always, since a job's scope
-  (jobs, people, full, topic) is defined on the agent graph's rows; any other ``full`` run only
-  when the tenant's ``abm_agents`` flag is on (deny by default, C34).
+  (jobs, people, full, topic) is defined on the agent graph's rows; any other ``full`` run when
+  the tenant's ``abm_agents`` flag is on. Unlike every other flag, ``abm_agents`` with no rule at
+  all counts as on (ADR-0135: the ABM graph is the product path; Workflow v1 is deprecated). An
+  explicit rule still decides, so an operator who writes a rule that lists no tenant, plan or
+  percentage (``POST /operator/v1/flags``) sends ``full`` runs back to Workflow v1.
 
 GUARANTEE(test_runner_executes_an_abm_run_end_to_end_on_postgres)
-GUARANTEE(test_full_runs_stay_on_workflow_v1_unless_the_flag_is_on)
+GUARANTEE(test_a_missing_abm_agents_rule_runs_the_abm_graph_and_an_explicit_rule_decides)
 """
 
 from __future__ import annotations
 
+import asyncio
 import os
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
+from decimal import Decimal
 from typing import Any, TypeVar
 from uuid import UUID
 
@@ -71,9 +76,12 @@ PRE_SPEND_FAILURES = frozenset(
 
 @dataclass(frozen=True)
 class RunDepsModel:
-    """``AgentModel`` over ``RunDeps.model`` (routed or legacy, recorded) and schema validation."""
+    """``AgentModel`` over ``RunDeps.model`` (routed and recorded) and schema validation.
+    ``efforts`` holds an agent's own effort by task kind (``config/agents.yaml`` ``effort``);
+    a task kind without one runs at the user's effort or its configured one (``llm.route``)."""
 
     deps: RunDeps
+    efforts: Mapping[str, str] = field(default_factory=dict)
 
     async def call(
         self,
@@ -88,12 +96,13 @@ class RunDepsModel:
         the schema"; without the schema itself the model invents field names) and as structured
         output, so a Claude reply cannot fail it (token review item 12, 2026-10-20). A reply that
         still fails it is asked once more; a second failure is ``SchemaInvalid`` (never kept). A
-        reply cut off at its token limit is asked again with twice the limit (up to
-        ``MAX_REASK_TOKENS``): the same limit would cut it off again."""
+        reply cut off at its token limit is asked again at the model's own output limit
+        (``MAX_REASK_TOKENS``, streamed): the same limit would cut it off again."""
         import json
 
+        from account_intelligence.agents.fence import fence_payloads
         from agents.skill_context import with_skill_context
-        from llm.tasks import MAX_REASK_TOKENS, require
+        from llm.route import MAX_REASK_TOKENS, require
 
         json_schema = output.model_json_schema()
         schema = json.dumps(json_schema, separators=(",", ":"))
@@ -107,20 +116,27 @@ class RunDepsModel:
         # the schema joins the least shared part, keeping the shared parts cacheable across kinds
         extended = getattr(prompt, "extended", None)
         system = extended(answer_rule) if extended else f"{prompt}\n\n{answer_rule}"
-        user = json.dumps(dict(payload))
+        # untrusted page text goes in its own <payload> element (ADR-0120)
+        user = json.dumps(fence_payloads(payload))
         tokens = 0
         override: str | None = None
         limit = require(task_kind).max_tokens
         cut_off = False
+        # what the attempts cost (the discarded ones on the chosen model, then the fallback's)
+        paid: list[Decimal | None] = []
+        fallback: dict[str, str] | None = None
         # LOOP(agent schema re-ask): cap=2 attempts, then 2 on the Claude default when the
         # chosen model is Kimi K3; exit=valid reply, SchemaInvalid
         for attempt in range(4):
             if attempt == 2:
-                override = await self._fallback(task_kind)
+                override, fallback = await self._fallback(task_kind, _total(paid))
                 if override is None:
                     break
+                paid = []
             if cut_off:
-                limit = min(limit * 2, MAX_REASK_TOKENS)
+                # straight to the model's own limit: a Claude reply gets one re-ask, and a
+                # doubled limit was spent on thinking again (staging 2026-11-06, Haiku distill)
+                limit = max(limit, MAX_REASK_TOKENS)
             result = await self.deps.model(
                 task_kind,
                 system,
@@ -128,37 +144,102 @@ class RunDepsModel:
                 model=override,
                 schema=json_schema,
                 max_tokens=limit,
+                effort=self.efforts.get(task_kind),
             )
             tokens += int(result.usage.input_tokens + result.usage.output_tokens)
+            paid.append(_cost(result))
             validated = validate(result.text, output)
             if validated is not None:
+                await self._settle_fallback(task_kind, user, fallback, paid)
                 return validated, tokens
             cut_off = str(result.extra.get("stop_reason") or "") == "max_tokens"
+        await self._settle_fallback(task_kind, user, fallback, paid)
         raise SchemaInvalid(f"{task_kind}: output failed its schema")
 
-    async def _fallback(self, task_kind: str) -> str | None:
+    async def _fallback(
+        self, task_kind: str, discarded: Decimal | None
+    ) -> tuple[str | None, dict[str, str] | None]:
         """A step whose chosen model is not Claude and could not meet the strict schema falls
-        back to the Claude default of its role; the run records the step and why (owner
-        decision 2026-10-14). None when there is nothing to fall back to."""
+        back to the Claude default of its role; the run records the step, why, both models and
+        what the discarded attempts cost (owner decision 2026-10-14; a billing event, ADR-0119).
+        ``(None, None)`` when there is nothing to fall back to."""
         from llm.choice import catalogue, claude_default
-        from llm.tasks import LEGACY_TIER
+        from llm.route import require, role_of
 
-        tier = LEGACY_TIER[task_kind]
+        tier = str(require(task_kind).tier)
         chosen = self.deps.chosen_model(tier)
         model = catalogue().get(chosen) if chosen else None
         if model is None or model.provider == "anthropic":
-            return None
-        role = "research" if tier in catalogue().research_tiers else "analysis"
-        target = claude_default(role)
+            return None, None
+        target = claude_default(role_of(tier))
         recorder = self.deps.models
         if recorder is None:  # no run to record on
-            return target
-        recorder.fell_back(task_kind, chosen, target, "schema_invalid")
+            return target, None
+        costs = {"discarded_usd": str(discarded)} if discarded is not None else {}
+        entry = recorder.fell_back(task_kind, chosen, target, "schema_invalid", **costs)
+        async with self.deps.txn(self.deps.tenant_id) as s:
+            await self._record_models(s)
+        return target, entry
+
+    async def _settle_fallback(
+        self, task_kind: str, user: str, entry: dict[str, str] | None, paid: list[Decimal | None]
+    ) -> None:
+        """Add what the fallback's Claude calls cost to its record on the run (the amount the
+        bill exceeds an estimate made for the chosen model; the run's token card shows it) and
+        bill the fallback as one ``model_fallback`` usage event with both model ids and the
+        costs (migration 0100, ADR-0119), in the same transaction. The event is keyed by the run,
+        the step and the request, so a replayed step adds nothing."""
+        import hashlib
+
+        from metering import events
+
+        if entry is None:
+            return
+        extra = _total(paid)
+        if extra is not None:
+            entry["extra_usd"] = str(extra)
+        request = hashlib.sha256(user.encode()).hexdigest()[:16]
+        async with self.deps.txn(self.deps.tenant_id) as s:
+            await self._record_models(s)
+            await events.record(
+                s,
+                "model_fallback",
+                f"{self.deps.run_id}:{task_kind}:{request}",
+                self.deps.clock.now(),
+                detail=entry,
+            )
+
+    async def _record_models(self, s: Any) -> None:
+        """The run's model record as it is now (its fallbacks with their costs)."""
         from account_intelligence.runs import lifecycle
 
-        async with self.deps.txn(self.deps.tenant_id) as s:
-            await lifecycle.record_models(s, self.deps.run_id, recorder.as_json())
-        return target
+        models = self.deps.models
+        if models is not None:  # a fallback is only recorded on a run with a model record
+            await lifecycle.record_models(s, self.deps.run_id, models.as_json())
+
+
+def _cost(result: Any) -> Decimal | None:
+    """One reply's priced cost (``llm.reply_cache.price``; a reused reply reports no usage and
+    costs nothing; None: the model is not priced)."""
+    from llm.reply_cache import ReplyUsage, price
+
+    u = result.usage
+    usage = ReplyUsage(
+        int(u.input_tokens),
+        int(u.output_tokens),
+        int(getattr(u, "cache_read_input_tokens", 0) or 0),
+        int(getattr(u, "cache_creation_input_tokens", 0) or 0),
+        int(getattr(u, "cache_creation_1h_input_tokens", 0) or 0),
+        bool(result.extra.get("batch")),
+    )
+    return price(str(result.model), usage)
+
+
+def _total(costs: list[Decimal | None]) -> Decimal | None:
+    """The sum of priced costs; None when any is unknown (never counted as zero)."""
+    if any(c is None for c in costs):
+        return None
+    return sum((c for c in costs if c is not None), Decimal(0))
 
 
 class _NoConnectors:
@@ -223,11 +304,13 @@ def abm_deps(
     from spend.config import load_spend_config
 
     grading = EngineGrading(deps.txn, ledger, grading_cfg, deps.clock, LlmJudge(deps))
+    registry = load_registry()
+    efforts = {c.task_kind: c.effort for c in registry.values() if c.task_kind and c.effort}
     return AbmDeps(
         cfg=cfg,
-        registry=load_registry(),
+        registry=registry,
         clock=deps.clock,
-        model=RunDepsModel(deps),
+        model=RunDepsModel(deps, efforts),
         provider=provider,
         payloads=StorePayloads(
             deps.payloads,
@@ -282,7 +365,17 @@ async def uses_abm(deps: RunDeps) -> bool:
         plan = (
             await s.execute(text("SELECT plan FROM tenants WHERE id = :t"), {"t": deps.tenant_id})
         ).scalar_one_or_none()
-    return flags.evaluate(rule, FLAG, deps.tenant_id, str(plan or ""))
+    return abm_flag_on(rule, deps.tenant_id, str(plan or ""))
+
+
+def abm_flag_on(rule: dict[str, Any] | None, tenant_id: UUID, plan: str) -> bool:
+    """``abm_agents`` for one tenant: on when no rule was ever written (ADR-0135), otherwise
+    the rule decides like any flag (``admin.flags.evaluate``)."""
+    from admin import flags
+
+    if rule is None:
+        return True
+    return flags.evaluate(rule, FLAG, tenant_id, plan)
 
 
 @dataclass(frozen=True)
@@ -314,8 +407,12 @@ class AbmGraphFactory:
             from account_intelligence.connectors.service import retry_policy_for
 
             policy = retry_policy_for(deps.connectors.config)
-        return build_abm_graph(abm_deps(deps, lanes, cfg, as_of), policy).compile(
-            checkpointer=saver
+        # building and compiling the graph is ~50 ms of pure Python per slice: in a thread, so
+        # the loop keeps serving heartbeats meanwhile (ADR-0130)
+        return await asyncio.to_thread(
+            lambda: build_abm_graph(abm_deps(deps, lanes, cfg, as_of), policy).compile(
+                checkpointer=saver
+            )
         )
 
     async def initial(self, deps: RunDeps) -> dict[str, Any]:

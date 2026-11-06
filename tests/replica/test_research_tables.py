@@ -129,6 +129,198 @@ async def _tables(d: dict[str, Any]) -> list[T.TableInfo]:
         return await RT.research_tables(s, d["accounts"])
 
 
+# an uploaded workspace, imported into the native tables under a file-import run (no
+# deliverables row, no materialisation): the UCB shape of 2026-11-04
+IMPORTED_PEOPLE = [
+    ("Doris Lu", "Director, CRM", "director", "San Francisco Bay Area", "A", ["Salesforce"]),
+    ("John Derasmo", "Senior Manager, Commercial IT", "other", "Fremont, California", "B", []),
+    ("Werner Raeymaeckers", "Head of Digital Technology", "head", "Atlanta, Georgia", "A",
+     ["Salesforce", "Veeva"]),
+    ("Anurag Khare", "Data Engineer", "other", "Atlanta Metropolitan Area", "", []),
+]  # fmt: skip
+IMPORTED_JOBS = [
+    ("id:94240", "Digital Technology Lead", "open", "Atlanta, GA", ["Salesforce", "Veeva"],
+     "2026-09-30"),
+    ("id:93642", "Technical Lead CRM", "closed", "Atlanta, GA", ["Salesforce"], "2026-05-01"),
+    ("id:90001", "SAP Basis Lead", "open", "Brussels", ["SAP"], None),
+]  # fmt: skip
+
+
+def _import(tenant: UUID, account: UUID, run: UUID) -> list[str]:
+    """The native rows an import writes (people, postings, a detection); the people's ids."""
+    from tests.conftest import ADMIN_DSN
+
+    ids: list[str] = []
+    with psycopg.connect(ADMIN_DSN, autocommit=True) as c:
+        c.execute("SET session_replication_role = replica")
+        # the file-import run the rows hang off (runs.lifecycle.record_file_import_run)
+        c.execute(
+            "INSERT INTO account_runs (id, tenant_id, account_id, status, finished_at,"
+            " finished_reason, graph_version, budget_json, reserved_credits, idempotency_key)"
+            " VALUES (%s, %s, %s, 'COMPLETED', now(), 'file_import', 'file-import', '{}', 0, %s)",
+            (run, tenant, account, f"file-import-{run}"),
+        )
+        for n, (name, title, level, loc, priority, lanes) in enumerate(IMPORTED_PEOPLE, 1):
+            (pid,) = c.execute(
+                "INSERT INTO people (tenant_id, account_id, run_id, profile_url, name, title,"
+                " job_level, source_ref, excluded, person_key, location, lanes, priority,"
+                " scope_status, scope_reason, origin) VALUES (%s, %s, %s, %s, %s, %s, %s,"
+                " 'import', false, %s, %s, %s, %s, %s, %s, 'title_search') RETURNING id",
+                (tenant, account, run, f"https://www.linkedin.com/in/imported-{n}", name,
+                 title, level, f"import:{n}", loc, lanes, priority or None,
+                 "in_scope" if priority else "review",
+                 None if priority else "no priority in the workbook"),
+            ).fetchone()  # fmt: skip
+            ids.append(str(pid))
+        for key, title, status, loc, platforms, posted in IMPORTED_JOBS:
+            c.execute(
+                "INSERT INTO job_postings (tenant_id, account_id, run_id, posting_key, row_json,"
+                " status, window_bucket, title, location, platforms, lanes, posted_at,"
+                " first_seen, url) VALUES (%s, %s, %s, %s, '{}', %s, 'in_window', %s, %s, %s,"
+                " %s, %s, %s, %s)",
+                (tenant, account, run, key, status, title, loc, platforms,
+                 [p.casefold() for p in platforms], posted, posted,
+                 f"https://jobs.example/{key[3:]}"),
+            )  # fmt: skip
+        c.execute(
+            "INSERT INTO tech_detections (tenant_id, account_id, run_id, technology,"
+            " source_count, source_ref) VALUES (%s, %s, %s, 'Salesforce', 3, 'S1')",
+            (tenant, account, run),
+        )
+    return ids
+
+
+@pytest.fixture(scope="module")
+def imported(world: dict[str, Any]) -> dict[str, Any]:
+    from tests.conftest import _make_account
+
+    tenant = world["a"]
+    account = _make_account(tenant, f"imported-{uuid4().hex[:6]}.example")
+    ids = _import(tenant, account, uuid4())
+    return {"tenant": tenant, "account": account, "people_ids": ids}
+
+
+async def test_an_imported_workspace_is_offered_as_research_tables(
+    imported: dict[str, Any],
+) -> None:
+    """An account with imported rows and no delivered run gets the three kinds from the native
+    tables, with the same tools: exact counts by status and place, the routing values, describe
+    and read_rows (the UCB answers of 2026-11-04 needed exactly these)."""
+    from account_intelligence.replica import router as R
+
+    d = {"tenant": imported["tenant"], "accounts": [imported["account"]]}
+    tables = await _tables(d)
+    assert [t.name for t in tables] == [
+        "Research: People",
+        "Research: Job postings",
+        "Research: Tech stack and teams",
+    ]
+    people, jobs, tech = tables
+    assert people.view is not None and people.view.source == "native"
+    assert people.row_count == 4 and jobs.row_count == 3 and tech.row_count == 1
+    assert "imported workspace" in people.document
+    # the routing lexicon: a status word or a platform name routes to the table
+    status = jobs.names["status"]
+    assert status.values == ("Closed", "Open")
+    assert jobs.names["platforms"].multi_valued
+    assert set(jobs.names["platforms"].values) == {"SAP", "Salesforce", "Veeva"}
+    assert people.names["level"].values == ("director", "head", "other")
+    routed = R.rule_route("how many open Salesforce postings are there?", tables)
+    assert routed is not None and routed.route == "tabular", routed
+    async with tenant_txn(d["tenant"]) as s:
+        open_sf = T.parse(
+            jobs,
+            {
+                "where": [
+                    {"column": "status", "op": "eq", "value": "Open"},
+                    {"column": "platforms", "op": "icontains", "value": "Salesforce"},
+                ]
+            },
+        )
+        got = await T.run(s, open_sf)
+        assert got["row_count"] == 1
+        (row,) = got["rows"]
+        assert row["cells"]["requisition"] == "94240" and row["cells"]["posted"] == "2026-09-30"
+        assert row["cells"]["account"] and row["cells"]["file_row"] == 1
+        # a blank date is no date; the dated rows compare as dates
+        since = T.parse(jobs, {"where": [{"column": "posted", "op": "gte", "value": "2026-06-01"}]})
+        assert [r["cells"]["requisition"] for r in (await T.run(s, since))["rows"]] == ["94240"]
+        bay = T.parse(
+            people, {"where": [{"column": "location", "op": "icontains", "value": "Fremont"}]}
+        )
+        assert [r["cells"]["name"] for r in (await T.run(s, bay))["rows"]] == ["John Derasmo"]
+        heads = T.parse(people, {"where": [{"column": "level", "op": "eq", "value": "head"}]})
+        assert [r["cells"]["name"] for r in (await T.run(s, heads))["rows"]] == [
+            "Werner Raeymaeckers"
+        ]
+        described = await T.describe(s, people)
+        assert described["row_count"] == 4
+        assert {c["name"] for c in described["columns"]} >= {"name", "location", "lanes"}
+        read = await T.read(s, people, [1, 4], [])
+        assert read["row_count"] == 2 and not read["not_found"]
+        assert read["rows"][1]["cells"]["name"] == "Anurag Khare"
+        assert read["rows"][1]["cells"]["location"] == "Atlanta Metropolitan Area"
+
+
+async def test_imported_rows_beside_a_delivered_run_are_a_second_table(
+    delivered: dict[str, Any], imported: dict[str, Any]
+) -> None:
+    """Scope mixing a delivered account and an imported one: the materialised table keeps its
+    name, the imported rows are the kind's second table, and no account is in both."""
+    d = {"tenant": imported["tenant"], "accounts": [delivered["accounts"][0], imported["account"]]}
+    names = [t.name for t in await _tables(d)]
+    assert names == [
+        "Research: People",
+        "Research: Job postings",
+        "Research: People (imported)",
+        "Research: Job postings (imported)",
+        "Research: Tech stack and teams",
+    ]
+    by_name = {t.name: t for t in await _tables(d)}
+    assert by_name["Research: People"].view.account_ids == (delivered["accounts"][0],)
+    assert by_name["Research: People (imported)"].view.account_ids == (imported["account"],)
+    assert by_name["Research: People (imported)"].row_count == 4
+
+
+async def test_an_excluded_person_is_hidden_from_the_imported_people_table(
+    imported: dict[str, Any],
+) -> None:
+    """The tenant's CURRENT exclusions apply to the imported rows as to every other surface
+    (F1): an excluded person is neither counted nor listed, and comes back when the exclusion
+    is lifted."""
+    from datetime import UTC, datetime
+
+    from tenancy import settings as tenant_settings
+
+    tenant = imported["tenant"]
+
+    async def exclude(people: list[str]) -> None:
+        async with tenant_txn(tenant) as s:
+            cur = await tenant_settings.current(s)
+            data = cur.settings.model_dump(mode="json")
+            data["exclusions"] = {"people": people, "companies": []}
+            await tenant_settings.save(
+                s,
+                tenant_settings.parse(data),
+                actor="test",
+                expected_version=cur.version,
+                now=datetime.now(UTC),
+            )
+
+    d = {"tenant": tenant, "accounts": [imported["account"]]}
+    await exclude(["https://www.linkedin.com/in/imported-1"])
+    try:
+        people = next(t for t in await _tables(d) if t.view and t.view.kind == "people")
+        assert people.row_count == 3 and len(people.view.hidden) == 1
+        async with tenant_txn(tenant) as s:
+            names = [r["cells"]["name"] for r in (await T.run(s, T.parse(people, {})))["rows"]]
+        assert "Doris Lu" not in names and len(names) == 3
+    finally:
+        await exclude([])
+    people = next(t for t in await _tables(d) if t.view and t.view.kind == "people")
+    assert people.row_count == 4 and people.view.hidden == ()
+
+
 async def test_research_results_are_offered_as_complete_tables(delivered: dict[str, Any]) -> None:
     tables = await _tables(delivered)
     assert [t.name for t in tables] == ["Research: People", "Research: Job postings"]
@@ -490,3 +682,89 @@ def test_a_code_built_table_marks_partial_rows_lists_omitted_columns_and_honours
         },
     )
     assert err is None and empty[0]["rows"] == []
+
+
+async def test_an_import_still_writing_offers_nothing(imported: dict[str, Any]) -> None:
+    """While the account's import is pending or running (``documents.import_status``), its rows
+    are not offered: a count over half-written rows would be wrong. A run left running past the
+    stale window (its worker died) does not hold the rows back."""
+    from tests.conftest import ADMIN_DSN
+
+    tenant, account = imported["tenant"], imported["account"]
+    d = {"tenant": tenant, "accounts": [account]}
+    run_id = uuid4()
+    with psycopg.connect(ADMIN_DSN, autocommit=True) as c:
+        c.execute("SET session_replication_role = replica")
+        c.execute(
+            "INSERT INTO import_runs (id, tenant_id, owner_user_id, account_id, document_id,"
+            " status, started_at) VALUES (%s, %s, 'test-owner', %s, %s, 'running', now())",
+            (run_id, tenant, account, uuid4()),
+        )
+    try:
+        assert await _tables(d) == []
+        with psycopg.connect(ADMIN_DSN, autocommit=True) as c:
+            c.execute("SET session_replication_role = replica")
+            c.execute(
+                "UPDATE import_runs SET started_at = now() - interval '3 hours' WHERE id = %s",
+                (run_id,),
+            )
+        assert [t.view.kind for t in await _tables(d) if t.view] == ["people", "jobs", "tech"]
+        with psycopg.connect(ADMIN_DSN, autocommit=True) as c:
+            c.execute("SET session_replication_role = replica")
+            c.execute("UPDATE import_runs SET status = 'ok' WHERE id = %s", (run_id,))
+        assert len(await _tables(d)) == 3
+    finally:
+        with psycopg.connect(ADMIN_DSN, autocommit=True) as c:
+            c.execute("SET session_replication_role = replica")
+            c.execute("DELETE FROM import_runs WHERE id = %s", (run_id,))
+
+
+async def test_imported_tables_are_isolated_between_tenants(
+    world: dict[str, Any], imported: dict[str, Any]
+) -> None:
+    """Client B's imported rows never reach client A: with row level security on, and with it
+    off (a superuser) under A's bound tenant, since every statement carries ``app_tenant()`` as
+    its own predicate (upload hardening PR1)."""
+    from sqlalchemy import text
+    from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+
+    from account_intelligence.db.session import bind_tenant
+    from tests.conftest import ADMIN_DSN, _make_account
+
+    tenant_a, tenant_b = imported["tenant"], world["b"]
+    account_b = _make_account(tenant_b, f"imported-b-{uuid4().hex[:6]}.example")
+    _import(tenant_b, account_b, uuid4())
+    # B sees its own rows; A, asking for B's account, sees nothing (RLS on)
+    async with tenant_txn(tenant_b) as s:
+        own = await RT.research_tables(s, [account_b])
+    assert [t.row_count for t in own] == [4, 3, 1]
+    async with tenant_txn(tenant_a) as s:
+        assert await RT.research_tables(s, [account_b]) == []
+        mixed = await RT.research_tables(s, [imported["account"], account_b])
+        assert [(t.row_count, t.view.account_ids) for t in mixed if t.view] == [
+            (4, (imported["account"],)),
+            (3, (imported["account"],)),
+            (1, (imported["account"],)),
+        ]
+    # RLS off: a superuser bound to A still reads none of B's rows, even through a forged source
+    engine = create_async_engine(ADMIN_DSN.replace("postgresql://", "postgresql+asyncpg://", 1))
+    try:
+        async with engine.connect() as conn, conn.begin():
+            s = AsyncSession(bind=conn)
+            await bind_tenant(s, tenant_a, user="test-owner", system=True)
+            assert await s.scalar(
+                text("SELECT rolbypassrls OR rolsuper FROM pg_roles WHERE rolname = current_user")
+            )
+            assert await RT.research_tables(s, [account_b]) == []
+            forged = next(t for t in own if t.view and t.view.kind == "people")
+            got = await T.run(s, T.parse(forged, {"where": []}))
+            assert got["row_count"] == 0 and got["rows"] == []
+            assert await T.read(s, forged, [1, 2], []) == {
+                **(await T.read(s, forged, [1, 2], [])),
+                "row_count": 0,
+            }
+            mine = await RT.research_tables(s, [imported["account"]])
+            assert [t.row_count for t in mine] == [4, 3, 1]
+            await s.close()
+    finally:
+        await engine.dispose()

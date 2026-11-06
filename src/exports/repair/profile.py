@@ -29,6 +29,14 @@ _LEGAL_FORMS = re.compile(
 )
 
 
+def _day(value: Any) -> date | None:
+    """A date from stored ISO text; None otherwise."""
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except (TypeError, ValueError):
+        return None
+
+
 def short_name(name: str, domain: str = "") -> str:
     """The name the account's own text uses: the name without its legal form, else the brand
     label of its domain (``Acme Holdings, Inc.`` is ``Acme``)."""
@@ -94,6 +102,9 @@ def profile_from_parts(
     domains = {d for d in (primary, *(str(x) for x in lock.get("allowed_domains") or ())) if d}
     domains |= {registrable(str(x)) for x in watch.get("domains") or () if str(x).strip()}
     careers = {str(h).lower() for h in lock.get("careers_hosts") or () if h}
+    # careers hosts an owner bound to the workspace (a confirmed "same company" upload binds
+    # the package's careers host next to its domain, 2026-11-05)
+    careers |= {str(h).lower() for h in watch.get("careers_hosts") or () if str(h).strip()}
     careers_url = str(watch.get("careers_url") or "")
     if careers_url:
         careers.add(host_of(careers_url))
@@ -159,7 +170,11 @@ async def load_profile(
                 "SELECT a.name, a.domain, to_jsonb(a) AS row,"
                 " (SELECT coalesce(r.finished_at, r.created_at) FROM account_runs r"
                 "  WHERE r.account_id = a.id AND r.status IN ('COMPLETED', 'PARTIAL',"
-                "  'BUDGET_EXCEEDED') ORDER BY r.finished_at DESC NULLS LAST LIMIT 1) AS ran"
+                "  'BUDGET_EXCEEDED') ORDER BY r.finished_at DESC NULLS LAST LIMIT 1) AS ran,"
+                " (SELECT r.run_input->>'research_date' FROM account_runs r"
+                "  WHERE r.account_id = a.id AND r.status IN ('COMPLETED', 'PARTIAL',"
+                "  'BUDGET_EXCEEDED') AND r.run_input->>'research_date' IS NOT NULL"
+                "  ORDER BY r.finished_at DESC NULLS LAST LIMIT 1) AS research"
                 " FROM accounts a WHERE a.id = :a"
             ),
             {"a": account_id},
@@ -180,7 +195,10 @@ async def load_profile(
         ),
         {"u": user_id, "dead": list(_DEAD_CONNECTION)},
     )
-    run_date = (head.ran or now).date()
+    # the research date of an imported workspace (``run_input.research_date``, the day its
+    # pulls were made) is the run date; the upload day is not (window and dates, 2026-11-05)
+    research = _day(head.research) if getattr(head, "research", None) else None
+    run_date = research or (head.ran or now).date()
     return profile_from_parts(
         name=str(head.name or head.domain),
         domain=str(head.domain),

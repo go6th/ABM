@@ -14,8 +14,8 @@ label_sets:
   stage: {bound: 20, source: "config/workflow_v1.yaml stages"}
   state: {values: [QUEUED, RUNNING, AWAITING_APPROVAL, DISTILLING, VERIFYING, COMPLETED, PARTIAL, BUDGET_EXCEEDED, FAILED, CANCELED], source: "skill references/04 run states"}
   unit_type: {bound: 30, source: "config/parallel.yaml unit types and bodies"}
-  task_kind: {bound: 20, source: "config/model_routing.yaml task kinds"}
-  tier: {values: [planner, extractor, classifier, synthesis, narrative, judge], source: "config/model_routing.yaml tiers; platform.llm.TIER_TASK (research tiers, 2026-10-21)"}
+  task_kind: {bound: 20, source: "src/llm/route.py TASK_KINDS"}
+  tier: {values: [planner, extractor, classifier, synthesis, narrative, judge], source: "src/llm/route.py TIERS (2026-11-03)"}
   degraded: {values: ["true", "false"], status: proposal}
   token_kind: {values: [input, output, cache_read, cache_write], source: "ARCH caching telemetry"}
   plan_tier: {bound: 5, status: "proposal: plan tiers"}
@@ -37,6 +37,7 @@ label_sets:
   empty_result: {values: ["true", "false"], status: proposal}
   sandbox_outcome: {values: [ok, error], status: proposal}
 metrics:
+  auth_rate_limit_degraded_total: {type: counter, unit: "1", labels: [], series_bound: 1, owner: identity, description: "Sign-in attempts allowed without the shared Redis bucket (fail-open, ADR-0125); the rate_limit_degraded log event pages"}
   ask_routes_total: {type: counter, unit: "1", labels: [route], series_bound: 3, owner: replica, description: "Ask turns by route (the tabular share)"}
   ask_table_queries_total: {type: counter, unit: "1", labels: [empty_result], series_bound: 2, owner: replica, description: "query_table calls by whether they found rows (the empty-result rate)"}
   ask_run_python_total: {type: counter, unit: "1", labels: [sandbox_outcome], series_bound: 2, owner: replica, description: "run_python sandbox runs by outcome (ok, error)"}

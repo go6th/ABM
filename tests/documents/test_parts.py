@@ -291,7 +291,9 @@ async def test_a_client_never_runs_more_parts_at_once_than_its_limit(
 
 
 @pytest.mark.asyncio
-async def test_the_sandbox_child_gets_only_the_config_dir(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_the_sandbox_child_gets_only_the_config_dir(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """An installed image has no ``config/`` beside the package, so the child must be told where
     the config is (found by the Phase 4B click-through: every upload failed in the containers with
     ``FileNotFoundError``); nothing else from the parent's environment reaches it."""
@@ -300,6 +302,8 @@ async def test_the_sandbox_child_gets_only_the_config_dir(monkeypatch: pytest.Mo
     from account_intelligence.config import CONFIG_DIR
     from documents import sandbox
 
+    document = tmp_path / "a.md"  # the parent opens it and hands the child a descriptor
+    document.write_bytes(b"# a\n")
     seen: dict[str, Any] = {}
 
     async def spawn(*args: Any, **kwargs: Any) -> Any:
@@ -310,7 +314,7 @@ async def test_the_sandbox_child_gets_only_the_config_dir(monkeypatch: pytest.Mo
     monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
     with pytest.raises(OSError):
         await sandbox.plan_in_sandbox(
-            "/nonexistent",
+            str(document),
             "md",
             "a.md",
             timeout_s=1,

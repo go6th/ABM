@@ -35,10 +35,11 @@ RUN FASTEMBED_CACHE_PATH=/app/models /app/.venv/bin/python -c \
  && chmod -R a+rX /app/models
 
 FROM python:3.12-slim@sha256:cb33f7f771ecec2ef1225cf39b159591a040391bd73e4c01f00fdfc4c47611d2 AS runtime
-# Current Debian security updates on top of the base image (the Trivy gate fails on fixable HIGH);
-# apt versions are deliberately unpinned so the upgrade can move (DL3008).
+# No package upgrade at build time (fix prompt D, ADR-0121): the pinned base digest defines the image; a fixable
+# HIGH CVE in the base (the Trivy gate) is answered by bumping the digest. Installed packages are
+# unpinned apt versions (DL3008).
 # hadolint ignore=DL3008
-RUN apt-get update && apt-get -y upgrade \
+RUN apt-get update \
  && apt-get install -y --no-install-recommends nodejs poppler-utils libreoffice-writer libreoffice-calc \
  && apt-get clean && rm -rf /var/lib/apt/lists/* \
  && useradd --system --uid 10001 --no-create-home app

@@ -248,6 +248,25 @@ async def test_p12_internal_only_people_never_reach_an_export() -> None:
     assert any("distribution rules" in reason for _, reason, _ in export.summary)
 
 
+@pytest.mark.asyncio
+async def test_p12_narrowed_internal_people_are_listed_and_flagged() -> None:
+    """ADR-0025 narrowed (owner decision 2026-11-06): with ``list_internal`` the People List names
+    internal-only people, flagged ``internal`` so the workspace zip can still leave them out."""
+    result = await Kit(Corpus()).run()
+    assert result.counts is not None
+    export = build_export(
+        result.people,
+        result.counts,
+        result.count_sentences,
+        result.source_codes,
+        list_internal=True,
+    )
+    internal = {p.name for p in result.people if p.internal_only and p.status == "in_scope"}
+    flagged = {r.name for r in export.rows if r.internal}
+    assert internal and internal <= flagged
+    assert not any("distribution rules" in reason for _, reason, _ in export.summary)
+
+
 # P13: untrusted text -------------------------------------------------------------------------
 
 

@@ -17,7 +17,7 @@ function doc(over: Partial<DocumentStatus>): DocumentStatus {
     document_id: "d1", account_id: null, name: "a.pdf", status: "parsed", stage: "parsed", declared_type: "pdf",
     detected_type: "pdf", size_bytes: 10, reason: null, message: null, passages: 3, redactions: 0,
     redaction_tier: "standard", authoritative: false, company: null, needs_company: true, created_at: "2026-10-13T00:00:00Z",
-    parts_total: 1, parts_done: 0, parts_failed: [], indexed_passages: 0, members_read: 0, members_skipped: [],
+    parts_total: 1, parts_done: 0, parts_failed: [], indexed_passages: 0, members_read: 0, members_skipped: [], audience: "client",
     ...over,
   };
 }
@@ -117,7 +117,7 @@ test("after the company is confirmed the files are read again, so they reach Rea
   });
   const seen: DocumentStatus[][] = [];
   const { rerender } = render(<DocumentDrop onChange={(d) => seen.push(d)} initialDrive refresh={0} />);
-  fireEvent.click(await screen.findByRole("checkbox"));
+  fireEvent.click(await screen.findByRole("checkbox", { name: "Select Deck.pdf" }));
   fireEvent.click(screen.getByRole("button", { name: "Add 1 file" }));
   expect(await screen.findByText("Read, waiting for the company")).toBeTruthy();
   indexed = true; // the company was confirmed: the server indexes the file
@@ -140,7 +140,7 @@ test("a file bound to its company but still at parsed keeps being followed to Re
     return doc({});
   });
   render(<DocumentDrop onChange={() => undefined} initialDrive />);
-  fireEvent.click(await screen.findByRole("checkbox"));
+  fireEvent.click(await screen.findByRole("checkbox", { name: "Select Tech.xlsx" }));
   fireEvent.click(screen.getByRole("button", { name: "Add 1 file" }));
   expect(await screen.findByText("Ready", {}, { timeout: 5000 })).toBeTruthy();
   expect(polls).toBeGreaterThan(0);
@@ -169,4 +169,44 @@ test("the drop zone offers a folder button and accepts zip files", () => {
   expect(files.accept.split(",")).toContain(".zip");
   const folder = screen.getByLabelText("Add a folder") as HTMLInputElement;
   expect(folder.hasAttribute("webkitdirectory")).toBe(true);
+});
+
+test("Owner only ticked: the upload starts with audience owner_only and the row says so", async () => {
+  apiMock.mockImplementation(async (method: string, path: string) => {
+    if (method === "POST" && path === "/v1/documents/uploads") {
+      return { document_id: "d5", upload_url: "/v1/documents/d5/content?token=t", method: "PUT", headers: {}, expires_at: "x", max_bytes: 5, direct: false };
+    }
+    if (method === "PUT") return { document_id: "d5", received_bytes: 5 };
+    if (path.endsWith("/complete")) return doc({ document_id: "d5", stage: "scanning", status: "quarantined", audience: "owner_only" });
+    if (path.endsWith("/status")) return doc({ document_id: "d5", stage: "indexed", status: "indexed", needs_company: false, audience: "owner_only" });
+    throw new Error(`unexpected ${method} ${path}`);
+  });
+  render(<DocumentDrop accountId="acc-1" onChange={() => undefined} />);
+  const box = screen.getByRole("checkbox", { name: /Owner only: visible to you and admins/ }) as HTMLInputElement;
+  expect(box.checked).toBe(false);
+  fireEvent.click(box);
+  expect(box.checked).toBe(true);
+  fireEvent.change(screen.getByLabelText("Add files"), { target: { files: [new File(["hello"], "private.pdf")] } });
+  await waitFor(() => expect(screen.getByText("Ready")).toBeTruthy(), { timeout: 5000 });
+  const started = apiMock.mock.calls.filter((c) => c[1] === "/v1/documents/uploads");
+  expect(started).toHaveLength(1);
+  expect(started[0]![2]).toMatchObject({ name: "private.pdf", account_id: "acc-1", audience: "owner_only" });
+  expect(screen.getByText(/Owner only$/)).toBeTruthy();
+});
+
+test("Owner only unticked: the start request carries no audience field", async () => {
+  apiMock.mockImplementation(async (method: string, path: string) => {
+    if (method === "POST" && path === "/v1/documents/uploads") {
+      return { document_id: "d6", upload_url: "/v1/documents/d6/content?token=t", method: "PUT", headers: {}, expires_at: "x", max_bytes: 5, direct: false };
+    }
+    if (method === "PUT") return { document_id: "d6", received_bytes: 5 };
+    if (path.endsWith("/complete")) return doc({ document_id: "d6", stage: "scanning", status: "quarantined" });
+    if (path.endsWith("/status")) return doc({ document_id: "d6", stage: "indexed", status: "indexed", needs_company: false });
+    throw new Error(`unexpected ${method} ${path}`);
+  });
+  render(<DocumentDrop accountId="acc-1" onChange={() => undefined} />);
+  fireEvent.change(screen.getByLabelText("Add files"), { target: { files: [new File(["hello"], "plain.pdf")] } });
+  await waitFor(() => expect(screen.getByText("Ready")).toBeTruthy(), { timeout: 5000 });
+  const started = apiMock.mock.calls.filter((c) => c[1] === "/v1/documents/uploads");
+  expect(Object.keys(started[0]![2] as object)).not.toContain("audience");
 });

@@ -581,11 +581,17 @@ class FakeDelivery:
     def __init__(self) -> None:
         self.released: list[tuple[UUID, tuple[str, ...]]] = []
         self.withheld: list[tuple[UUID, tuple[str, ...]]] = []
+        self.found: list[dict[str, int]] = []
 
     async def release(
-        self, ctx: RunContext, file_ids: Sequence[str], withheld: Sequence[str] = ()
+        self,
+        ctx: RunContext,
+        file_ids: Sequence[str],
+        withheld: Sequence[str] = (),
+        found: Mapping[str, int] | None = None,
     ) -> None:
         self.released.append((ctx.run_id, tuple(file_ids)))
+        self.found.append(dict(found or {}))
         if withheld:
             self.withheld.append((ctx.run_id, tuple(withheld)))
 

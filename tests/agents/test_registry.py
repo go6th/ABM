@@ -15,7 +15,7 @@ from agents.errors import AgentConfigInvalid, BudgetExceeded, ToolNotAllowed
 from agents.guards import routing_violations
 from agents.manifest import ManifestRow
 from agents.schemas import SCHEMAS, SenseKind
-from llm.config import load_routing_config
+from llm.route import TASK_KINDS
 
 REG = load_registry()
 T0 = datetime(2026, 10, 8, tzinfo=UTC)
@@ -137,24 +137,46 @@ def test_sense_kinds_match_config() -> None:
 
 
 def test_g11_routes_follow_split_mode() -> None:
-    routing = load_routing_config()
-    tiers = {k: v.tier for k, v in routing.task_kinds.items()}
+    tiers = {k: str(v.tier) for k, v in TASK_KINDS.items()}
     agent_tasks = {name: c.task_kind for name, c in REG.items()}
     assert routing_violations(agent_tasks, tiers, "extractor", "planner") == ()
     assert all(tiers[c.task_kind] == c.model_tier for c in REG.values() if c.task_kind)
 
 
-def test_g11_verifier_family_independence_is_reported_not_hidden() -> None:
-    routing = load_routing_config()
-    judge = {routing.candidates[n].family for n in routing.tiers[routing.judge_tier].ladder}
-    generators = {
-        routing.candidates[n].family
-        for t in ("extractor", "planner")
-        for n in routing.tiers[t].ladder
-    }
-    # One model family is configured today: verification is "not independent" and Confirmed is
-    # capped by the existing G12 path (docs/routing/DECISIONS.md). This test pins the fact.
-    assert judge == generators == {"claude"}
+def test_g11_extraction_and_analysis_agents_differ_or_one_model_is_declared(
+    tmp_path: Path,
+) -> None:
+    """G11 at the model level (the tier-name check above passes whatever the models are): the
+    extraction agents (extractor tier) and the analysis agents (sense check and distill, planner
+    tier) run on different models, or ``models.yaml`` declares that they share one
+    (``g11_shared_model`` with the ADR that decided it, and that ADR exists). Silent equality
+    fails, at startup too (``platform.llm.load_routes``)."""
+    from account_intelligence.platform.llm import load_routes
+    from llm.route import split_mode_problem
+
+    root = Path(__file__).resolve().parents[2]
+    raw = yaml.safe_load((root / "config/models.yaml").read_text())
+    routes = load_routes()
+    extraction, analysis = routes["extractor"].model, routes["planner"].model
+    declared = raw.get("g11_shared_model")
+    assert split_mode_problem(extraction, analysis, declared) is None
+    if extraction == analysis:
+        assert (root / declared["adr"]).is_file(), declared
+    # silent equality, a declaration without its ADR or for other tiers, is a violation
+    adr = "docs/decisions/ADR-0117-g11-shared-model-declared.md"
+    pair = ["extractor", "planner"]
+    assert split_mode_problem("m", "m", None) is not None
+    assert split_mode_problem("m", "m", {"tiers": pair}) is not None
+    assert split_mode_problem("m", "m", {"tiers": pair, "adr": "see the wiki"}) is not None
+    assert split_mode_problem("m", "m", {"tiers": ["extractor", "judge"], "adr": adr}) is not None
+    assert split_mode_problem("m", "m", {"tiers": pair, "adr": adr}) is None
+    assert split_mode_problem("a", "b", None) is None
+    # the service refuses to start on a silent equality
+    silent = {k: v for k, v in raw.items() if k != "g11_shared_model"}
+    (tmp_path / "models.yaml").write_text(yaml.safe_dump(silent))
+    if extraction == analysis:
+        with pytest.raises(ValueError, match="G11"):
+            load_routes(tmp_path / "models.yaml")
 
 
 def test_toolbox_refuses_tools_outside_the_allow_list() -> None:

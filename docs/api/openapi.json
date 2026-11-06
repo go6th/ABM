@@ -3749,6 +3749,21 @@
         "title": "ConnectorStarted",
         "type": "object"
       },
+      "ConsentChange": {
+        "additionalProperties": false,
+        "description": "A3 People data consent: record it for the client (``accept`` true) or withdraw it.",
+        "properties": {
+          "accept": {
+            "title": "Accept",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "accept"
+        ],
+        "title": "ConsentChange",
+        "type": "object"
+      },
       "ConsoleAdmin": {
         "additionalProperties": false,
         "description": "One 6th admin (from the staff allow-lists).",
@@ -7499,6 +7514,54 @@
           "document_ids"
         ],
         "title": "FileInput",
+        "type": "object"
+      },
+      "FilesRebuilt": {
+        "additionalProperties": false,
+        "description": "Response body: an account's files built again from its newest delivered run.",
+        "properties": {
+          "files": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Files",
+            "type": "array"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "rows": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Rows",
+            "type": "object"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "status",
+          "reason",
+          "files",
+          "rows"
+        ],
+        "title": "FilesRebuilt",
         "type": "object"
       },
       "Filter": {
@@ -11729,6 +11792,24 @@
           "reason_code"
         ],
         "title": "Reason",
+        "type": "object"
+      },
+      "RebuildFiles": {
+        "additionalProperties": false,
+        "description": "A3 Rebuild files: the account, by its domain.",
+        "properties": {
+          "domain": {
+            "maxLength": 253,
+            "minLength": 3,
+            "pattern": "^[a-z0-9][a-z0-9.-]*\\.[a-z]{2,}$",
+            "title": "Domain",
+            "type": "string"
+          }
+        },
+        "required": [
+          "domain"
+        ],
+        "title": "RebuildFiles",
         "type": "object"
       },
       "Reconcile": {
@@ -16880,6 +16961,204 @@
           }
         },
         "summary": "Renew Invite",
+        "tags": [
+          "admin-console"
+        ]
+      }
+    },
+    "/operator/v1/console/clients/{tenant_id}/people-consent": {
+      "get": {
+        "description": "A3: the client's people data consent, as the client's own settings page shows it.",
+        "operationId": "client_people_consent_operator_v1_console_clients__tenant_id__people_consent_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PeopleConsent"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Client People Consent",
+        "tags": [
+          "admin-console"
+        ]
+      },
+      "post": {
+        "description": "A3: record (or withdraw) the client's people data consent to the current text version.\nThe insert-only record names the operator (``operator:<staff id>``) as the one who recorded\nit; a withdrawal is a newer row, as in the app.",
+        "operationId": "set_client_people_consent_operator_v1_console_clients__tenant_id__people_consent_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConsentChange"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PeopleConsent"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set Client People Consent",
+        "tags": [
+          "admin-console"
+        ]
+      }
+    },
+    "/operator/v1/console/clients/{tenant_id}/rebuild-files": {
+      "post": {
+        "description": "A3: build the account's files again from its newest delivered run and refresh its web\ntables. Reads stored rows only; a build the rules refuse leaves the old files in place.",
+        "operationId": "rebuild_files_operator_v1_console_clients__tenant_id__rebuild_files_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RebuildFiles"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FilesRebuilt"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rebuild Files",
         "tags": [
           "admin-console"
         ]

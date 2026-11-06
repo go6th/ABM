@@ -21,6 +21,8 @@ import hashlib
 import json
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
+from datetime import datetime
+from functools import lru_cache
 from typing import Any
 from uuid import UUID
 
@@ -57,6 +59,58 @@ _INSERT = (
 )
 
 
+async def insert_imported(
+    s: Any,
+    *,
+    tenant_id: UUID,
+    account_id: UUID,
+    run_id: UUID,
+    set_hash: str,
+    kind: str,
+    filename: str,
+    sha256: str,
+    size_bytes: int,
+    key: str,
+    manifest: dict[str, Any],
+    built_at: datetime,
+) -> None:
+    """One uploaded package file registered as the account's next ``kind`` version, byte for
+    byte (``documents.workspace_import.register_deliverables``). The caller holds the account's
+    deliverables advisory lock and has stored the bytes under ``key``; this module stays the one
+    writer of ``deliverables`` (W1)."""
+    prev = (
+        await s.execute(
+            text(
+                "SELECT id, version FROM deliverables WHERE tenant_id = :t"
+                " AND account_id = :a AND kind = :k ORDER BY version DESC LIMIT 1"
+            ),
+            {"t": tenant_id, "a": account_id, "k": kind},
+        )
+    ).first()
+    await s.execute(
+        text(_INSERT),
+        {
+            "t": tenant_id,
+            "a": account_id,
+            "r": run_id,
+            "h": set_hash,
+            "k": kind,
+            "v": (int(prev.version) + 1) if prev else 1,
+            "sup": prev.id if prev else None,
+            "fn": filename,
+            "sha": sha256,
+            "size": size_bytes,
+            "key": key,
+            "m": json.dumps(manifest, sort_keys=True),
+            "ch": sha256,
+            "sh": set_hash,
+            "th": set_hash,
+            "rh": set_hash,
+            "at": built_at,
+        },
+    )
+
+
 class ObjectConflict(ExportError):
     """An object key exists with different bytes: storage never overwrites."""
 
@@ -68,6 +122,7 @@ def object_key(tenant_id: str, account_id: str, run_id: str, kind: str, sha256: 
     return f"{tenant_id}/{account_id}/{run_id}/deliverables/{sha256}.{_EXT[kind]}"
 
 
+@lru_cache(maxsize=1)
 def _missing() -> tuple[type[BaseException], ...]:
     """Exceptions the payload stores raise for a missing key (memory, local, Cloud Storage)."""
     errors: list[type[BaseException]] = [KeyError, FileNotFoundError]

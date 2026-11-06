@@ -115,6 +115,14 @@ def classify_text(text: str) -> str | None:
 
 # ---- stored type words -> SIGNAL_TYPES ----------------------------------------------------------
 _TYPE_WORDS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (
+        re.compile(r"exec(?:utive)?[ _]?speaking|speaker|keynote|podcast|webinar"),
+        "Executive speaking",
+    ),
+    (
+        re.compile(r"tech(?:nology)?[ _]?detection|tech[ _]?adoption|customer[ _]?story|vendor"),
+        "Technology adoption",
+    ),
     (re.compile(r"leadership|exec(?:utive)? (?:change|move|hire)"), "Leadership change"),
     (re.compile(r"build[ -]?role|build[ -]?hiring"), "Build-role hiring"),
     (re.compile(r"hiring spike|platform hiring"), "Platform hiring spike"),
@@ -133,7 +141,8 @@ def map_signal_type(word: str, title: str = "") -> str | None:
     (``funding_ma``, ``news_event``, ``other``) is decided by the title's wording. None: drop."""
     clean = re.sub(r"[_\-/]+", " ", (word or "").lower()).strip()
     for known in core.SIGNAL_TYPES:
-        if clean == known.lower():
+        # a stored "other" says nothing: the title decides (below)
+        if clean == known.lower() and known != "Other":
             return known
     if re.fullmatch(r"funding ?ma|funding m ?& ?a|funding and m ?& ?a", clean):
         kind = classify_text(title)
@@ -141,7 +150,38 @@ def map_signal_type(word: str, title: str = "") -> str | None:
     for rx, kind in _TYPE_WORDS:
         if rx.search(clean):
             return kind
-    return classify_text(title)
+    kind = classify_text(title)
+    if kind is not None:
+        return kind
+    # a stored signal is never lost for its type word: "other", "news_event" and the rest
+    # file under Other (10 of UCB's signals were dropped "unknown signal type", 2026-11-05)
+    return _TITLE_FALLBACK(title)
+
+
+_SPEAKING = re.compile(
+    r"\b(?:spoke|speaks?|speaker|keynote|panel|podcast|webinar|summit|conference|stage|congress)\b",
+    re.I,
+)
+_ADOPTION = re.compile(
+    r"\b(?:implement|rollout|roll[- ]out|migrat|platform|system|adopt|deploy|customer story|"
+    r"used for|as enterprise|go[- ]live|conversion)\w*",
+    re.I,
+)
+_INVESTMENT = re.compile(
+    r"\b(?:invest|campus|facility|plant|capacity|investor|guidance|tariff|agreement with the|"
+    r"government)\w*",
+    re.I,
+)
+
+
+def _TITLE_FALLBACK(title: str) -> str:  # noqa: N802 - a rule table's last row
+    if _SPEAKING.search(title or ""):
+        return "Executive speaking"
+    if _INVESTMENT.search(title or ""):
+        return "Funding / financial"
+    if _ADOPTION.search(title or ""):
+        return "Technology adoption"
+    return "Other"
 
 
 # ---- small helpers ------------------------------------------------------------------------------

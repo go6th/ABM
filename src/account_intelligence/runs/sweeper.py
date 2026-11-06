@@ -13,8 +13,25 @@ worker role); ``ORPHAN_AFTER_S`` is how long a lease must be dead. A run waiting
 
 ``mark_stalled`` (owner decision 2026-10-14) finds running runs whose heartbeat
 (``account_runs.progress_at``, moved by every ledger event and model call) has not moved for the
-platform's ``stall_after_s``: each is marked stalled once and its owner is told in the app
-("research_stalled"); the screen then offers Resume, which ends it PARTIAL and continues it.
+platform's ``stall_after_s`` (``platform_defaults``, default 1800 s: ADR-0132): each is marked
+stalled once and its owner is told in the app ("research_stalled"); the screen then offers
+Resume, which ends it PARTIAL and continues it.
+
+The worker's sweeper pass (``api.main.sweep_pass``, every ``SWEEP_INTERVAL_S``) runs these jobs,
+in this order, each on its own (a failing job is logged and the next still runs):
+
+1. ``_sweep_documents``: uploaded documents whose worker died mid-step are enqueued again.
+2. ``sweep_once``: orphaned runs (this module's ``sweep``) end ``worker_lost``.
+3. ``_mark_stalled``: runs with no progress for ``stall_after_s`` are marked stalled once.
+4. ``_auto_resume``: research that stalled or lost its worker is continued, the way Resume does,
+   within the platform's bounds (``replica.auto_resume``).
+5. ``_close_ended_jobs``: research jobs still open after their run ended are settled.
+6. ``_recover_handoffs``: queued jobs, runs that never began slice 0 and waits past their
+   deadline are handed to the worker again (``runs.recovery``).
+
+There is no retention job: the Cloud Scheduler entry ``retention`` pointed at a route that does
+not exist and was removed (ADR-0132), so data retention is not enforced in staging.
+``tests/runs/test_sweeper_jobs.py`` checks this list against ``sweep_pass``.
 
 GUARANTEE(test_the_sweeper_ends_an_orphaned_run_partial_and_keeps_its_data)
 GUARANTEE(test_a_stalled_run_is_marked_once_and_its_owner_told)

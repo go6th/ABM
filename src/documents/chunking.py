@@ -67,6 +67,24 @@ from documents.sandbox import ParsedUnit
 from documents.shapes import Shape, ShapeLog, member_of
 from documents.shapes import turns as shape_turns
 
+
+class _Verbatim:
+    """The redactor's interface with nothing replaced: the deliverable files of an uploaded
+    workspace are stored as written (``Chunker.verbatim_members``)."""
+
+    def text(self, value: str) -> str:
+        return value
+
+    def cell(self, column: str, value: str) -> str:
+        return value
+
+    def speaker(self, label: str) -> str:
+        return label
+
+
+_VERBATIM = _Verbatim()
+
+
 _ISO_DATE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})(?:T00:00:00(?:\.0+)?)?$")
 _INT = re.compile(r"^-?(?:0|[1-9]\d*)$")
 _FLOAT = re.compile(r"^-?(?:0|[1-9]\d*)\.\d+$")
@@ -363,6 +381,11 @@ class Chunker:
         self.cfg = cfg
         self.name = name
         self.redactor = redactor
+        # the members stored as written (the deliverables of an uploaded workspace package:
+        # the owner's finished files come back word for word, 2026-11-05); the tenant's Strict
+        # tier still applies to them (the service leaves this empty then)
+        self.verbatim_members: set[str] = set()
+        self._active: Any = redactor
         self.max_passages = max_passages
         self.first_seq = first_seq  # a part's passages are numbered from its own range
         self.seq = first_seq
@@ -425,6 +448,9 @@ class Chunker:
         for unit in units:
             if unit.fatal:
                 continue
+            self._active = (
+                _VERBATIM if member_of(unit.location) in self.verbatim_members else self.redactor
+            )
             if unit.rows is not None:
                 self._note(unit, "tabular")
                 yield from self.finish()
@@ -531,7 +557,7 @@ class Chunker:
         for i, u in enumerate(units):
             own = self._heading(u)
             lead = f"{own}\n" if i and own and own != last else ""
-            blocks.append(lead + self.redactor.text(u.text.strip()))
+            blocks.append(lead + self._active.text(u.text.strip()))
             last = own or last
         text = "\n\n".join(blocks)
         base: dict[str, Any] = (
@@ -579,6 +605,7 @@ class Chunker:
         for row_no, cells in rows:
             short: list[str] = []
             payload: list[str] = []
+            label: list[str] = []  # who or what the row is, for its continuation parts
             metadata: dict[str, Any] = {}
             for i, cell in enumerate(cells):
                 column = schema.columns[i] if i < len(schema.columns) else None
@@ -586,7 +613,7 @@ class Chunker:
                     column = Column(normalise_column("", {c.name for c in schema.columns}, i), "")
                     column.raw = f"column {i + 1}"
                     schema.columns.append(column)
-                raw = None if cell is None else self.redactor.cell(column.raw, str(cell))
+                raw = None if cell is None else self._active.cell(column.raw, str(cell))
                 value, kind = typed_cell(raw)
                 metadata[column.name] = value
                 if value is None:
@@ -603,6 +630,8 @@ class Chunker:
                         else:
                             column.note_value(cell_text(value))
                 (payload if column.payload else short).append(f"{column.raw}: {cell_text(value)}")
+                if not column.payload and len(label) < LABEL_FIELDS and _identity(column.name):
+                    label.append(cell_text(value)[:LABEL_CHARS])
             if not short and not payload:
                 continue
             schema.rows += 1
@@ -614,6 +643,10 @@ class Chunker:
             pieces = _row_parts(short, payload, max_chars)
             for i, piece in enumerate(pieces, 1):
                 at = {**row_at, "part": i, "parts": len(pieces)} if len(pieces) > 1 else row_at
+                if i > 1 and label:
+                    # a later part holds payload only (an education list, a description): it
+                    # names the row it belongs to, so a search hit on it says whose it is
+                    at["label"] = "; ".join(label)
                 p = self._next("crm_row", at, table, piece)
                 if p is None:
                     kept = schema.rows - 1
@@ -682,7 +715,7 @@ class Chunker:
         self, unit: ParsedUnit, window: list[tuple[float, str, str, int]], next_start: float | None
     ) -> Passage | None:
         lines = [
-            f"{self.redactor.speaker(s)}: {self.redactor.text(t.strip())}" for _, s, t, _ in window
+            f"{self._active.speaker(s)}: {self._active.text(t.strip())}" for _, s, t, _ in window
         ]
         end = next_start if next_start is not None else window[-1][0]
         location = {
@@ -694,7 +727,7 @@ class Chunker:
         p = self._next("transcript_window", location, "Call transcript", "\n".join(lines))
         if p is not None:  # the window's own speakers and time range (B5), redacted like the text
             p.metadata |= {
-                "speakers": sorted({self.redactor.speaker(s) for _, s, _, _ in window}),
+                "speakers": sorted({self._active.speaker(s) for _, s, _, _ in window}),
                 "start_s": window[0][0],
                 "end_s": end,
             }
@@ -717,6 +750,19 @@ def passage_meta(kind: str, location: dict[str, Any], heading_path: str | None) 
     if heading_path:
         meta["heading_path"] = heading_path
     return meta
+
+
+# the columns that say who or what a row is (the last dotted segment, case and underscores
+# ignored): a flattened profile's ``profile.fullName`` and ``profile.location`` count
+IDENTITY_COLUMNS = frozenset(
+    {"name", "fullname", "title", "currenttitle", "headline", "location", "requisition"}
+)
+LABEL_FIELDS = 3
+LABEL_CHARS = 80
+
+
+def _identity(column: str) -> bool:
+    return column.rsplit(".", 1)[-1].replace("_", "").casefold() in IDENTITY_COLUMNS
 
 
 def _row_parts(short: list[str], payload: list[str], max_chars: int) -> list[str]:
@@ -760,6 +806,8 @@ def cite(location: dict[str, Any]) -> str:
         where = f"row {loc['row']} of {loc.get('table') or loc.get('sheet') or 'the sheet'}"
         if loc.get("parts", 1) > 1:
             where += f" (part {loc['part']} of {loc['parts']})"
+        if loc.get("label"):
+            where += f", the row of {loc['label']}"
         return where
     if "page" in loc:
         last = location.get("to", {}).get("page")

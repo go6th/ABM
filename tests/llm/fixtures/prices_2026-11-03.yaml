@@ -1,0 +1,10 @@
+# Every model's prices (USD per million tokens) as config/models.yaml and config/chat_models.yaml
+# held them on 2026-11-03, before the two tables were merged (ADR-0115). The two files agreed on
+# every model; test_prices_are_numerically_unchanged keeps the merged table equal to these.
+# Order: input, cached read, cache write, output.
+claude-opus-5-5: ["4.00", "0.20", "5.00", "20.00"]
+claude-fable-5-1: ["10.00", "0.25", "12.50", "50.00"]
+kimi-k3: ["3.00", "0.30", "3.00", "15.00"]
+claude-sonnet-5-5: ["2.00", "0.10", "2.50", "10.00"]
+claude-haiku-5-5: ["0.10", "0.01", "0.125", "0.50"]
+grok-4.5: ["2.00", "0.30", "2.00", "6.00"]

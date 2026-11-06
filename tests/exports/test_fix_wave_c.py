@@ -655,10 +655,39 @@ async def test_a_copy_a_client_rule_refuses_is_left_out_and_listed_not_fatal(
     members = _zip_members(store, result)
     kept = {n: v.decode() for n, v in members.items() if n.startswith("data/releases/")}
     # a data tool's name in a copied page is masked, as in the pull log, and the copy stays
-    assert len(kept) == 2 and all(broker("p_scrape") not in v for v in kept.values())
+    assert len(kept) == 4 and all(broker("p_scrape") not in v for v in kept.values())
     assert any("A page that names" in v for v in kept.values())
+    # the word the providers use for their unit and a restricted account's name are scrubbed to
+    # the record marker, as the run's own records are, and those copies stay too (2026-11-05;
+    # before, each was left out whole for the one word)
+    texts = "\n".join(kept.values())
+    assert "credits" not in texts.casefold() and "Synthetic Other Account Inc" not in texts
+    assert "Film [withheld] roll after the talk." in texts
+    assert "[withheld] is a rival." in texts
     held = [b for b in result.manifest.withheld_blocks if b.startswith("workspace.releases:")]
-    assert sorted(b.rsplit(":", 1)[1] for b in held) == ["leak", "third_party"]
+    assert held == []
+
+
+def test_a_copy_still_refused_after_scrubbing_is_left_out_and_listed() -> None:
+    """``release_members`` falls back to leaving a copy out when scrubbing does not clear it
+    (a rule the scrubber does not cover), and never raises."""
+    from exports.config import default_export_config
+    from exports.workspace_files import release_members
+
+    rules = default_export_config().rules.workspace
+    content = account().model_copy(update={"releases": _releases(2)})
+    refused = {"Synthetic text of release 1."}
+
+    def blocked(text: str) -> str | None:
+        return "third_party" if any(r in text for r in refused) else None
+
+    members, left_out, scrubbed = release_members(content, rules, lambda t: t, blocked, lambda t: t)
+    assert len(members) == 1 and scrubbed == 0
+    assert left_out == (("https://alpha.example/releases/item-1", "third_party"),)
+    members, left_out, scrubbed = release_members(
+        content, rules, lambda t: t, blocked, lambda t: t.replace("release 1", "release [x]")
+    )
+    assert len(members) == 2 and scrubbed == 1 and left_out == ()
 
 
 @pytest.mark.asyncio

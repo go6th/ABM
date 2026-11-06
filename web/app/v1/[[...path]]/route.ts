@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { apiOrigin } from "@/lib/api-origin";
+import { serverlessAuth } from "@/lib/serverless-auth";
+import { isFormEncoded, isSamlAcsPost, SAML_ACS_BODY_LIMIT } from "@/lib/cross-site";
 import { bodyLimit, capBody, declaredLength, proxyTimeout } from "@/lib/proxy-body";
 import { isSameOriginRouteRequest } from "@/lib/same-origin";
 import { tenantCookies } from "@/lib/tenant-cookies";
@@ -41,7 +43,13 @@ function problem(status: number, title: string, detail: string): NextResponse {
 }
 
 async function handleProxy(request: NextRequest): Promise<NextResponse> {
-  if (!SAFE_METHODS.has(request.method)) {
+  // the SAML ACS is the one cross-site write (lib/cross-site.ts): form-encoded and size-capped
+  const samlAcs = isSamlAcsPost(request.method, request.nextUrl.pathname);
+  if (samlAcs) {
+    if (!isFormEncoded(request.headers.get("content-type"))) {
+      return problem(415, "Unsupported media type", "The sign-in response must be a form post.");
+    }
+  } else if (!SAFE_METHODS.has(request.method)) {
     if (!isSameOriginRouteRequest(request)) {
       return problem(403, "Request refused", "A same-origin request is required.");
     }
@@ -60,7 +68,7 @@ async function handleProxy(request: NextRequest): Promise<NextResponse> {
   if (cookie) forwardHeaders.set("cookie", cookie);
 
   // The body is streamed, never buffered, and cut off at the route's size limit.
-  const limit = bodyLimit(request.method, request.nextUrl.pathname);
+  const limit = samlAcs ? SAML_ACS_BODY_LIMIT : bodyLimit(request.method, request.nextUrl.pathname);
   const declared = declaredLength(request.headers.get("content-length"));
   if (declared !== null && declared > limit) return problem(413, "Request too large", "The request body is too large.");
   // A DELETE body is small (a confirmation): it is read whole and sent with its length. A body
@@ -76,6 +84,9 @@ async function handleProxy(request: NextRequest): Promise<NextResponse> {
     : null;
 
   try {
+    // the web service's ID token for Cloud Run IAM (ADR-0127); set here, never copied from the
+    // browser (FORWARDED_HEADERS does not carry it)
+    for (const [name, value] of Object.entries(await serverlessAuth(origin))) forwardHeaders.set(name, value);
     const upstream = await fetch(targetUrl.toString(), {
       method: request.method,
       headers: forwardHeaders,

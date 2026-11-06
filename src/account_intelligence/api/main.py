@@ -21,12 +21,13 @@ from types import SimpleNamespace
 from typing import Any
 from uuid import UUID, uuid4
 
-from fastapi import FastAPI, Request
+from fastapi import APIRouter, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from account_intelligence.api.errors import APIProblem
+from account_intelligence.api.planes import Plane, serves, service_role
 from account_intelligence.api.problem import DependencyUnavailable, problem_body
 from account_intelligence.api.routes import (
     health,
@@ -80,6 +81,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     from obs import stalldump
 
     stall_beat = stalldump.install()  # a blocked loop writes every thread's stack to stderr
+    from account_intelligence.app.warm import warm_caches
+
+    # every cached configuration loader's first call (YAML, validation, patterns: ~2 s in all),
+    # made here in a thread instead of inside the first research or request (ADR-0130)
+    await asyncio.to_thread(warm_caches)
     app.state.draining = False
     container = build_container()
     app.state.container = container
@@ -219,21 +225,49 @@ async def _sweep_documents(app: FastAPI) -> None:
         datetime.now(UTC),
         orphan_after_s=load_documents_config().parsing.orphan_after_s,
     )
+    # files whose malware scan could not run are scanned again (bounded attempts)
+    from documents.service import retry_failed_scans
+
+    await retry_failed_scans(
+        datetime.now(UTC),
+        container.scheduler,
+        idle_s=load_documents_config().parsing.orphan_after_s,
+    )
     # documents indexed before the deliverable import existed get their rows read, a few per
     # pass (documents.deliverables, 2026-10-16)
     from documents.deliverables import backfill_imports
 
-    done = await backfill_imports(datetime.now(UTC))
+    service = container.documents
+    done = await backfill_imports(
+        datetime.now(UTC),
+        payloads=getattr(service, "payloads", None),
+        blobs=getattr(service, "blobs", None),
+    )
     if done["documents"]:
         _logger.info(
             "documents.import_backfilled",
             extra={"count": done["facts"], "rows": done["documents"]},
         )
+    # the failed parts of workspace imports, at most three attempts each with a growing wait
+    # (documents.import_status, PR3); the parts that succeeded are never run again
+    from documents.deliverables import retry_import_parts
+
+    retried = await retry_import_parts(
+        datetime.now(UTC),
+        payloads=getattr(service, "payloads", None),
+        blobs=getattr(service, "blobs", None),
+    )
+    if retried["parts"]:
+        _logger.info(
+            "documents.import_parts_retried",
+            extra={"count": retried["parts"], "rows": retried["documents"]},
+        )
 
 
 async def sweep_pass(app: FastAPI) -> None:
-    """One pass of the worker's sweeper: documents, orphaned runs, stalled runs. Each step is
-    independent; a failing step is logged and the next one still runs."""
+    """One pass of the worker's sweeper: the six jobs listed (with what each does) in the
+    ``runs.sweeper`` module docstring, in that order. Each job is independent; a failing job is
+    logged and the next one still runs."""
     try:
         await _sweep_documents(app)
     except Exception as error:  # noqa: BLE001 - one bad pass never stops the sweeper
@@ -283,7 +317,7 @@ async def _recover_handoffs(app: FastAPI) -> Any:
 
     from sqlalchemy import text
 
-    from account_intelligence.db.session import untenanted_session
+    from account_intelligence.db.system_scope import untenanted_session
     from account_intelligence.replica import jobs
     from account_intelligence.runs.recovery import recover
 
@@ -309,7 +343,8 @@ async def _close_ended_jobs(limit: int = 100) -> int:
     left as it is."""
     from sqlalchemy import text
 
-    from account_intelligence.db.session import tenant_txn, untenanted_session
+    from account_intelligence.db.session import tenant_txn
+    from account_intelligence.db.system_scope import untenanted_session
     from account_intelligence.runs.lifecycle import settle_once
 
     ended = "('COMPLETED', 'PARTIAL', 'BUDGET_EXCEEDED', 'FAILED', 'CANCELED')"
@@ -348,7 +383,7 @@ async def _close_ended_jobs(limit: int = 100) -> int:
 async def _sweep_loop(app: FastAPI, settings: Any) -> None:
     """Startup sweep, then one every ``sweep_interval_s``; a failing pass is logged, never fatal.
     A system job (private workspaces, migration 0063): it sees every user's orphans."""
-    from account_intelligence.db.session import set_system
+    from account_intelligence.db.system_scope import set_system
 
     set_system()  # this task's own context only
     # LOOP(orphan sweep loop): cap=none, one pass per interval for the life of the worker;
@@ -454,7 +489,9 @@ def security_headers(headers: Any, *, https: bool) -> None:
 
 
 def create_app() -> FastAPI:
-    """The FastAPI application with probes, the /v1 routes and the /tasks worker routes."""
+    """The FastAPI application: the probes plus the routes of this process's ``SERVICE_ROLE``
+    (``/v1`` and ``/operator`` for the api, ``/tasks`` for the worker, all of them in dev and
+    test; ``api/planes.py``)."""
     # L12: no interactive docs or schema route in the cloud profiles (the API is internal-only
     # there; scripts/export_openapi.py calls app.openapi() directly, so the snapshot is the same)
     cloud = os.environ.get("APP_ENV", "dev") in ("staging", "production")
@@ -610,11 +647,19 @@ def create_app() -> FastAPI:
             media_type="application/problem+json",
         )
 
-    app.include_router(health.router)
-    app.include_router(v1_router)
-    app.include_router(public_v1_router)
-    app.include_router(operator_router)
-    app.include_router(tasks.router)
+    # only the routers of this process's planes are registered (api/planes.py, ADR-0109): a
+    # route another role serves does not exist here and answers 404
+    role = service_role()
+    routers: tuple[tuple[APIRouter, Plane], ...] = (
+        (health.router, "both"),
+        (v1_router, "api"),
+        (public_v1_router, "api"),
+        (operator_router, "api"),
+        (tasks.router, "worker"),
+    )
+    for router, plane in routers:
+        if serves(role, plane):
+            app.include_router(router)
     return app
 
 

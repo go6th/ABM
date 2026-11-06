@@ -1,12 +1,19 @@
 """The parser sandbox's child process: lock down, parse one document, print units as JSON lines.
 
-Run only by ``documents.sandbox`` as ``python -I -m documents.sandbox_child <path> <type> <name>
-<memory MB> <CPU s> <part>`` with an empty environment. ``part`` is JSON: ``{"plan": {...}}`` prints
+Run only by ``documents.sandbox`` as ``python -I -m documents.sandbox_child - <type> <name>
+<memory MB> <CPU s> <part>`` with an empty environment and the document on fd 0 (opened read-only
+by the parent: the child never sees its path; ``-`` names fd 0, a path still works for local
+tools). ``part`` is JSON: ``{"plan": {...}}`` prints
 the document's parts (``documents.parts``) as one line; otherwise ``{"cursor", "end_offset",
 "end_page"}`` parses one part: from the cursor, through a reader that ends at the part's end
 offset, up to its last page. Before any parser module is imported, it
 
-1. sets resource limits: address space, CPU seconds, no file creation (``RLIMIT_FSIZE`` 0);
+1. sets resource limits: address space, CPU seconds, no file creation (``RLIMIT_FSIZE`` 0), no
+   core file, at most ``OPEN_FILES`` descriptors (ADR-0124);
+   then leaves the network namespace where the kernel allows it (``unshare(CLONE_NEWNET)``, or
+   with a new user namespace when unprivileged; Cloud Run and Docker's default profile refuse
+   both, which is recorded as ``netns=unavailable``: the kernel filter below is what keeps the
+   network out), and drops root to ``nobody`` when it runs as root (the images run as 10001);
 2. once the file is open, installs a seccomp filter in the kernel (security audit M2): after
    ``prctl(PR_SET_NO_NEW_PRIVS)``, which needs no privilege and works for a non-root user in a
    container, every thread of the process gets EPERM for ``socket``, ``socketpair``,
@@ -21,11 +28,19 @@ offset, up to its last page. Before any parser module is imported, it
    VERIFY(V-SANDBOX-1): Cloud Run's sandbox accepts ``seccomp(SECCOMP_SET_MODE_FILTER, TSYNC)``;
 3. installs an audit hook (which cannot be removed) that refuses every network operation
    (``socket.*``), every new process (``subprocess``, ``os.system``, ``os.exec*``,
-   ``os.posix_spawn``, ``os.fork``), loading native libraries by path (``ctypes.dlopen``) and any
-   open for writing: the second layer, with clear errors for Python-level attempts.
+   ``os.posix_spawn``, ``os.fork``), loading native libraries by path (``ctypes.dlopen``), any
+   open for writing, and any read or directory listing outside the code and the config
+   (``read_roots``: Python's prefixes, ``sys.path``, ``CONFIG_DIR``, ``/usr``): another
+   tenant's document on the worker's bucket mount, ``/proc/<parent>/environ`` and ``/etc`` are
+   refused. This is the second layer, for Python-level attempts; native code that a hostile
+   document takes over is held by the kernel filter (no network, no process) but could still
+   open files the user can read (ADR-0124 lists that residual risk and the separate parse job
+   that removes it).
 
 A document that tries any of these makes its parse fail; the content never reaches the network.
-The parent reads the units from stdout; stderr carries only a short error class.
+The parent reads the units from stdout; stderr carries only a short error class. The first line
+the child prints (a parse) or a key of its one line (a plan) is ``{"sandbox": {...}}``: which
+protections it applied, which the parent records.
 
 GUARANTEE(test_the_parser_sandbox_has_no_network)
 GUARANTEE(test_the_kernel_filter_refuses_a_native_socket_and_a_process_but_not_a_thread)
@@ -40,10 +55,41 @@ from typing import Any
 
 _BLOCKED_PREFIXES = ("socket.", "subprocess.", "os.exec", "os.posix_spawn", "os.spawn", "pty.")
 _BLOCKED = frozenset({"os.system", "os.fork", "os.forkpty", "ctypes.dlopen", "os.startfile"})
+_LISTING = frozenset({"os.listdir", "os.scandir"})
+OPEN_FILES = 64  # stdio, the document, the interpreter's own: a parser needs no more
+NOBODY = 65534
+_READ_ROOTS: tuple[str, ...] = ()
+
+
+def read_roots() -> tuple[str, ...]:
+    """What the parse may read: the interpreter, the import path, the config, ``/usr``."""
+    import os
+
+    roots = {sys.prefix, sys.base_prefix, sys.exec_prefix, sys.base_exec_prefix, "/usr"}
+    roots |= {p for p in sys.path if p}
+    if os.environ.get("CONFIG_DIR"):
+        roots.add(os.environ["CONFIG_DIR"])
+    return tuple(sorted(os.path.realpath(r) for r in roots))
+
+
+def confine_reads(roots: tuple[str, ...]) -> None:
+    """From now on the audit hook refuses reads and listings outside ``roots``."""
+    global _READ_ROOTS
+    _READ_ROOTS = roots
+
+
+def _readable(path: Any) -> bool:
+    import os
+
+    if not _READ_ROOTS or not isinstance(path, str | bytes | os.PathLike):
+        return True  # not confined yet, or a descriptor (the document is fd 0)
+    real = os.path.realpath(os.fsdecode(path))
+    return any(real == r or real.startswith(r.rstrip("/") + "/") for r in _READ_ROOTS)
 
 
 def _audit(event: str, args: tuple[Any, ...]) -> None:
-    """Refuse network, processes, native loads and writes (see the module docstring)."""
+    """Refuse network, processes, native loads, writes and reads outside the code and the
+    config (see the module docstring)."""
     if event in _BLOCKED or event.startswith(_BLOCKED_PREFIXES):
         raise PermissionError(f"sandbox refused {event}")
     if event == "open" and len(args) >= 2:
@@ -52,6 +98,8 @@ def _audit(event: str, args: tuple[Any, ...]) -> None:
             raise PermissionError("sandbox refused a write")
         if isinstance(mode, int) and mode & 0o3:  # O_WRONLY or O_RDWR
             raise PermissionError("sandbox refused a write")
+    if (event == "open" or event in _LISTING) and args and not _readable(args[0]):
+        raise PermissionError("sandbox refused a read outside the code and config")
 
 
 # Classic BPF over ``struct seccomp_data`` (nr at 0, arch at 4, args at 16, little-endian).
@@ -138,7 +186,7 @@ def deny_network_and_processes() -> bool:
     return True
 
 
-def _limits(memory_mb: int, cpu_s: int) -> None:
+def _limits(memory_mb: int, cpu_s: int) -> str:
     import resource
 
     memory = memory_mb * 1024 * 1024
@@ -146,6 +194,58 @@ def _limits(memory_mb: int, cpu_s: int) -> None:
     resource.setrlimit(resource.RLIMIT_CPU, (cpu_s, cpu_s + 5))
     resource.setrlimit(resource.RLIMIT_FSIZE, (0, 0))
     resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+    resource.setrlimit(resource.RLIMIT_NOFILE, (OPEN_FILES, OPEN_FILES))
+    return "as,cpu,fsize,core,nofile"
+
+
+def isolate_network(os_mod: Any = None) -> str:
+    """Leave the network namespace: ``on``, or ``unavailable`` where the kernel refuses (no
+    ``CAP_SYS_ADMIN`` and no unprivileged user namespaces, as on Cloud Run and in Docker's default
+    profile). Call while the process has one thread."""
+    import os
+
+    o = os if os_mod is None else os_mod
+    unshare = getattr(o, "unshare", None)
+    if unshare is None:
+        return "unavailable"
+    for flags in (os.CLONE_NEWNET, os.CLONE_NEWUSER | os.CLONE_NEWNET):
+        try:
+            unshare(flags)
+            return "on"
+        except OSError:
+            continue
+    return "unavailable"
+
+
+def drop_root(os_mod: Any = None) -> str:
+    """Become ``nobody`` when running as root (``dropped``); a non-root user is left alone
+    (``not_root``: it already cannot read root's files, and cannot change user)."""
+    import os
+
+    o = os if os_mod is None else os_mod
+    if o.geteuid() != 0:
+        return "not_root"
+    o.setgroups([])
+    o.setgid(NOBODY)
+    o.setuid(NOBODY)
+    return "dropped"
+
+
+def _lock_down(applied: dict[str, str]) -> None:
+    """Drop root, confine reads, install the kernel filter and the audit hook (in this order:
+    the filter and the hook come last, once nothing more needs to be opened)."""
+    applied["uid"] = drop_root()
+    confine_reads(read_roots())
+    applied["reads"] = "confined"
+    applied["seccomp"] = "on" if deny_network_and_processes() else "unavailable"
+    sys.addaudithook(_audit)
+
+
+def _document(path: str) -> Any:
+    """The document: fd 0 when ``path`` is ``-`` (the parent's way), else the path."""
+    if path == "-":
+        return open(0, "rb", closefd=False)  # noqa: SIM115 - held for the parse
+    return open(path, "rb")  # noqa: SIM115, PTH123 - local tools only; opened before the hook
 
 
 def _cell(value: Any) -> Any:
@@ -158,7 +258,8 @@ def main(argv: list[str]) -> int:
     """Parse ``argv`` = path, type, name, memory MB, CPU seconds, part; print JSON lines."""
     path, kind, name, memory_mb, cpu_s = argv[0], argv[1], argv[2], int(argv[3]), int(argv[4])
     part: dict[str, Any] = json.loads(argv[5]) if len(argv) > 5 else {}
-    _limits(memory_mb, cpu_s)
+    applied = {"rlimits": _limits(memory_mb, cpu_s), "netns": isolate_network()}
+    applied["input"] = "fd" if path == "-" else "path"
     # import everything the parsers need before the hook: imports read files only, but some
     # modules probe the platform with calls the hook refuses
     from documents import parts
@@ -166,28 +267,34 @@ def main(argv: list[str]) -> int:
     from research_files.parsers import archives, base, documents, media, registry, tabular
 
     del archives, documents, media, tabular
+    # the type tables /etc/mime.types and friends are read now: once reads are confined a lazy
+    # MimeTypes() (openpyxl builds one on import) would be refused
+    import mimetypes
+
+    mimetypes.init()
     cfg = load_config()
     if "plan" in part:
-        with open(path, "rb") as raw:  # noqa: PTH123 - opened before the hook
-            deny_network_and_processes()
-            sys.addaudithook(_audit)
+        with _document(path) as raw:
+            _lock_down(applied)
             planned = parts.plan(
                 raw, kind, unit_text_bytes=cfg.parsing.unit_text_bytes, **part["plan"]
             )
-        sys.stdout.write(json.dumps({"parts": [p.to_json() for p in planned]}) + "\n")
+        sys.stdout.write(
+            json.dumps({"parts": [p.to_json() for p in planned], "sandbox": applied}) + "\n"
+        )
         return 0
     parser = registry.parser_for(kind)
     out = sys.stdout
     if parser is None:
         out.write(json.dumps({"fatal": True, "check": "unsupported_type"}) + "\n")
         return 0
-    raw = open(path, "rb")  # noqa: SIM115 - held for the parse; opened before the hook
+    raw = _document(path)
     stream = parts.bounded(raw, part.get("end_offset"))
     end_page = part.get("end_page")
     cursor = dict(part.get("cursor") or {})
     end_member = cursor.pop("end_member", None)  # a zip part: the next part's first member
-    deny_network_and_processes()
-    sys.addaudithook(_audit)
+    _lock_down(applied)
+    out.write(json.dumps({"sandbox": applied}) + "\n")
     ctx = base.ParseContext(cfg, name)
     last = False
     for unit in parser.units(stream, cursor, ctx):

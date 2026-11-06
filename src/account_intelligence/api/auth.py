@@ -61,7 +61,8 @@ async def _from_session(request: Request, token: str) -> Identity:
     from sqlalchemy import text
 
     from account_intelligence.api.tenant_plane import plane_of
-    from account_intelligence.db.session import bind_tenant, untenanted_session
+    from account_intelligence.db.session import bind_tenant
+    from account_intelligence.db.system_scope import untenanted_session
     from identity import membership, sessions
 
     plane = plane_of(request)

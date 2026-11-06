@@ -31,6 +31,7 @@ import re
 from typing import Any
 
 from account_intelligence.replica.answers import Draft, Row
+from account_intelligence.replica.open_question import MAX_INSIGHTS, OpenQuestion
 from obs.logging import logger
 
 log = logger("replica.render")
@@ -49,6 +50,12 @@ PROSE_MAX_CHARS = 480
 CELL_MAX_CHARS = 320
 MAX_STEPS = 8
 MAX_TITLE = 80
+# an open question's insight (Ask insight-answers plan, 2026-11-03): a seller's conclusion of at
+# most three sentences, the one grade it rests on, and the one thing the seller does next
+INSIGHT_MAX_SENTENCES = 3
+INSIGHT_MAX_CHARS = 640
+ACTION_MAX_CHARS = 240
+GRADES = ("Confirmed", "Probable", "Hypothesis")
 
 TONES = ("info", "warn", "good")
 
@@ -68,8 +75,10 @@ RENDER_TOOL: dict[str, Any] = {
         "result (and any nearby rows it found) with the row number, the citation and a note of "
         "the filters and counts, so you name only the columns the question touches. "
         "A prose section is at most two sentences per paragraph. A callout holds one "
-        "warning or key finding. Steps list what the seller does next. Cite the numbered "
-        "workspace rows as [R3] inside the strings."
+        "warning or key finding. Steps list what the seller does next. An `insights` section "
+        "answers an open question (the rules say when): each item is a conclusion of at most "
+        "three sentences, its grade and one next action. Cite the numbered workspace rows as "
+        "[R3] inside the strings."
     ),
     "input_schema": {
         "type": "object",
@@ -98,7 +107,9 @@ RENDER_TOOL: dict[str, Any] = {
                     "additionalProperties": False,
                     "required": ["kind"],
                     "properties": {
-                        "kind": {"enum": ["table", "result", "prose", "callout", "steps"]},
+                        "kind": {
+                            "enum": ["table", "result", "prose", "callout", "steps", "insights"]
+                        },
                         "result_id": {"type": "string", "maxLength": 12},
                         "exclude_rows": {
                             "type": "array",
@@ -121,6 +132,23 @@ RENDER_TOOL: dict[str, Any] = {
                         "text": _str,
                         "tone": {"enum": list(TONES)},
                         "items": {"type": "array", "maxItems": MAX_STEPS, "items": _str},
+                        "insights": {
+                            "type": "array",
+                            "maxItems": MAX_INSIGHTS,
+                            "items": {
+                                "type": "object",
+                                "additionalProperties": False,
+                                "required": ["conclusion", "grade", "action"],
+                                "properties": {
+                                    "conclusion": {
+                                        "type": "string",
+                                        "maxLength": INSIGHT_MAX_CHARS,
+                                    },
+                                    "grade": {"enum": list(GRADES)},
+                                    "action": {"type": "string", "maxLength": ACTION_MAX_CHARS},
+                                },
+                            },
+                        },
                     },
                 },
             },
@@ -148,7 +176,8 @@ RENDER_RULES = (
     " lists what the seller does next. Cite the numbered rows as [R3] inside the strings, as"
     " rule 1 says, what rests on your own knowledge as [K] (rule 1a) and a web result by its"
     " [W#] id. A call"
-    " without a table section comes back as an error you can fix."
+    " without a table section comes back as an error you can fix, except on an open question,"
+    " whose answer is one `insights` section instead (OPEN QUESTION rules below, when given)."
 )
 
 _CITE = re.compile(r"\[(R\d{1,3}|W\d{1,2}|K)\]")
@@ -157,10 +186,12 @@ _CITE = re.compile(r"\[(R\d{1,3}|W\d{1,2}|K)\]")
 _SENTENCE_END = re.compile(r"[.!?](?:\s|$)")
 
 
-def check_shape(payload: Any) -> tuple[str, str] | None:
+def check_shape(payload: Any, shape: OpenQuestion | None = None) -> tuple[str, str] | None:
     """Shape-only validation of one call's input; an (code, message) error the model can fix
     on the next round, or None when the shape is good. Citations are checked later, by the
-    code that knows the numbered rows (rewrite), so a shape-good call can still be unusable."""
+    code that knows the numbered rows (rewrite), so a shape-good call can still be unusable.
+    ``shape`` is the open question this turn answers (``replica.open_question``): its answer
+    carries one ``insights`` section of the asked number of items instead of a table."""
     if not isinstance(payload, dict):
         return "bad_shape", "the answer must be a JSON object"
     unknown = set(payload) - {"headline", "stats", "sections"}
@@ -183,13 +214,36 @@ def check_shape(payload: Any) -> tuple[str, str] | None:
         error = _check_section(i, section)
         if error:
             return error
+    if shape is not None:
+        return _check_insights(sections, shape)
     # the owner mandate (2026-10-17): every answer builds a table — narrative answers
-    # included; a call without one is an error the model can fix on the next round
+    # included; a call without one is an error the model can fix on the next round (an open
+    # question, above, answers with insights; its facts table is built by the code, collapsed)
     if not any(isinstance(s, dict) and s.get("kind") in ("table", "result") for s in sections):
         return (
             "no_table",
             "every answer carries at least one table section: every matching row, or — for a"
             " narrative answer — a table of the facts, rows or figures it rests on",
+        )
+    return None
+
+
+def _check_insights(sections: list[Any], shape: OpenQuestion) -> tuple[str, str] | None:
+    """An open question's answer: exactly one ``insights`` section, with the asked number of
+    items (or 1 to MAX_INSIGHTS when the question named none)."""
+    found = [s for s in sections if isinstance(s, dict) and s.get("kind") == "insights"]
+    if len(found) != 1:
+        return (
+            "insights_required",
+            "this is an open question: answer with exactly one `insights` section (each item a"
+            " conclusion, its grade and one next action), not a table of facts",
+        )
+    n = len(found[0].get("insights") or [])
+    if shape.asked and n != shape.count:
+        return (
+            "insights_count",
+            f"the question asks for {shape.count}; the insights section has {n}. Keep the"
+            f" {shape.count} that matter most to the seller",
         )
     return None
 
@@ -232,15 +286,9 @@ def _check_section(i: int, section: Any) -> tuple[str, str] | None:
         if not isinstance(rows, list) or not rows or len(rows) > MAX_TABLE_ROWS:
             return "bad_table", f"table section {i + 1}: rows must be 1-{MAX_TABLE_ROWS} arrays"
         for r, row in enumerate(rows):
-            if not (
-                isinstance(row, list)
-                and len(row) == len(columns)
-                and all(isinstance(c, str) and len(c) <= CELL_MAX_CHARS for c in row)
-            ):
-                return (
-                    "bad_table",
-                    f"table section {i + 1}: row {r + 1} must be {len(columns)} strings",
-                )
+            error = _check_row(i, r, row, columns)
+            if error:
+                return "bad_table", error
         note = section.get("note")
         if note is not None and not isinstance(note, str):
             return "bad_table", f"table section {i + 1}: note must be a string"
@@ -307,7 +355,70 @@ def _check_section(i: int, section: Any) -> tuple[str, str] | None:
         if set(section) - {"kind", "title", "items"}:
             return "bad_steps", f"steps section {i + 1}: unknown fields"
         return None
-    return "bad_kind", f"section {i + 1}: kind must be table, result, prose, callout or steps"
+    if kind == "insights":
+        return _check_insight_items(i, section)
+    return (
+        "bad_kind",
+        f"section {i + 1}: kind must be table, result, prose, callout, steps or insights",
+    )
+
+
+def _check_row(i: int, r: int, row: Any, columns: list[str]) -> str | None:
+    """What is wrong with one table row, said exactly: the model fixes what it is told, and a
+    bare "must be N strings" made it guess between the count, the type and the length (staging
+    2026-11-03: two extra rounds spent guessing the 320-character limit)."""
+    where = f"{_at(i, 'table')}, row {r + 1}"
+    if not isinstance(row, list) or len(row) != len(columns):
+        got = len(row) if isinstance(row, list) else "not an array"
+        return f"{where}: has {got} cells; it needs exactly {len(columns)}, one per column"
+    for c, cell in enumerate(row):
+        if not isinstance(cell, str):
+            return f'{where}, column "{columns[c]}": every cell is a string'
+        if len(cell) > CELL_MAX_CHARS:
+            return (
+                f'{where}, column "{columns[c]}": the cell is {len(cell)} characters; a cell is at'
+                f" most {CELL_MAX_CHARS}. Shorten it, or move the detail to a prose section"
+            )
+    return None
+
+
+def _at(i: int, kind: str) -> str:
+    """Where a section is: its place among ALL the answer's sections, counted from 1."""
+    return f"section {i + 1} (a {kind}; sections count from 1 across every kind)"
+
+
+def _check_insight_items(i: int, section: dict[str, Any]) -> tuple[str, str] | None:
+    items = section.get("insights")
+    if items is None and isinstance(section.get("items"), list):
+        # the steps section's field: the prompt says "N items", so the model reaches for it
+        return (
+            "bad_insights",
+            f"{_at(i, 'insights section')}: put the items under the key `insights`, not `items`",
+        )
+    if not isinstance(items, list) or not 1 <= len(items) <= MAX_INSIGHTS:
+        return "bad_insights", f"{_at(i, 'insights section')}: 1-{MAX_INSIGHTS} insights"
+    if set(section) - {"kind", "title", "insights"}:
+        return "bad_insights", f"insights section {i + 1}: unknown fields"
+    for n, item in enumerate(items, 1):
+        if not isinstance(item, dict) or set(item) != {"conclusion", "grade", "action"}:
+            return "bad_insights", f"insight {n}: it is {{conclusion, grade, action}}"
+        conclusion, grade, action = item["conclusion"], item["grade"], item["action"]
+        if not isinstance(conclusion, str) or not conclusion.strip():
+            return "bad_insights", f"insight {n}: the conclusion is a non-empty string"
+        if (
+            len(conclusion) > INSIGHT_MAX_CHARS
+            or len(_SENTENCE_END.findall(conclusion)) > INSIGHT_MAX_SENTENCES
+        ):
+            return (
+                "bad_insights",
+                f"insight {n}: the conclusion is at most three sentences; the evidence belongs"
+                " in the facts the answer cites",
+            )
+        if grade not in GRADES:
+            return "bad_insights", f"insight {n}: grade is one of {', '.join(GRADES)}"
+        if not isinstance(action, str) or not action.strip() or len(action) > ACTION_MAX_CHARS:
+            return "bad_insights", f"insight {n}: the action is one short next step"
+    return None
 
 
 def rewrite(
@@ -405,6 +516,12 @@ def _section_to_markdown(d: Draft, section: dict[str, Any]) -> None:
             d.para(str(para))
     elif kind == "callout":
         d.para("> " + str(section["text"]))
+    elif kind == "insights":
+        for n, item in enumerate(section["insights"], 1):
+            d.para(
+                f"{n}. {str(item['conclusion']).strip()} Grade: {item['grade']}."
+                f" Next step: {str(item['action']).strip()}"
+            )
     else:  # steps
         d.para("\n".join(f"{i}. {item}" for i, item in enumerate(section["items"], 1)))
 
@@ -427,12 +544,13 @@ def has_table(draft: Draft) -> bool:
     return any(_TABLE_SEPARATOR.search(p) for p in draft.paragraphs)
 
 
-def ensure_table(draft: Draft) -> bool:
+def ensure_table(draft: Draft, collapsed: bool = False) -> bool:
     """The last line of the table guarantee, independent of the model: an answer that reached
     this point without a table (a model that never called ``render_answer`` after being sent
     back for it, the local answer, a provider without tools) gets a table of the rows it cites,
     one fact per row, built by the code. True when a table was added; an answer that cites
-    nothing has no rows to table and is left as it is."""
+    nothing has no rows to table and is left as it is. ``collapsed`` (an open question's
+    insights answer) marks the table to open under "Sources" instead of beside the answer."""
     if has_table(draft) or not draft.rows:
         return False
     rows = []
@@ -451,9 +569,15 @@ def ensure_table(draft: Draft) -> bool:
         )
     columns = list(FACTS_COLUMNS)
     if draft.structured is not None:
-        draft.structured.setdefault("sections", []).append(
-            {"kind": "table", "title": FACTS_TITLE, "columns": columns, "rows": rows}
-        )
+        section: dict[str, Any] = {
+            "kind": "table",
+            "title": FACTS_TITLE,
+            "columns": columns,
+            "rows": rows,
+        }
+        if collapsed:
+            section["collapsed"] = True
+        draft.structured.setdefault("sections", []).append(section)
     _section_to_markdown(
         draft, {"kind": "table", "title": FACTS_TITLE, "columns": columns, "rows": rows}
     )

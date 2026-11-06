@@ -71,6 +71,7 @@ import tempfile
 from collections import Counter
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -96,6 +97,9 @@ from research_files.blobstore import BlobMissing, BlobStore, PartTooLarge, copy_
 from research_files.detect import by_name, detect
 
 _log = logger(__name__)
+# the document lease of the running step (``_leased``): its owner and heartbeat, read by the
+# index loop so a call that lost its lease stops before it writes another page
+_LEASE: ContextVar[tuple[str, Any] | None] = ContextVar("documents_lease", default=None)
 
 
 _F = TypeVar("_F", bound=Callable[..., Awaitable[Any]])
@@ -644,10 +648,16 @@ class DocumentService:
         statuses: tuple[str, ...],
         step: Callable[[UUID, Any], Awaitable[str]],
     ) -> str:
-        """Run one step of the document under its lease, renewed while it runs."""
+        """Run one step of the document under its lease, renewed while it runs. The lease owner
+        is this call's own (the worker plus a per-call suffix): one instance serves several
+        requests at once, and with the worker's name as owner a second task for the same
+        document re-took the running call's lease, the first to finish released it for both,
+        and a third instance took it as well (staging 2026-11-05: 20 of 46 pages embedded two
+        or three times, the analysis started three times)."""
         ttl = self.c.parsing.lease_ttl_s
+        owner = f"{self.worker}:{uuid4().hex[:8]}"
         async with self.txn(tenant_id) as s:
-            row = await repo.claim(s, document_id, self.worker, ttl, statuses)
+            row = await repo.claim(s, document_id, owner, ttl, statuses)
             current = None if row is not None else await repo.get(s, document_id)
         if row is None:
             # another worker holds a document that still has work: retry later; a finished,
@@ -656,14 +666,18 @@ class DocumentService:
 
         async def renew() -> bool:
             async with self.txn(tenant_id) as s:
-                return await repo.renew_document(s, document_id, self.worker, ttl)
+                return await repo.renew_document(s, document_id, owner, ttl)
 
         try:
-            async with self._heartbeat(renew):
-                return await step(tenant_id, row)
+            async with self._heartbeat(renew) as beat:
+                token = _LEASE.set((owner, beat))
+                try:
+                    return await step(tenant_id, row)
+                finally:
+                    _LEASE.reset(token)
         finally:
             async with self.txn(tenant_id) as s:
-                await repo.release(s, document_id, self.worker)
+                await repo.release(s, document_id, owner)
 
     def _heartbeat(self, renew: Callable[[], Awaitable[bool]]) -> Any:
         """Renew a lease every third of its life while the body runs; ``.lost`` turns true when
@@ -1306,6 +1320,9 @@ class DocumentService:
                 if semantic is not None and self.semantic is not None:
                     semantic.extend(await self.semantic.embed(texts))
                 await self._meter(tenant_id, row.id, texts)
+            lease = _LEASE.get()
+            if lease is not None and lease[1].lost:
+                return "busy"  # another call holds the document now: it writes, this one stops
             async with self.txn(tenant_id) as s:
                 if not await repo.index_page(
                     s,
@@ -1316,8 +1333,9 @@ class DocumentService:
                     self.embedder.model,
                     semantic,
                     self.semantic.model if self.semantic is not None else None,
+                    owner=lease[0] if lease is not None else None,
                 ):
-                    return "noop"  # deleted while it was being embedded
+                    return "noop"  # deleted, or its lease lost, while it was being embedded
             after = int(rows[-1].seq)
             pages += 1
             elapsed_ms = int((time.monotonic() - started) * 1000)
@@ -1610,6 +1628,7 @@ class DocumentService:
         path = str(member.member_path)
 
         def read() -> bytes:
+            """The stored upload's bytes (run off the event loop)."""
             try:
                 with self.blobs.open(str(key)) as reader:
                     data = reader.read()

@@ -4,6 +4,7 @@
 // continues from there. Progress counts the bytes storage has confirmed, plus the chunk in flight.
 // The session URL is kept in this browser so the same file, chosen again, resumes.
 import { api, ApiError } from "@/lib/api";
+import { crc32cOfBlob } from "@/lib/crc32c";
 import type { DocumentStatus, DocumentUploadStarted } from "@/lib/gen/api.gen";
 import { readSaved, uploadKey, writeSaved, type Saved } from "@/lib/upload-store";
 
@@ -83,8 +84,12 @@ async function sendChunks(saved: Saved, file: File, onProgress: Progress, signal
   }
 }
 
-/** Send one file and complete it; resumes an upload this browser started for the same file. */
-export async function uploadDocument(file: File, accountId: string | null, onProgress: Progress, signal: AbortSignal): Promise<string> {
+export type Audience = "client" | "owner_only";
+
+/** Send one file and complete it; resumes an upload this browser started for the same file.
+ * An owner-only file is visible to the owner and admins and never read into findings; the
+ * default audience is the server's own, so the start request is unchanged for client files. */
+export async function uploadDocument(file: File, accountId: string | null, onProgress: Progress, signal: AbortSignal, audience: Audience = "client"): Promise<string> {
   const key = uploadKey(file);
   let saved = readSaved(key);
   if (saved && new Date(saved.expires).getTime() <= Date.now()) saved = null;
@@ -95,6 +100,7 @@ export async function uploadDocument(file: File, accountId: string | null, onPro
     } else {
       const started = await api<DocumentUploadStarted>("POST", "/v1/documents/uploads", {
         name: file.name, size_bytes: file.size, mime: file.type || null, account_id: accountId,
+        ...(audience === "owner_only" ? { audience } : {}),
       });
       current = {
         documentId: started.document_id, name: file.name, size: file.size, url: started.upload_url,
@@ -110,7 +116,10 @@ export async function uploadDocument(file: File, accountId: string | null, onPro
         await api("PUT", current.url, file, { "Content-Type": "application/octet-stream" }, signal);
         onProgress(file.size, file.size);
       }
-      await api<DocumentStatus>("POST", `/v1/documents/${current.documentId}/complete`);
+      // what the browser sent, for the API to check against the stored object (size and CRC32C)
+      await api<DocumentStatus>("POST", `/v1/documents/${current.documentId}/complete`, {
+        size_bytes: file.size, crc32c: await crc32cOfBlob(file),
+      });
       writeSaved(key, null);
       return current.documentId;
     } catch (error) {

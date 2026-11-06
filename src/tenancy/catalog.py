@@ -123,6 +123,10 @@ JOBS: dict[str, str] = {
     " inside tenant_txn",
     "document_sweep": "documents.service.sweep_documents: identifiers from documents_orphaned,"
     " then the document task per tenant and document, inside tenant_txn",
+    "scan_retry": "documents.service.retry_failed_scans: client identifiers from"
+    " operator_tenant_overview, then per client inside tenant_txn (system scope, tenant_id stated)",
+    "document_abandon": "documents.service.mark_abandoned: client identifiers from"
+    " operator_tenant_overview, then per client inside tenant_txn (system scope, tenant_id stated)",
     "part_sweep": "documents.service.sweep_documents: identifiers from document_parts_orphaned,"
     " then the document task per tenant and document, inside tenant_txn",
     "stall_sweep": "runs.sweeper.mark_stalled: identifiers from runs_stalled, then per tenant and"

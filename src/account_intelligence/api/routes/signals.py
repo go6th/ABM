@@ -21,6 +21,7 @@ from sqlalchemy import text
 from account_intelligence.api import contract as C
 from account_intelligence.api.audit_log import audit_action
 from account_intelligence.api.auth import Identity
+from account_intelligence.api.flags import behind_flag
 from account_intelligence.api.guard import authorize
 from account_intelligence.api.policy import register, tenant_route
 from account_intelligence.api.routes.accounts import exclusion_rule
@@ -44,6 +45,7 @@ register("GET", "/v1/accounts/{domain}/history", tenant_route("read_public", "re
 
 
 @router.get("/signals", response_model=C.SignalPage)
+@behind_flag("monitoring")
 async def signals(
     request: Request,
     cursor: str | None = Query(default=None, max_length=200),
@@ -58,6 +60,7 @@ async def signals(
 
 
 @router.get("/alerts", response_model=C.Alerts)
+@behind_flag("monitoring")
 async def inbox(request: Request, ident: Identity = Depends(authorize)) -> dict[str, Any]:
     """The caller's alerts (newest first)."""
     async with tenant_txn(ident.tenant_id) as s:
@@ -99,6 +102,7 @@ class Rating(BaseModel):
 
 
 @router.post("/alerts/{alert_id}/feedback", response_model=C.AlertRated, status_code=201)
+@behind_flag("monitoring")
 async def rate(
     alert_id: UUID, body: Rating, request: Request, ident: Identity = Depends(authorize)
 ) -> dict[str, Any]:
@@ -127,6 +131,7 @@ async def rate(
 
 
 @router.get("/alerts/usefulness", response_model=C.AlertUsefulness)
+@behind_flag("monitoring")
 async def usefulness(request: Request, ident: Identity = Depends(authorize)) -> dict[str, Any]:
     """The usefulness metric with its base and the target (never as a result)."""
     async with tenant_txn(ident.tenant_id) as s:
@@ -155,6 +160,7 @@ def _out(sub: subscriptions.Subscription) -> dict[str, Any]:
 
 
 @router.get("/subscriptions", response_model=C.Subscription)
+@behind_flag("monitoring")
 async def my_settings(request: Request, ident: Identity = Depends(authorize)) -> dict[str, Any]:
     """The caller's settings (the digest-only defaults when none were saved)."""
     async with tenant_txn(ident.tenant_id) as s:
@@ -162,6 +168,7 @@ async def my_settings(request: Request, ident: Identity = Depends(authorize)) ->
 
 
 @router.put("/subscriptions", response_model=C.Subscription)
+@behind_flag("monitoring")
 async def save_settings(
     body: Settings, request: Request, ident: Identity = Depends(authorize)
 ) -> dict[str, Any]:
@@ -212,6 +219,7 @@ async def save_settings(
 
 
 @router.post("/subscriptions/subscribe-all", response_model=C.Subscription)
+@behind_flag("monitoring")
 async def subscribe_all(request: Request, ident: Identity = Depends(authorize)) -> dict[str, Any]:
     """Subscribe the caller to every immediate rule: explicit and audited."""
     async with tenant_txn(ident.tenant_id) as s:
@@ -243,6 +251,7 @@ async def subscribe_all(request: Request, ident: Identity = Depends(authorize)) 
 
 
 @router.get("/monitoring/budget", response_model=C.MonitoringBudget)
+@behind_flag("monitoring")
 async def budget(request: Request, ident: Identity = Depends(authorize)) -> dict[str, Any]:
     """The monitoring allowance used this month, in percent only."""
     async with tenant_txn(ident.tenant_id) as s:
@@ -257,6 +266,7 @@ async def budget(request: Request, ident: Identity = Depends(authorize)) -> dict
 
 
 @router.get("/accounts/{domain}/history", response_model=C.History)
+@behind_flag("monitoring")
 async def account_history(
     domain: str, request: Request, ident: Identity = Depends(authorize)
 ) -> dict[str, Any]:

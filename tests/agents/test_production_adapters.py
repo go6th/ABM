@@ -581,6 +581,8 @@ async def test_a_web_search_reads_the_accounts_own_pages_in_full(monkeypatch) ->
 
 @pytest.mark.asyncio
 async def test_an_off_site_read_opens_only_the_page_the_search_returned(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    # the fixed reads-per-search count (breadth follows the source unless capped, 2026-11-05)
+    monkeypatch.setenv("RESEARCH_BREADTH", "capped")
     allowed: list[frozenset[str]] = []
     opened: list[str] = []
 

@@ -87,8 +87,13 @@ class Settings(BaseSettings):
 
     # process
     app_env: Profile = var("dev", purpose="Runtime profile; selects adapters and profile rules.")
-    service_role: Literal["api", "worker", "job", "migrate"] = var(
-        "api", purpose="Which entry point this container serves (set by the deployment)."
+    service_role: Literal["api", "worker", "job", "migrate", "all"] = var(
+        "all",
+        purpose=(
+            "Which routes this process serves (api/planes.py): api = /v1 and /operator, worker ="
+            " /tasks, job and migrate = probes only, all = everything (dev and test only; a"
+            " staging or production web process refuses to start with it). Set by the deployment."
+        ),
     )
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = var(
         "INFO", purpose="Minimum level of the structured JSON logs."
@@ -111,9 +116,20 @@ class Settings(BaseSettings):
         required_in=LOCAL,
     )
     checkpoint_database_url: SecretStr | None = var(
-        purpose="psycopg URL for the run checkpointer, direct to the writer (no pooler).",
+        purpose="psycopg URL for the run checkpointer, direct to the writer (no pooler). Local"
+        " profiles; staging and production sign in with IAM on CLOUD_SQL_PRIVATE_IP (ADR-0125).",
         secret=True,
-        required_in=("dev", "staging", "production"),
+        required_in=("dev",),
+    )
+    cloud_sql_private_ip: str | None = var(
+        purpose="Private IP of the Cloud SQL instance: the checkpointer signs in there with the"
+        " IAM user and a short-lived token (ADR-0125); worker and jobs only.",
+        component="worker",
+    )
+    cloud_sql_ca_file: str | None = var(
+        purpose="Server CA of the Cloud SQL instance (PEM path): the checkpointer then verifies"
+        " the server (sslmode=verify-ca); unset: encrypted, unverified (sslmode=require).",
+        component="worker",
     )
     # Connection budget (docs/deploy/agents/backend-hardening.md): every process holds at most
     # DB_POOL_SIZE + DB_MAX_OVERFLOW engine connections (the Cloud SQL engine too) and a worker one
@@ -150,6 +166,16 @@ class Settings(BaseSettings):
     app_rw_iam_users: str | None = var(
         purpose="Comma-separated Cloud SQL IAM database users that migration 0071 makes members of"
         " app_rw (nothing else); unset: no grant.",
+        component="migrate",
+    )
+    app_api_iam_users: str | None = var(
+        purpose="Comma-separated Cloud SQL IAM database users that every migrate run moves from"
+        " app_rw to app_api (migration 0101, ADR-0123); unset: no change.",
+        component="migrate",
+    )
+    app_worker_iam_users: str | None = var(
+        purpose="Comma-separated Cloud SQL IAM database users (the worker and the jobs) that every"
+        " migrate run moves from app_rw to app_worker (migration 0101); unset: no change.",
         component="migrate",
     )
 
@@ -271,6 +297,16 @@ class Settings(BaseSettings):
         " worker in the cloud.",
         component="worker",
     )
+    quarantine_bucket: str | None = var(
+        purpose="GCS bucket where uploads wait for their scan (one-day delete rule, set by"
+        " Terraform). Unset: quarantine is a prefix of the payload bucket.",
+        component="api, worker",
+    )
+    quarantine_dir: str | None = var(
+        purpose="Separate local directory for quarantined uploads (a local bucket). Unset in the"
+        " compose files: the development object store serves one root.",
+        component="api, worker",
+    )
     payload_bucket: str | None = var(
         purpose="GCS bucket for raw payloads and exports (per-tenant prefixes).",
         required_in=CLOUD,
@@ -281,6 +317,11 @@ class Settings(BaseSettings):
             " limiters (sign-in and providers) and the research cache index. Unset: in-process"
             " rate buckets and Postgres-only cache lookups."
         ),
+        required_in=CLOUD,
+    )
+    redis_pinned_host: str | None = var(
+        purpose="The Memorystore private IP that REDIS_URL must name in staging and production"
+        " (Terraform's module.cache.host; ADR-0125): a REDIS_URL elsewhere is refused.",
         required_in=CLOUD,
     )
     dev_assume_provider_balance: str | None = var(
@@ -315,6 +356,20 @@ class Settings(BaseSettings):
         600, purpose="Seconds a run lease must be expired before the sweeper ends the run."
     )
     sweep_interval_s: int = var(300, purpose="Seconds between orphan sweeps in the worker.")
+    research_caps: str | None = var(
+        purpose=(
+            "Research caps (dev_limits.research_uncapped). Unset or on: every cap applies. off:"
+            " lifts the dollar cap, agent budgets, repeat-call limit, slice ceiling, credit pool"
+            " and per-user research limit; a staging or production process logs"
+            " research.caps_off at startup. Cloud profiles deploy on."
+        ),
+    )
+    token_guard: str | None = var(
+        purpose=(
+            "on: keep the 3x-estimate token pause even while RESEARCH_CAPS=off (with the caps on"
+            " the guard applies either way). Cloud profiles deploy on."
+        ),
+    )
     research_cache: Literal["on", "off"] = var(
         "on",
         purpose=(
@@ -322,12 +377,12 @@ class Settings(BaseSettings):
             " (config/research_cache.yaml). off: every run pays for every call."
         ),
     )
-    document_scanner: Literal["signature", "clamd"] = var(
-        "signature",
+    document_scanner: Literal["clamd"] = var(
+        "clamd",
         purpose=(
-            "Malware scan of uploaded documents before parsing: signature (built-in test and"
-            " structure signatures, local profiles only) or clamd (CLAMD_HOST). In staging and"
-            " production anything but clamd fails closed: every upload is rejected unscanned."
+            "Malware scan of uploaded documents before parsing: clamd (CLAMD_HOST), in every"
+            " environment. With no clamd host or an unreachable daemon every upload fails closed:"
+            " it is never marked clean. Local compose runs the same ClamAV container as staging."
         ),
     )
     clamd_host: str | None = var(purpose="Host of the clamd daemon that scans uploads.")
@@ -346,9 +401,6 @@ class Settings(BaseSettings):
         "anthropic_api", purpose="How the model provider is reached (decision D-19)."
     )
     vertex_region: str | None = var(purpose="Vertex AI region when LLM_ACCESS=vertex_ai.")
-    model_router: Literal["on", "off"] = var(
-        "off", purpose="Route model calls through the recorded router (legacy switch)."
-    )
     anthropic_secret: str = var(
         "anthropic-api-key", purpose="Secret Manager secret id holding the model API key."
     )

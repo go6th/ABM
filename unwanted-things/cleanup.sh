@@ -42,3 +42,16 @@ cd "$(dirname "$0")/.."
 # (DONE 2026-11-02: removed dreamy-chaplygin-5ec24d)
 # (DONE 2026-11-02: removed gcp-research-status-35156c)
 # (DONE 2026-11-02: three branches deleted)
+
+# 9. (2026-11-03) Four agent worktrees left by earlier attempts at the 2026-11-03 fix prompts. Their
+#    work is superseded by the uncommitted fix-prompt work in the main folder (A-E). Each branch holds
+#    commits not on feat/final-product; check them first, as in step 1:
+#      git log --oneline feat/final-product..worktree-agent-a1fbc00695a37e445   # prompt C attempt (4)
+#      git log --oneline feat/final-product..worktree-agent-a5b8c7cad45404b9e   # prompt D task 1 attempt (1)
+#      git log --oneline feat/final-product..worktree-agent-a82f99494b4567cdb   # prompt A attempt (3)
+#      git log --oneline feat/final-product..worktree-agent-aced12de48f548427   # prompt B attempt (6)
+#    They also hold the real-account files the history purge removes (scripts/ops/purge_real_fixtures.sh
+#    lists them): remove them BEFORE the history rewrite (docs/runbooks/history-rewrite.md).
+# for w in a1fbc00695a37e445 a5b8c7cad45404b9e a82f99494b4567cdb aced12de48f548427; do
+#   git worktree remove ".claude/worktrees/agent-$w" && git branch -D "worktree-agent-$w"
+# done

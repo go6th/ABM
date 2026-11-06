@@ -32,7 +32,13 @@ async def _running(plane: Any, tenant: UUID, domain: str) -> tuple[str, UUID]:
     """A confirmed new research whose run has started (the worker's claim, no graph run)."""
     from account_intelligence.replica import jobs
 
-    body = {"request_id": str(uuid4()), "company_name": "Liveco", "domain": domain}
+    body = {
+        "request_id": str(uuid4()),
+        "company_name": "Liveco",
+        "domain": domain,
+        "confirm": True,
+        "confirm_again": True,
+    }
     started = await _call(plane, "POST", "/v1/research", json=body)
     assert started.status_code == 201, started.text
     job = started.json()["job_id"]
@@ -235,6 +241,33 @@ async def test_tokens_count_the_research_graphs_model_calls(world: dict[str, Any
         "deliver": 0,
     }
     assert use["started_at"] is not None and use["expected_tokens"] is not None
+    assert use["fallbacks"] == []
+    # a step that fell back to Claude (ADR-0119): the card names both models and the extra cost
+    from llm.choice import catalogue
+
+    cat = catalogue()
+    kimi, opus = cat.ids[2], cat.ids[0]
+    fallback = {"step": "abm_pass2_extract", "from": kimi, "to": opus, "reason": "schema_invalid"}
+    _db(
+        "UPDATE account_runs SET models = %s::jsonb WHERE id = %s",
+        json.dumps(
+            {"research": kimi, "analysis": opus, "fallbacks": [
+                {**fallback, "discarded_usd": "0.0300", "extra_usd": "0.0412"}
+            ]}
+        ),
+        run_id,
+    )  # fmt: skip
+    use = (await _call(plane, "GET", f"/v1/runs/{run_id}")).json()["token_use"]
+    assert use["fallbacks"] == [
+        {
+            "step": "abm_pass2_extract",
+            "from_model": cat.get(kimi).name,  # type: ignore[union-attr]
+            "to_model": cat.get(opus).name,  # type: ignore[union-attr]
+            "reason": "schema_invalid",
+            "discarded_usd": 0.03,
+            "extra_usd": 0.0412,
+        }
+    ]
     _db(
         "DELETE FROM model_reply_log WHERE run_id = %s AND cache_key <> 'k1'",
         run_id,

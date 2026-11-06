@@ -18,7 +18,8 @@ import psycopg
 import pytest
 
 from account_intelligence.api.routes.exports import _carries_facts
-from account_intelligence.db.session import tenant_txn, untenanted_session
+from account_intelligence.db.session import tenant_txn
+from account_intelligence.db.system_scope import untenanted_session
 from pilot import metric, usefulness
 from tests.conftest import ADMIN_DSN
 from tests.fakes.phase3 import FakeStaffIdp

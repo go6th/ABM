@@ -66,3 +66,18 @@ async def test_a_viewer_reads_but_cannot_change_the_consent() -> None:
     assert (await _call(viewer, "GET", "/v1/settings/people-consent")).status_code == 200
     refused = await _call(viewer, "POST", "/v1/settings/people-consent", json={"accept": True})
     assert refused.status_code == 403, refused.text
+
+
+async def test_the_estimate_warns_before_a_research_without_consent() -> None:
+    """2026-11-05: three paid researches ended with empty people rows because the consent was
+    never granted. The estimate names the gap and where to fix it, and drops it once granted."""
+    tenant = new_tenant("Synthetic Estimate Gap Co")
+    admin = _plane(tenant, "admin")
+    est = await _call(admin, "GET", "/v1/research/estimate")
+    assert est.status_code == 200, est.text
+    gaps = est.json()["gaps"]
+    assert [g["code"] for g in gaps] == ["consent_required"] and gaps[0]["fix_path"] == "/team"
+
+    granted = await _call(admin, "POST", "/v1/settings/people-consent", json={"accept": True})
+    assert granted.status_code == 200, granted.text
+    assert (await _call(admin, "GET", "/v1/research/estimate")).json()["gaps"] == []

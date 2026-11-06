@@ -381,9 +381,14 @@ async def test_a_carried_posting_past_the_window_is_stored_but_not_exported() ->
     # the rows, the counts printed beside them and the posting window agree
     counts = {k: v for k, _, v, _ in out2["jobs_counts"].lines}
     assert all(p.window_bucket != "out_of_window" for p in out2["postings"])
-    assert len(out2["postings"]) <= counts["read"] <= counts["matched"] <= counts["in_window"]
-    # the two readings of "classed" are counted apart and sum to the rows of the file
-    assert counts["classed_by_reading"] + counts["classed_by_rule"] == len(out2["postings"])
+    # every read posting in the window is listed, not only those naming a platform (owner
+    # decision 2026-11-06); the platform counts still follow read <= matched <= in window
+    assert len(out2["postings"]) <= counts["in_window"]
+    assert counts["read"] <= counts["matched"] <= counts["in_window"]
+    # the two readings of "classed" and the postings naming no platform sum to the rows
+    assert counts["classed_by_reading"] + counts["classed_by_rule"] + counts[
+        "listed_no_platform"
+    ] == len(out2["postings"])
     assert counts["classed_by_reading"] == sum(
         1 for p in out2["postings"] if p.classified_by == "extractor"
     )

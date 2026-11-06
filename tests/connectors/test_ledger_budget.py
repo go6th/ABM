@@ -9,9 +9,12 @@ cost is charged a reserve and flagged, never 0; ledger rows are tenant isolated.
 from __future__ import annotations
 
 import asyncio
+from contextlib import asynccontextmanager
 from decimal import Decimal
+from typing import Any
 from uuid import UUID
 
+import psycopg
 import pytest
 from sqlalchemy import text
 
@@ -33,6 +36,7 @@ from tests.connectors.conftest import (
     FakeClock,
     Harness,
     Reply,
+    admin_dsn,
     context,
     event_rows,
     ledger_rows,
@@ -347,3 +351,102 @@ async def test_app_role_cannot_update_or_delete_ledger_history(tenant_a: UUID) -
         with pytest.raises(Exception, match="permission denied"):
             async with tenant_txn(tenant_a) as s:
                 await s.execute(text(sql))
+
+
+# ---------------------------------------------------- lease off the hot path (ADR-0131)
+
+
+def _lease(run: UUID) -> tuple[Any, ...]:
+    with psycopg.connect(admin_dsn(), autocommit=True) as c:
+        row = c.execute(
+            "SELECT owner, epoch, expires_at, heartbeat_at FROM run_leases WHERE run_id = %s",
+            (run,),
+        ).fetchone()
+    assert row is not None
+    return tuple(row)
+
+
+def _key(n: int) -> CallKey:
+    return CallKey(
+        args_hash=f"{n:064x}",
+        tool="p_search:web_search",
+        provider_code="p_search",
+        operation="web_search",
+    )
+
+
+async def test_a_claim_on_a_held_lease_does_not_renew_it(tenant_a: UUID) -> None:
+    """The heartbeat renews the lease on its own transaction; a claim of the holder only locks
+    and reads it, so a fan-out of claims writes no lease row."""
+    account, run, domain = make_run(tenant_a)
+    ctx = context(tenant_a, account, run, domain)
+    clock = FakeClock()
+    ledger = _ledger(clock, ttl=300)
+    await ledger.acquire_lease(ctx, "worker-a")  # the slice start (and every heartbeat)
+    held = _lease(run)
+    clock.advance(30)
+    claims = await asyncio.gather(*(ledger.claim(ctx, "worker-a", _key(n), 0.01) for n in range(6)))
+    assert all(isinstance(c, Claimed) and c.lease_epoch == held[1] for c in claims)
+    assert _lease(run) == held  # not renewed: same expiry, same heartbeat
+    await ledger.acquire_lease(ctx, "worker-a")  # the heartbeat beats
+    assert _lease(run)[3] > held[3] and _lease(run)[1] == held[1]
+
+
+async def test_a_worker_whose_lease_was_taken_cannot_claim(tenant_a: UUID) -> None:
+    """Lease loss is still detected at the claim: once another worker took the stale lease, the
+    first worker's next paid call is refused (and its heartbeat reports the loss: the runner
+    stops the slice, tests/workflow/test_orchestration_runner.py)."""
+    account, run, domain = make_run(tenant_a)
+    ctx = context(tenant_a, account, run, domain)
+    clock = FakeClock()
+    ledger = Ledger(
+        tenant_txn,
+        clock,
+        lease_ttl_s=1800,
+        lease_stale_after_s=90,
+        budget_defaults=BudgetDefaults(5.0, 60),
+    )
+    await ledger.acquire_lease(ctx, "worker-a")
+    assert isinstance(await ledger.claim(ctx, "worker-a", _key(1), 0.01), Claimed)
+    clock.advance(91)  # worker-a stalled: no heartbeat for longer than the stale time
+    assert await ledger.acquire_lease(ctx, "worker-b") == 2  # taken, new epoch
+    with pytest.raises(LeaseUnavailable):
+        await ledger.claim(ctx, "worker-a", _key(2), 0.01)
+    with pytest.raises(LeaseUnavailable):
+        await ledger.acquire_lease(ctx, "worker-a")  # the heartbeat sees it too
+    assert isinstance(await ledger.claim(ctx, "worker-b", _key(2), 0.01), Claimed)
+
+
+async def test_claims_in_flight_are_bounded_per_worker(tenant_a: UUID) -> None:
+    """At most ``max_in_flight_claims`` claim transactions of one worker are open at once."""
+    account, run, domain = make_run(tenant_a)
+    ctx = context(tenant_a, account, run, domain)
+    open_now = peak = 0
+
+    @asynccontextmanager
+    async def counting(tenant: UUID):  # type: ignore[no-untyped-def]
+        nonlocal open_now, peak
+        open_now += 1
+        peak = max(peak, open_now)
+        try:
+            async with tenant_txn(tenant) as s:
+                await asyncio.sleep(0.02)
+                yield s
+        finally:
+            open_now -= 1
+
+    ledger = Ledger(
+        counting,
+        FakeClock(),
+        lease_ttl_s=300,
+        budget_defaults=BudgetDefaults(5.0, 60),
+        max_in_flight_claims=2,
+    )
+    await ledger.acquire_lease(ctx, "worker-a")
+    peak = 0
+    claims = await asyncio.gather(*(ledger.claim(ctx, "worker-a", _key(n), 0.01) for n in range(8)))
+    assert all(isinstance(c, Claimed) for c in claims)
+    assert peak == 2
+    from parallel.config import load_parallel_config
+
+    assert load_parallel_config().max_in_flight_claims >= 1  # sized from config/parallel.yaml

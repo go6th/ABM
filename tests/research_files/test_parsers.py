@@ -249,3 +249,92 @@ def test_docx_reads_headers_footnotes_and_comments() -> None:
     assert "Confidential: Northwind account plan" in by_heading["Headers and footers"]
     assert "Ask about the March budget freeze." in by_heading["Comments"]
     assert any("renewal" in u.text for u in units)
+
+
+def test_an_object_json_streams_its_largest_list_in_bounded_units() -> None:
+    """A JSON object whose largest list is big is read in units capped by text size, not only by
+    row count (2026-11-03: a 50 MB ``{"jobs": [...]}`` pull in 5,000-row units overran the
+    sandbox's line limit and failed its part); every item is read once, the header is on the
+    first unit, and the trailing text unit is the document's head, bounded."""
+    import json
+
+    items = [{"id": i, "title": f"Posting {i}", "description": "x" * 3000} for i in range(60)]
+    data = json.dumps({"meta": {"count": 60}, "jobs": items}).encode()
+    small = CFG.model_copy(
+        update={"parsing": CFG.parsing.model_copy(update={"unit_text_bytes": 20_000})}
+    )
+    parser = parser_for("json")
+    assert parser is not None
+    units = list(parser.units(io.BytesIO(data), {}, ParseContext(small, "pull.json")))
+    row_units = [u for u in units if u.rows]
+    assert len(row_units) > 1  # not one unit of 60 rows: the byte cap cut it
+    assert all(len(u.text) <= 4001 * 7 for u in row_units)  # at most ~7 items per unit
+    assert [i for u in row_units for i, _ in u.rows] == list(range(1, 61))
+    assert row_units[0].header and "title" in [h.lower() for h in row_units[0].header]
+    assert all(u.header is None for u in row_units[1:])
+    assert all(u.table == "pull.json:$.jobs" for u in row_units)
+    text_units = [u for u in units if u.kind == "text"]
+    assert len(text_units) == 1 and text_units[0].cursor.get("done")
+    assert len(text_units[0].text) <= 20_000 and text_units[0].text.startswith("{")
+    assert not any(u.fatal for u in units)
+
+
+def _docx_with_table_and_link() -> bytes:
+    """A Word file with a heading, a paragraph holding a hyperlink, and a two-column table."""
+    from docx import Document
+    from docx.opc.constants import RELATIONSHIP_TYPE as RT
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    doc = Document()
+    doc.add_heading("10. Source links", level=1)
+    para = doc.add_paragraph("See the register: ")
+    r_id = para.part.relate_to("https://news.example/release-1", RT.HYPERLINK, is_external=True)
+    link = OxmlElement("w:hyperlink")
+    link.set(qn("r:id"), r_id)
+    run = OxmlElement("w:r")
+    text = OxmlElement("w:t")
+    text.text = "Release 1"
+    run.append(text)
+    link.append(run)
+    para._p.append(link)
+    table = doc.add_table(rows=3, cols=3)
+    for r, cells in enumerate(
+        [
+            ["ID", "Source", "Domain"],
+            ["S1", "Release 1", "news.example"],
+            ["S2", "Leadership page", "example.com"],
+        ]
+    ):
+        for c, value in enumerate(cells):
+            table.cell(r, c).text = value
+    doc.add_paragraph("After the table.")
+    out = io.BytesIO()
+    doc.save(out)
+    return out.getvalue()
+
+
+def test_docx_tables_are_row_units_and_hyperlinks_keep_their_address() -> None:
+    """A table in a Word file comes out as a rows unit (header and rows) under its heading, the
+    prose keeps a one-line note of it, and a hyperlink's address survives as ``label (url)``
+    (2026-11-03: before, tables were flattened to text and every link was lost)."""
+    units = run("docx", _docx_with_table_and_link(), "summary.docx")
+    tables = [u for u in units if u.rows is not None]
+    assert len(tables) == 1
+    table = tables[0]
+    assert table.header == ["ID", "Source", "Domain"] and table.header_row == 1
+    assert [cells for _, cells in table.rows] == [
+        ["S1", "Release 1", "news.example"], ["S2", "Leadership page", "example.com"]
+    ]  # fmt: skip
+    assert table.location["section"] == "10. Source links" and table.table.startswith(
+        "table at block"
+    )
+    prose = "\n".join(u.text for u in units if u.kind == "section")
+    assert "Release 1 (https://news.example/release-1)" in prose
+    assert "[table at block" in prose and "After the table." in prose
+    assert not any(u.fatal for u in units)
+    # resuming after the table's block re-reads nothing before it
+    tail = run(
+        "docx", _docx_with_table_and_link(), "summary.docx", {"block": table.location["block"]}
+    )
+    assert all(u.rows is None for u in tail) and any("After the table." in u.text for u in tail)

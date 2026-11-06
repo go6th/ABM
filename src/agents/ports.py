@@ -358,7 +358,7 @@ class InternalSourcePort(Protocol):
 
 
 class AgentModel(Protocol):
-    """A routed model call returning a validated output (``llm.port.Router`` in production)."""
+    """A routed model call returning a validated output (``RunDepsModel`` in production)."""
 
     async def call(
         self,
@@ -397,10 +397,15 @@ class DeliveryPort(Protocol):
     """Release (step 8, code only). Never sends outreach."""
 
     async def release(
-        self, ctx: RunContext, file_ids: Sequence[str], withheld: Sequence[str] = ()
+        self,
+        ctx: RunContext,
+        file_ids: Sequence[str],
+        withheld: Sequence[str] = (),
+        found: Mapping[str, int] | None = None,
     ) -> None:
         """Publish the files to the tenant's workspace; ``withheld`` names the client file kinds
-        the gate held back, which the delivery records (they are not published)."""
+        the gate held back, which the delivery records (they are not published). ``found`` is
+        what the run found (``claims_graded``, ``postings``), printed in the delivery note."""
         ...
 
 

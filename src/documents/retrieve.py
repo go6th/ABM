@@ -43,22 +43,50 @@ class Passage:
     content: str
     cite: str | None
     score: float
+    # the file inside an uploaded archive the passage came from (None for a loose upload)
+    member: str | None = None
+
+
+def _member(location: Any) -> str | None:
+    """The archive member of a passage's location (merged sections keep it under ``from``)."""
+    if not isinstance(location, dict):
+        return None
+    member = location.get("member") or (location.get("from") or {}).get("member")
+    return str(member) if member else None
+
+
+# a passage's member inside an uploaded archive: on the passage itself, or under "from" for a
+# section merged across units (documents.chunking.cite); chunks carry the passage's location
+_MEMBER_P = "lower(coalesce(p.location->>'member', p.location->'from'->>'member', ''))"
+_MEMBER_C = "lower(coalesce(c.location->>'member', c.location->'from'->>'member', ''))"
+
+
+def member_pattern(value: str, exact: bool) -> str:
+    """A lower-case LIKE pattern for a member filter: the whole name, or any part of it."""
+    escaped = value.casefold().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return escaped if exact else f"%{escaped}%"
 
 
 async def _lexical(
-    session: Any, question: str, scope: list[UUID], within: list[UUID] | None
+    session: Any,
+    question: str,
+    scope: list[UUID],
+    within: list[UUID] | None,
+    members: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     rows = await session.execute(
         text(
             "SELECT p.document_id::text || ':' || p.seq AS key, p.account_id, p.content,"
             " p.location, coalesce(d.name, 'an uploaded file') AS document"
             " FROM document_passages p JOIN documents d ON d.id = p.document_id"
-            " WHERE p.account_id = ANY(:scope)"
+            " WHERE p.account_id = ANY(:scope) AND d.status <> 'needs_account'"
             " AND (CAST(:within AS uuid[]) IS NULL OR p.document_id = ANY(CAST(:within AS uuid[])))"
+            " AND (CAST(:members AS text[]) IS NULL OR " + _MEMBER_P + " LIKE ALL"
+            " (CAST(:members AS text[])))"
             " AND p.tsv @@ websearch_to_tsquery('simple', :q)"
             " ORDER BY ts_rank_cd(p.tsv, websearch_to_tsquery('simple', :q)) DESC LIMIT :n"
         ),
-        {"scope": scope, "q": question, "n": LEXICAL_LIMIT, "within": within},
+        {"scope": scope, "q": question, "n": LEXICAL_LIMIT, "within": within, "members": members},
     )
     return [dict(r._mapping) for r in rows]
 
@@ -69,6 +97,7 @@ async def _dense(
     scope: list[UUID],
     model: str,
     within: list[UUID] | None,
+    members: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     from documents.embed import literal
 
@@ -79,9 +108,18 @@ async def _dense(
             " FROM chunks c JOIN documents d ON d.id = c.doc_id"
             " WHERE c.account_id = ANY(:scope) AND c.semantic_model = :m"
             " AND (CAST(:within AS uuid[]) IS NULL OR c.doc_id = ANY(CAST(:within AS uuid[])))"
+            " AND (CAST(:members AS text[]) IS NULL OR " + _MEMBER_C + " LIKE ALL"
+            " (CAST(:members AS text[])))"
             " ORDER BY c.semantic_embedding <=> CAST(:v AS halfvec) LIMIT :n"
         ),
-        {"scope": scope, "v": literal(vector), "m": model, "n": DENSE_LIMIT, "within": within},
+        {
+            "scope": scope,
+            "v": literal(vector),
+            "m": model,
+            "n": DENSE_LIMIT,
+            "within": within,
+            "members": members,
+        },
     )
     return [dict(r._mapping) for r in rows]
 
@@ -129,15 +167,20 @@ async def retrieve(
     embedder: Any | None = None,
     k: int = TOP_K,
     within: Sequence[UUID] | None = None,
+    members: Sequence[str] | None = None,
 ) -> list[Passage]:
     """The ``k`` passages of the caller's documents that best answer ``question``;
     ``within`` narrows both rankings to those documents (a search_passages document filter,
-    2026-10-17)."""
+    2026-10-17) and ``members`` to the archive members whose lower-case name matches every
+    LIKE pattern (``member_pattern``; 2026-11-03: a member filter used to be applied after a
+    top-50 search of the whole zip, so a small file such as the Account Summary came back
+    empty whenever other members outranked it)."""
     accounts = list(scope)
     if not accounts or not question.strip():
         return []
     inside = [UUID(str(d)) for d in within] if within else None
-    lexical = await _lexical(session, question, accounts, inside)
+    patterns = list(members) if members else None
+    lexical = await _lexical(session, question, accounts, inside, patterns)
     dense: list[dict[str, Any]] = []
     if embedder is not None:
         try:
@@ -146,7 +189,9 @@ async def retrieve(
                 await backfill(session, accounts, embedder)
                 embed_query = getattr(embedder, "embed_query", embedder.embed)
                 (vector,) = await embed_query([question])
-                dense = await _dense(session, vector, accounts, str(embedder.model), inside)
+                dense = await _dense(
+                    session, vector, accounts, str(embedder.model), inside, patterns
+                )
         except Exception:  # noqa: BLE001 - keyword search still answers
             dense = []
     rows = {r["key"]: r for r in dense}
@@ -161,6 +206,7 @@ async def retrieve(
             content=str(rows[key]["content"])[:MAX_PASSAGE_CHARS],
             cite=_cite(rows[key]["location"]),
             score=score,
+            member=_member(rows[key]["location"]),
         )
         for key, score in best
         if rows[key]["account_id"] is not None

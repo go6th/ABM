@@ -1373,6 +1373,16 @@ class TenantSettings(Out):
     settings: JsonObject
 
 
+class FilesRebuilt(Out):
+    """Response body: an account's files built again from its newest delivered run."""
+
+    run_id: str
+    status: str
+    reason: str | None
+    files: list[str]
+    rows: dict[str, int]
+
+
 class PeopleConsent(Out):
     """Response body: the workspace's people data consent (G8, D-97)."""
 

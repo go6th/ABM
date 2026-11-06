@@ -1,8 +1,9 @@
 """``LlmPort`` adapters (decision D-19, LLM access path): the Anthropic API and Claude on Vertex AI.
 
 Model ids live only in ``config/models.yaml``; a workflow tier (planner, extractor, classifier,
-judge, synthesis, narrative) maps to a configured task, the task to a profile, the profile to a
-provider and model. Verified against the installed ``anthropic`` package (1.11.0, see
+judge, synthesis, narrative) maps to a configured task (``llm.route.TIERS``, the one routing
+table), the task to a profile, the profile to a provider and model. Verified against the
+installed ``anthropic`` package (1.11.0, see
 ``docs/open-items.md``):
 
 * ``AsyncAnthropic`` and ``AsyncAnthropicVertex`` share ``messages.create(model, max_tokens,
@@ -55,15 +56,6 @@ from obs.logging import logger
 
 log = logger("platform.llm")
 
-TIER_TASK = {
-    "planner": "pull_planning",
-    "extractor": "extraction",
-    "classifier": "classification",
-    "synthesis": "synthesis",
-    "narrative": "narrative",
-    "judge": "verification",
-}
-
 
 EFFORT_LEVELS = frozenset({"low", "medium", "high", "xhigh", "max"})
 CACHE_TTLS = frozenset({"5m", "1h"})
@@ -86,13 +78,18 @@ class ModelRoute:
 @lru_cache(maxsize=2)
 def load_routes(path: Path | None = None) -> dict[str, ModelRoute]:
     """Resolve every tier through the active arm of ``config/models.yaml``; the model of every
-    route must be on the allowlist and an effort must be a known level."""
+    route must be on the allowlist and an effort must be a known level. Extraction and the
+    analysis agents (planner tier) on one model is refused unless the file declares it (G11,
+    ``llm.route.split_mode_problem``): a silent equality fails at startup."""
+    from llm.route import TIERS, split_mode_problem
+
     data: dict[str, Any] = yaml.safe_load((path or CONFIG_DIR / "models.yaml").read_text())
     arm = data["arms"][data["active_arm"]]["routes"]
     allowed = {str(m) for m in data.get("allowlist", [])}
     settings: dict[str, Any] = data.get("task_settings") or {}
     routes = {}
-    for tier, task in TIER_TASK.items():
+    for tier_name, tier_route in TIERS.items():
+        tier, task = str(tier_name), tier_route.task
         profile = data["profiles"][arm[task]]
         model = str(profile["model"])
         if model not in allowed:
@@ -112,6 +109,13 @@ def load_routes(path: Path | None = None) -> dict[str, ModelRoute]:
             bool(knobs.get("prompt_cache", False)),
             ttl,
         )
+    problem = split_mode_problem(
+        routes["extractor"].model,
+        routes["planner"].model,
+        data.get("g11_shared_model"),
+    )
+    if problem is not None:
+        raise ValueError(f"models.yaml (G11): {problem}")
     return routes
 
 
@@ -147,6 +151,70 @@ def reference_answer_models(path: Path | None = None) -> frozenset[str]:
     (``reference_answer_models`` in models.yaml; none listed: no examples)."""
     data: dict[str, Any] = yaml.safe_load((path or CONFIG_DIR / "models.yaml").read_text())
     return frozenset(str(m) for m in (data.get("reference_answer_models") or ()))
+
+
+# the effort levels from least to most thinking (Claude 5 family `output_config.effort`)
+EFFORT_ORDER = ("low", "medium", "high", "xhigh", "max")
+THINKING_DISPLAYS = frozenset({"summarized", "omitted"})
+ASK_TOOL_ROUNDS_MAX = 20
+
+
+@dataclass(frozen=True)
+class AskModelSetting:
+    """How one model runs in Ask (``ask_model_settings`` in models.yaml): its lowest effort,
+    its tool rounds per answer and its thinking display; None keeps the default."""
+
+    min_effort: str | None = None
+    tool_rounds: int | None = None
+    thinking_display: str | None = None
+
+
+@lru_cache(maxsize=2)
+def ask_model_settings(path: Path | None = None) -> dict[str, AskModelSetting]:
+    """Every model's Ask setting, validated: an unknown key, effort, display or a round count
+    outside 1..ASK_TOOL_ROUNDS_MAX is a configuration error, never silently ignored."""
+    data: dict[str, Any] = yaml.safe_load((path or CONFIG_DIR / "models.yaml").read_text())
+    out: dict[str, AskModelSetting] = {}
+    for model, spec in (data.get("ask_model_settings") or {}).items():
+        spec = dict(spec or {})
+        unknown = set(spec) - {"min_effort", "tool_rounds", "thinking_display"}
+        if unknown:
+            raise ValueError(f"models.yaml ask_model_settings.{model}: unknown {sorted(unknown)}")
+        effort = spec.get("min_effort")
+        if effort is not None and effort not in EFFORT_LEVELS:
+            raise ValueError(f"models.yaml ask_model_settings.{model}: effort {effort!r}")
+        rounds = spec.get("tool_rounds")
+        if rounds is not None and (
+            isinstance(rounds, bool)
+            or not isinstance(rounds, int)
+            or not 1 <= rounds <= ASK_TOOL_ROUNDS_MAX
+        ):
+            raise ValueError(f"models.yaml ask_model_settings.{model}: tool_rounds {rounds!r}")
+        display = spec.get("thinking_display")
+        if display is not None and display not in THINKING_DISPLAYS:
+            raise ValueError(f"models.yaml ask_model_settings.{model}: display {display!r}")
+        out[str(model)] = AskModelSetting(
+            str(effort) if effort is not None else None,
+            rounds,
+            str(display) if display is not None else None,
+        )
+    return out
+
+
+def ask_setting(model: str | None) -> AskModelSetting:
+    """The Ask setting of ``model`` (the defaults when it has none)."""
+    return ask_model_settings().get(str(model or ""), AskModelSetting())
+
+
+def ask_effort(model: str | None, asked: str | None) -> str | None:
+    """The effort an Ask turn on ``model`` runs at: what the user asked, raised to the model's
+    ``min_effort`` when it is lower (or when nothing was asked)."""
+    floor = ask_setting(model).min_effort
+    if floor is None:
+        return asked
+    if asked is None or asked not in EFFORT_ORDER:
+        return floor
+    return asked if EFFORT_ORDER.index(asked) >= EFFORT_ORDER.index(floor) else floor
 
 
 def effort_for(model: str, asked: str | None) -> str | None:
@@ -358,15 +426,21 @@ class AnthropicLlm:
         raise AssertionError("unreachable")  # the loop returns or raises
 
     async def _send_once(self, kwargs: dict[str, Any], on_start: Callable[[], None] | None) -> Any:
-        """``messages.create``, or with ``on_start`` and a client that streams, the same request
-        streamed (the final message is the same object ``create`` returns)."""
+        """``messages.create``, or with ``on_start`` or a limit above ``STREAM_ABOVE_TOKENS`` and
+        a client that streams, the same request streamed (the final message is the same object
+        ``create`` returns). The SDK refuses a non-streamed call whose limit could outrun its
+        ten-minute timeout, so a re-ask at the model's own output limit must stream."""
+        from llm.route import STREAM_ABOVE_TOKENS
+
         stream = getattr(self.client.messages, "stream", None)
-        if on_start is None or stream is None:
+        large = int(kwargs.get("max_tokens") or 0) > STREAM_ABOVE_TOKENS
+        if (on_start is None and not large) or stream is None:
             return await self.client.messages.create(**kwargs)
         async with stream(**kwargs) as events:
-            async for _event in events:
-                on_start()  # the response has begun: the prefix is readable now
-                break
+            if on_start is not None:
+                async for _event in events:
+                    on_start()  # the response has begun: the prefix is readable now
+                    break
             return await events.get_final_message()
 
     async def _batched(

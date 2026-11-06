@@ -121,15 +121,25 @@ export function ResumeButton({ runId, compact = false, onResumed }: {
   );
 }
 
+/** The warning shown before a resume of a run whose saved answers were keyed by an older
+ * version (ADR-0129): ``replay_extra_usd`` is the server's upper bound, None when nothing changed. */
+export function replayWarning(extraUsd: number | null | undefined): string | null {
+  if (extraUsd == null || extraUsd <= 0) return null;
+  const dollars = `$${extraUsd.toFixed(2)}`;
+  return `This resume may cost up to ${dollars} more: the platform changed how it recognises work already paid for, so some of it may be paid for again.`;
+}
+
 export function ResumeResearch({ stopped }: { stopped: StoppedRun }) {
   const [done, setDone] = useState<ResearchResumed | null>(null);
   if (done) return <ResumingNote resumed={done} />;
+  const warning = replayWarning(stopped.replay_extra_usd);
   return (
     <section className="card pad stack-10" aria-labelledby="stopped-title">
       <div className="strong" id="stopped-title">{stopped.stalled ? "This research stalled" : "This research stopped before finishing"}</div>
       <p className="mut sm-text">
-        {stopped.reason} Everything found so far is kept{stopped.steps_total ? ` (${stopped.steps_done} of ${stopped.steps_total} steps done)` : ""}. Resuming reuses it at no cost.
+        {stopped.reason} Everything found so far is kept{stopped.steps_total ? ` (${stopped.steps_done} of ${stopped.steps_total} steps done)` : ""}. {warning ? "Resuming reuses what it can." : "Resuming reuses it at no cost."}
       </p>
+      {warning ? <p className="sm-text bad-text" role="note">{warning}</p> : null}
       <ResumeButton runId={stopped.run_id} onResumed={setDone} />
     </section>
   );

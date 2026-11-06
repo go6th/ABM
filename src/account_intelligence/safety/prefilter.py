@@ -189,7 +189,10 @@ class TermIndex:
 
 
 def build_index(terms: tuple[str, ...]) -> TermIndex:
-    """The index of a term set; ``patterns[i]`` is the pattern of the i-th non blank term."""
+    """The index of a term set; ``patterns[i]`` is the pattern of the i-th non blank term. The
+    words of a term match across any run of whitespace (a no-break space, a double space or a line
+    break): a stored name "Zorblax Industries" followed by a no-break space did not match the
+    same name a writer had printed with a plain space, and reached a client zip (2026-11-05)."""
     patterns: list[re.Pattern[str]] = []
     by_word: dict[str, list[int]] = {}
     words: list[tuple[str, ...]] = []
@@ -199,7 +202,8 @@ def build_index(terms: tuple[str, ...]) -> TermIndex:
         if not stripped:
             continue
         i = len(patterns)
-        patterns.append(re.compile(r"(?<!\w)" + re.escape(stripped) + r"(?!\w)", re.I))
+        body = r"\s+".join(re.escape(part) for part in stripped.split())
+        patterns.append(re.compile(r"(?<!\w)" + body + r"(?!\w)", re.I))
         mine = tuple(_WORD.findall(stripped)) if stripped.isascii() else ()
         mine = tuple(w.lower() for w in mine)
         words.append(mine)

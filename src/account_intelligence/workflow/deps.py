@@ -13,7 +13,6 @@ from dataclasses import dataclass, field
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from account_intelligence.connectors.base import CallContext
@@ -32,15 +31,11 @@ from account_intelligence.tracker.adapters import LedgerCallAdapter, RunInputAda
 from account_intelligence.tracker.repo import CoverageRepo
 from account_intelligence.tracker.service import TrackerService
 from account_intelligence.workflow.spec import WorkflowSpec
+from obs.logging import logger
+
+_log = logger(__name__)
 
 TxnFactory = Callable[[UUID], AbstractAsyncContextManager[AsyncSession]]
-
-
-class _JsonObject(BaseModel):
-    """A routed call's output is a JSON object; each caller validates it strictly against its
-    own schema afterwards (the router checks the object shape, R3)."""
-
-    model_config = ConfigDict(extra="allow")
 
 
 @dataclass
@@ -73,8 +68,6 @@ class RunDeps:
     # local stack only (DEV_AUTO_APPROVE_CAPS=1): the cap is approved as tenant policy, as if the
     # tenant had set ``auto_approve_within_reserve``; ``spend.approval`` rules still hold
     dev_auto_approve: bool = False
-    # model routing (D-48): with a router every call goes through it; None uses ``llm`` directly
-    router: Any | None = None
     # the models this run uses (``llm.choice.RunModels``: the user's research and analysis
     # models, owner decision 2026-10-14); None serves every tier with its configured route
     models: Any | None = None
@@ -125,59 +118,62 @@ class RunDeps:
         system: str,
         user: str,
         *,
-        data_class: str = "public_web",
         model: str | None = None,
         schema: Mapping[str, Any] | None = None,
         cached_user: str | None = None,
         max_tokens: int | None = None,
+        effort: str | None = None,
+        data_class: str | None = None,
     ) -> LlmResult:
-        """One model call named by its task kind (R2): the knobs come from config (R7); with a
-        router the call is routed, recorded and replayable; otherwise the legacy port serves it.
-        On the legacy port ``schema`` goes out as structured output, ``cached_user`` (a source
-        document) opens the user turn as its own cached block, and ``max_tokens`` raises the task
-        kind's limit for a re-ask after a reply was cut off (token review 2026-10-20)."""
-        from llm.tasks import require
-
-        kind = require(task_kind)
-        if self.router is None:
-            return await self._legacy_model(
-                task_kind,
-                system,
-                user,
-                max_tokens or kind.max_tokens,
-                bool(kind.cacheable),
-                model,
-                schema=schema,
-                cached_user=cached_user,
-            )
-        if cached_user:
-            user = f"{cached_user}\n\n{user}"
-        from llm.models import Scope
-        from llm.prompts import prompt_hash
-
-        await self._spend_check()
-        routed = await self.router(self).call(
+        """One model call named by its task kind (R2): ``resolve_model`` routes it (``llm.route``)
+        and the live port serves it. ``schema`` goes out as structured output, ``cached_user`` (a
+        source document) opens the user turn as its own cached block, ``max_tokens`` raises the
+        task kind's limit for a re-ask after a reply was cut off (token review 2026-10-20), and
+        ``effort`` is an agent's own effort from the registry (``config/agents.yaml``).
+        ``data_class`` is what the request carries (None: the run's, ``data_class``)."""
+        return await self.resolve_model(
             task_kind,
             system,
-            prompt_hash(system),
-            {"user": user},
-            _JsonObject,
-            Scope(self.tenant_id, self.run_id, data_class),
+            user,
+            model,
+            schema=schema,
+            cached_user=cached_user,
+            max_tokens=max_tokens,
+            effort=effort,
+            data_class=data_class,
         )
-        import json
 
-        usage = routed.record.usage
-        return LlmResult(
-            text=json.dumps(routed.output.model_dump(mode="json")),
-            model=routed.record.model_alias,
-            usage=LlmUsage(
-                usage.input_tokens,
-                usage.output_tokens,
-                usage.cache_read_tokens,
-                usage.cache_write_tokens,
-            ),
-            extra={"degraded": routed.record.degraded, "replayed": routed.replayed},
+    @property
+    def data_class(self) -> str:
+        """The data class of the run's model requests (``llm.data_class``): ``tenant`` for a run
+        whose input is the client's uploaded files, ``public_web`` otherwise."""
+        return "tenant" if self.run_input.get("input_mode") == "file" else "public_web"
+
+    def _guard_data_class(
+        self, task_kind: str, tier: str, model: str | None, data_class: str
+    ) -> None:
+        """Rule R8 (ADR-0133): off, warn (logged, the call goes ahead) or enforce
+        (``DataClassRefused`` before any reuse lookup or paid call)."""
+        from llm.data_class import DataClassRefused, check, load_policy
+
+        policy = load_policy()
+        if policy.mode == "off":
+            return
+        effective = model or str(getattr(getattr(self.llm, "routes", {}).get(tier), "model", tier))
+        verdict = check(policy, effective, data_class)
+        if verdict == "ok":
+            return
+        _log.warning(
+            "model.data_class_violation",
+            extra={
+                "task_kind": task_kind,
+                "model": effective,
+                "reason": data_class,
+                "outcome": "refused" if verdict == "refuse" else "warned",
+            },
         )
+        if verdict == "refuse":
+            raise DataClassRefused(effective, data_class)
 
     def chosen_model(self, tier: str, override: str | None = None) -> str | None:
         """The model a tier runs on: ``override`` (a fallback), else the run's choice for the
@@ -186,30 +182,51 @@ class RunDeps:
         A role left on its catalogue default is served by the active arm's route for each of its
         tiers (token review item 9, 2026-10-20: the cost_saving arm puts extraction on Sonnet
         5.5 and the judge on Opus 5.5 while planning stays on Opus 5.5); a model the user picked
-        serves every tier of its role. The judge never runs on the extractor's model (G12)."""
+        serves every tier of its role. The judge never runs on the extractor's model (G12): a
+        judge that would (chosen or routed) runs on another Claude model of the allow-list, and
+        ``JudgeNotIndependent`` is raised when there is none or the port cannot serve it (never
+        a silent cap, ADR-0118; ``ensure_independent_judge`` checks it at run start)."""
         if override is not None:
             return override
-        if self.models is None or not hasattr(self.llm, "complete_as"):
-            return None
         from llm.choice import catalogue, independent_judge
+        from llm.route import JudgeNotIndependent
 
         cat = catalogue()
         routes = getattr(self.llm, "routes", {})
-        research = tier in cat.research_tiers
-        picked = self.models.research if research else self.models.analysis
-        default = cat.default_research if research else cat.default_analysis
-        if picked == default and tier in routes:
-            chosen: str | None = None
-        else:
-            chosen = str(self.models.for_tier(tier, cat))
-        if tier != "judge" or "extractor" not in routes:
+        can_choose = hasattr(self.llm, "complete_as")
+        chosen: str | None = None
+        if self.models is not None and can_choose:
+            research = tier in cat.research_tiers
+            picked = self.models.research if research else self.models.analysis
+            default = cat.default_research if research else cat.default_analysis
+            if picked != default or tier not in routes:
+                chosen = str(self.models.for_tier(tier, cat))
+        if tier != "judge" or "extractor" not in routes or "judge" not in routes:
             return chosen
         extractor = self.chosen_model("extractor") or str(routes["extractor"].model)
         judge = chosen or str(routes["judge"].model)
-        return independent_judge(extractor, cat) if judge == extractor else chosen
+        if judge != extractor:
+            return chosen
+        other = independent_judge(extractor, cat)
+        if not can_choose:
+            raise JudgeNotIndependent(
+                "the model port cannot serve a judge other than the extractor"
+            )
+        return other
 
-    def _effort(self, tier: str) -> str | None:
-        """The effort the run's user chose for this tier's role (None: the task's own)."""
+    def ensure_independent_judge(self) -> None:
+        """G12 at run start, before any paid call: the judge this run would use differs from its
+        extractor, or ``JudgeNotIndependent`` (the runner ends the run FAILED with a full
+        refund). A port without configured routes (the test fakes) has nothing to compare."""
+        if "judge" in getattr(self.llm, "routes", {}):
+            self.chosen_model("judge")
+
+    def _effort(self, tier: str, agent_effort: str | None = None) -> str | None:
+        """The effort of one call: an agent's own effort (``config/agents.yaml``), else the
+        effort the run's user chose for the tier's role where the user's effort applies (not
+        extraction or classification, ``llm.route.TIERS``); None: the task's configured one."""
+        if agent_effort is not None:
+            return agent_effort
         return self.models.effort_for_tier(tier) if self.models is not None else None
 
     def _cache_tier(self, tier: str, model: str | None) -> str:
@@ -221,19 +238,22 @@ class RunDeps:
             return tier
         return f"{tier}@{model}"
 
-    async def _legacy_model(
+    async def resolve_model(
         self,
         task_kind: str,
         system: str,
         user: str,
-        max_tokens: int,
-        replayable: bool,
         override: str | None = None,
         *,
         schema: Mapping[str, Any] | None = None,
         cached_user: str | None = None,
+        max_tokens: int | None = None,
+        effort: str | None = None,
+        data_class: str | None = None,
     ) -> LlmResult:
-        """The legacy port with two layers of reuse and a log of every call:
+        """The one way into the model port (``platform.llm.ChoiceLlm``): the task kind's route
+        (``llm.route``: tier, token limit), the run's model for the tier (``chosen_model``) and
+        its effort (``_effort``), with two layers of reuse and a log of every call:
 
         1. within the run (R-replay): an answer is stored under the hash of its request in the
            run's payloads, so a node that a slice timeout cut off and the next slice re-runs gets
@@ -242,7 +262,7 @@ class RunDeps:
            byte-identical after the run id is normalised out gets the stored reply text back, with
            this run's id substituted, while the reply is younger than its TTL.
 
-        A reused answer reports zero usage. A task kind the routing config marks not cacheable
+        A reused answer reports zero usage. A task kind the routing table marks not cacheable
         is always asked afresh. Every call is logged to the reply log with how it was served, its
         tokens and its priced cost (never the prompt).
 
@@ -253,12 +273,16 @@ class RunDeps:
         import json
 
         from llm.reply_cache import denormalise, normalise, reply_key
-        from llm.tasks import LEGACY_TIER
+        from llm.route import route
 
-        tier = LEGACY_TIER[task_kind]
+        routed = route(task_kind)
+        tier, replayable = str(routed.tier), routed.cacheable
+        max_tokens = max_tokens or routed.max_tokens
         model = self.chosen_model(tier, override)
+        # R8 before anything else: a refused data class never reaches a reply lookup or a model
+        self._guard_data_class(task_kind, tier, model, data_class or self.data_class)
         key_tier = self._cache_tier(tier, model)
-        effort = self._effort(tier)
+        effort = self._effort(tier, effort)
         if effort is not None:
             # a reply asked at another effort is another reply: trying high never reuses medium
             key_tier = f"{key_tier}~{effort}"
@@ -268,7 +292,14 @@ class RunDeps:
             await self._spend_check()
             await self._log_started(task_kind, tier, None, model)
             result = await self._complete(
-                tier, system, user, max_tokens, model, schema=schema, cached_user=cached_user
+                tier,
+                system,
+                user,
+                max_tokens,
+                model,
+                schema=schema,
+                cached_user=cached_user,
+                effort=effort,
             )
             await self._log_reply(task_kind, tier, result, "model", None, None)
             return result
@@ -282,14 +313,32 @@ class RunDeps:
         except PayloadMissing:
             pass
         shared_key = reply_key(
-            task_kind, key_tier, max_tokens, system, normalise(keyed_user, self.run_id)
+            task_kind,
+            key_tier,
+            max_tokens,
+            system,
+            normalise(keyed_user, self.run_id, self.account_id),
         )
         if self.reply_cache is not None and (self.reuse_cached or self.resume_from):
             hit = await self.reply_cache.get(
                 self.tenant_id, shared_key, self.clock.now(), source_run=self.resume_from
             )
+            stored_text = hit.text if hit is not None else ""
+            if hit is None:
+                # a reply logged before 2026-11-05 is keyed with the account id still in it: a
+                # resume or rerun of the same account reuses it instead of paying once more
+                legacy = reply_key(
+                    task_kind, key_tier, max_tokens, system, normalise(keyed_user, self.run_id)
+                )
+                hit = await self.reply_cache.get(
+                    self.tenant_id, legacy, self.clock.now(), source_run=self.resume_from
+                )
+                if hit is not None:
+                    stored_text = normalise(
+                        denormalise(hit.text, self.run_id), self.run_id, self.account_id
+                    )
             if hit is not None:
-                text = denormalise(hit.text, self.run_id)
+                text = denormalise(stored_text, self.run_id, self.account_id)
                 await self.payloads.put(
                     key, json.dumps({"text": text, "model": hit.model}).encode()
                 )
@@ -300,7 +349,7 @@ class RunDeps:
                     extra={"cached": True, "saved_tokens": hit.input_tokens + hit.output_tokens},
                 )
                 # keep the text on the reuse row too, so a later resume of THIS run reuses it
-                await self._log_reply(task_kind, tier, result, "cache", shared_key, hit.text)
+                await self._log_reply(task_kind, tier, result, "cache", shared_key, stored_text)
                 return result
         await self._spend_check()
         await self._log_started(task_kind, tier, shared_key, model)
@@ -313,13 +362,19 @@ class RunDeps:
             schema=schema,
             cached_user=cached_user,
             batch=self._batch_slot(task_kind, tier, model, digest),
+            effort=effort,
         )
         if result.text.strip():  # an empty answer is not kept: a re-run asks again
             await self.payloads.put(
                 key, json.dumps({"text": result.text, "model": result.model}).encode()
             )
             await self._log_reply(
-                task_kind, tier, result, "model", shared_key, normalise(result.text, self.run_id)
+                task_kind,
+                tier,
+                result,
+                "model",
+                shared_key,
+                normalise(result.text, self.run_id, self.account_id),
             )
         else:
             await self._log_reply(task_kind, tier, result, "model", shared_key, None)
@@ -464,15 +519,16 @@ class RunDeps:
         schema: Mapping[str, Any] | None = None,
         cached_user: str | None = None,
         batch: BatchSlot | None = None,
+        effort: str | None = None,
     ) -> LlmResult:
-        """One legacy call, its SDK errors typed like the router's adapter: a 429, overload, 5xx,
-        timeout or dropped connection is ``Overloaded`` (retryable), so the node RetryPolicy
-        retries it (W6; the SDK client's own retries are off). A port without call options
-        (the test fakes) gets the source document folded into the user text."""
+        """The port call of ``resolve_model`` (its only caller), SDK errors typed
+        (``llm.adapters.anthropic_api.map_error``): a 429, overload, 5xx, timeout or dropped
+        connection is ``Overloaded`` (retryable), so the node RetryPolicy retries it (W6; the SDK
+        client's own retries are off). A port without call options (the test fakes) gets the
+        source document folded into the user text."""
         from llm.adapters.anthropic_api import map_error
 
         extra: dict[str, Any] = {}
-        effort = self._effort(tier)
         if getattr(self.llm, "supports_call_options", False):
             if schema is not None or cached_user or batch is not None or effort is not None:
                 extra["options"] = CallOptions(cached_user or None, schema, batch, effort)

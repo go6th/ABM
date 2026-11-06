@@ -26,6 +26,7 @@ from account_intelligence.api.auth import Identity
 from account_intelligence.api.errors import APIProblem, require_confirmed_twice
 from account_intelligence.api.guard import authorize
 from account_intelligence.api.policy import register, tenant_route
+from account_intelligence.api.research_gaps import research_gaps
 from account_intelligence.api.routes.account_workspace import account_id_of
 from account_intelligence.api.routes.limits import limit_reached
 from account_intelligence.api.routes.model_choice import refused
@@ -115,7 +116,8 @@ async def refresh_options(domain: str, ident: Identity = Depends(authorize)) -> 
     """What a web refresh of this account would cost, before anything is confirmed."""
     async with tenant_txn(ident.tenant_id) as s:
         account_id = await account_id_of(s, domain)
-        return await _refresh_view(s, account_id, datetime.now(UTC))
+        view = await _refresh_view(s, account_id, datetime.now(UTC))
+    return {**view, "gaps": await research_gaps(ident.tenant_id)}
 
 
 class RefreshBody(BaseModel):

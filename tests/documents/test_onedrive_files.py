@@ -239,6 +239,7 @@ class FakeDocuments:
             "authoritative": False, "company": None, "needs_company": True,
             "created_at": "2026-10-23T00:00:00+00:00", "parts_total": 0, "parts_done": 0,
             "parts_failed": [], "indexed_passages": 0, "members_read": 0, "members_skipped": [],
+            "audience": "client",
         }  # fmt: skip
 
 

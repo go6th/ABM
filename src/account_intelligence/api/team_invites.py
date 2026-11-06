@@ -26,7 +26,8 @@ from fastapi import HTTPException
 from sqlalchemy import text
 
 from account_intelligence.api.errors import APIProblem
-from account_intelligence.db.session import tenant_txn, untenanted_session
+from account_intelligence.db.session import tenant_txn
+from account_intelligence.db.system_scope import untenanted_session
 from identity import local_password, membership
 from metering import limits
 

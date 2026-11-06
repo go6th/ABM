@@ -47,7 +47,13 @@ async def _confirm(plane: Any, domain: str, scope: str, request_id: str | None =
     """Confirm a refresh with the estimate the Refresh screen shows (as the page does)."""
     view = (await _call(plane, "GET", f"/v1/accounts/{domain}/refresh")).json()
     credits = next(o["credits"] for o in view["options"] if o["scope"] == scope)
-    body = {"request_id": request_id or str(uuid4()), "scope": scope, "credits": credits}
+    body = {
+        "request_id": request_id or str(uuid4()),
+        "scope": scope,
+        "credits": credits,
+        "confirm": True,
+        "confirm_again": True,
+    }
     return await _call(plane, "POST", f"/v1/accounts/{domain}/refresh", json=body)
 
 
@@ -158,7 +164,13 @@ async def test_a_moved_estimate_is_shown_again_not_charged(world: dict[str, Any]
     plane = _plane(world["a"], "priya-test", world["payloads"])
     view = (await _call(plane, "GET", "/v1/accounts/cambiahealth.example/refresh")).json()
     people = next(o["credits"] for o in view["options"] if o["scope"] == "people")
-    body = {"request_id": str(uuid4()), "scope": "people", "credits": people - 1}
+    body = {
+        "request_id": str(uuid4()),
+        "scope": "people",
+        "credits": people - 1,
+        "confirm": True,
+        "confirm_again": True,
+    }
     r = await _call(plane, "POST", "/v1/accounts/cambiahealth.example/refresh", json=body)
     assert r.status_code == 409 and r.json()["type"].endswith("estimate_changed")
     assert r.json()["context"]["credits"] == people
@@ -316,6 +328,8 @@ async def test_research_on_a_typed_topic_reserves_its_own_estimate(world: dict[s
         "scope": "topic",
         "credits": view["topic"]["credits"],
         "topic": "  Their   ServiceNow renewal timing ",
+        "confirm": True,
+        "confirm_again": True,
     }
     r = await _call(plane, "POST", "/v1/accounts/cambiahealth.example/refresh", json=body)
     assert r.status_code == 201, r.text
@@ -351,6 +365,6 @@ async def test_a_topic_must_be_given_for_topic_research_only(
         plane,
         "POST",
         "/v1/accounts/highmark.example/refresh",
-        json={"request_id": str(uuid4()), **body},
+        json={"request_id": str(uuid4()), "confirm": True, "confirm_again": True, **body},
     )
     assert r.status_code == 422

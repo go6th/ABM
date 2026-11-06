@@ -16,6 +16,7 @@ import pytest
 
 from account_intelligence.api.routes.ask import (
     RESET_NOTICE,
+    _failed_draft,
     _mark_local_fallback,
     with_table_tools,
 )
@@ -195,13 +196,18 @@ def test_model_failure_keeps_local_draft_and_adds_a_fallback_notice() -> None:
 
 
 def test_a_discarded_model_reply_is_announced_not_shown_as_the_answer() -> None:
+    """2026-11-03: the notice used to sit above the local placeholder rows ("At UCB Inc, UCB
+    [1]"), which still read as an answer; a paid reply that was discarded now shows the notice
+    alone, keeps the account in focus and cites nothing."""
     draft = A.Draft()
     draft.para("At Acme, Acme [[fact:1]].")
+    draft.rows = {"fact:1": object()}  # type: ignore[dict-item]
 
-    _mark_local_fallback(draft, RESET_NOTICE)
+    out = _failed_draft(draft)
 
-    assert draft.paragraphs[0] == RESET_NOTICE
-    assert "not an analysis" in RESET_NOTICE
+    assert out.paragraphs == [RESET_NOTICE] and out.rows == {}
+    assert out.focus is draft.focus and out.structured is None
+    assert "no analysis" in RESET_NOTICE and "Showing workspace records" not in RESET_NOTICE
 
 
 def test_history_alternates_drops_citation_marks_and_keeps_the_newest_within_the_budget() -> None:
@@ -299,14 +305,16 @@ async def test_a_threads_history_is_its_own_completed_model_turns_oldest_first(
     from account_intelligence.api.routes.ask import LOCAL_MODEL
     from account_intelligence.chat import store
     from account_intelligence.db.session import tenant_txn
+    from llm.choice import catalogue
 
     tenant, user = world["a"], f"hist-{uuid4().hex[:6]}"
+    paid = catalogue().ids[3]  # any priced model id (R1: no model id in tests)
     thread = None
     async with tenant_txn(tenant, user=user) as s:
         for model, question, answer in (
-            ("claude-sonnet-5-5", "first", "one"),
+            (paid, "first", "one"),
             (LOCAL_MODEL, "second", "placeholder"),
-            ("claude-sonnet-5-5", "third", "three"),
+            (paid, "third", "three"),
         ):
             thread, _, _ = await store.record_ask_turn(
                 s,

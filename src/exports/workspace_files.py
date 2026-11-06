@@ -536,8 +536,30 @@ def release_members(
         if why is not None:
             left.append((row.url, why))
             continue
-        out[release_name(row, rules, clean)] = body.encode()
+        out[_safe_release_name(row, rules, clean, blocked, scrub)] = body.encode()
     return dict(sorted(out.items())), tuple(left), scrubbed
+
+
+def _safe_release_name(
+    row: ReleaseRow,
+    rules: WorkspaceRules,
+    clean: Clean,
+    blocked: Callable[[str], str | None],
+    scrub: Callable[[str], str] | None,
+) -> str:
+    """The member name of a copy whose name the package scan accepts: the title words, else
+    the scrubbed title's words, else none (``<day>_<hash>``). The package scan reads every
+    member name and the manifest repeats them; a title word on the restricted list withheld
+    the whole workspace zip although the copy's text had been scrubbed (staging 2026-11-06,
+    Olympus ``workspace:leak``)."""
+    name = release_name(row, rules, clean)
+    if blocked(name) is None:
+        return name
+    if scrub is not None:
+        mended = release_name(row, rules, lambda t: scrub(clean(t)))
+        if blocked(mended) is None:
+            return mended
+    return release_name(row.model_copy(update={"title": ""}), rules)
 
 
 def restore_member(
@@ -822,8 +844,9 @@ def people_grid_member(
 ) -> bytes:
     """``data/people_grid.txt``: one tab-separated line per person of the People List, in the
     list's order (the owner's grid: row id, name, title, headline, profile link, employer, lane,
-    level, priority, how found)."""
-    if not content.people:
+    level, priority, how found). Internal-only people are left out (ADR-0025)."""
+    listed = [p for p in content.people if not p.internal]
+    if not listed:
         return rules.data_files.none_recorded.format(what="people").encode() + b"\n"
     header = (
         "row_id", "name", "title", "headline", "linkedin_url", "employer", "lane", "level",
@@ -842,7 +865,7 @@ def people_grid_member(
             p.priority,
             p.origin,
         )
-        for i, p in enumerate(content.people, start=1)
+        for i, p in enumerate(listed, start=1)
     ]
     return _tsv(header, rows)
 
@@ -851,7 +874,8 @@ def releases_index_member(
     content: SnapshotContent, rules: WorkspaceRules, clean: Clean, link_rule: LinkRule | None
 ) -> bytes:
     """``data/releases_index.json``: every archived copy under ``data/releases/`` with its
-    address, title, day, kind and file name."""
+    address, title, day, kind and file name, by day, address and file name, so the same copies
+    in another snapshot order give the same bytes."""
     if not content.releases:
         return _none(rules, "captured pages")
     rows = [
@@ -864,6 +888,7 @@ def releases_index_member(
         }
         for r in content.releases
     ]
+    rows.sort(key=lambda row: (row["date"], str(row["url"] or ""), row["file"]))
     return _dump(rows, sort_keys=False)
 
 
@@ -936,7 +961,9 @@ def derived_people_member(
     ``priority``, ``loc``, ``si``), and the exclusions the list's Summary states."""
     counts = content.people_counts
     excluded = [list(x) for x in (counts.excluded if counts else ())]
-    if not content.people and not excluded:
+    # internal-only people are listed in the files, never in the zip (ADR-0025)
+    listed = [p for p in content.people if not p.internal]
+    if not listed and not excluded:
         return _none(rules, "people")
     people = [
         {
@@ -954,7 +981,7 @@ def derived_people_member(
             "second_url": _shown(p.second_profile_url, link_rule),
             "role_lane": p.role_lane,
         }
-        for i, p in enumerate(content.people, start=1)
+        for i, p in enumerate(listed, start=1)
     ]
     return _dump({"people": people, "excluded": excluded}, sort_keys=False)
 
@@ -1034,6 +1061,20 @@ def workspace_members(
     not list, or one this module does not build, is an error). ``present`` names the files the
     zip holds (a file left out of the set is not listed); ``link_rule`` keeps out of the records
     a link a client file may not carry."""
+    # one cleaning per distinct text: the postings' descriptions go into two members
+    # (data/jobs_12mo.json and data/derived/postings.json), and cleaning them twice was 19 s of
+    # a 7,000-posting build (2026-11-06)
+    cleaned: dict[str, str] = {}
+    raw_clean = clean
+
+    def once(text: str) -> str:
+        got = cleaned.get(text)
+        if got is None:
+            got = cleaned[text] = raw_clean(text)
+        return got
+
+    clean = once
+
     built: dict[str, bytes] = {
         "data/company_record.json": company_record_member(content, rules, clean, link_rule),
         "data/subsidiary_domains.json": subsidiary_domains_member(content, rules),

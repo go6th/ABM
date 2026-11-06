@@ -86,6 +86,7 @@ class ParallelConfig:
     aging_step_s: float
     max_in_flight_units: int
     max_queue: int
+    max_in_flight_claims: int
     deadline_ceiling_s: float
     tail_reserve_s: float
     unmeasured_p95_s: float
@@ -223,6 +224,7 @@ def build(data: Mapping[str, Any], raw: bytes) -> ParallelConfig:
             aging_step_s=_pos_num(fair["aging_step_s"], "aging_step_s"),
             max_in_flight_units=_pos_int(worker["max_in_flight_units"], "max_in_flight_units"),
             max_queue=_pos_int(worker["max_queue"], "max_queue"),
+            max_in_flight_claims=_pos_int(worker["max_in_flight_claims"], "max_in_flight_claims"),
             deadline_ceiling_s=_pos_num(_sourced(deadline, "ceiling_s"), "ceiling_s"),
             tail_reserve_s=_pos_num(_sourced(deadline, "tail_reserve_s"), "tail_reserve_s"),
             unmeasured_p95_s=_pos_num(_sourced(deadline, "unmeasured_p95_s"), "unmeasured_p95_s"),

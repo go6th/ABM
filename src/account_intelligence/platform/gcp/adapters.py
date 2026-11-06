@@ -54,7 +54,8 @@ class GcsPayloadStore:
         from google.api_core.exceptions import PreconditionFailed
 
         blob = self._bucket.blob(key)
-        data = gzip.compress(body, mtime=0)
+        # level-9 gzip of a large body is CPU work: off the event loop with the upload (ADR-0130)
+        data = await asyncio.to_thread(gzip.compress, body, mtime=0)
         with contextlib.suppress(PreconditionFailed):  # same key, same content: stored
             await asyncio.to_thread(
                 blob.upload_from_string,
@@ -75,7 +76,7 @@ class GcsPayloadStore:
             data: bytes = await asyncio.to_thread(blob.download_as_bytes)
         except NotFound:
             raise PayloadMissing(key) from None
-        return gzip.decompress(data)
+        return await asyncio.to_thread(gzip.decompress, data)
 
     async def exists(self, key: str) -> bool:
         """Whether an object is stored under ``key`` (a metadata read, no download)."""
@@ -259,6 +260,67 @@ def verify_task_token(token: str, audience: str, allowed_email: str) -> None:
         raise PermissionError("invalid task token") from error
     if claims.get("email") != allowed_email or not claims.get("email_verified", False):
         raise PermissionError("task token is not from the scheduler service account")
+
+
+# SERVICE_ROLE -> the database group role its Cloud SQL IAM user joins (migration 0101,
+# ADR-0123). The api's role cannot write tool_calls nor touch run_leases and the checkpoint
+# internals; the worker and the jobs (which run worker commands) hold app_rw's rights through
+# app_worker; the migrate job signs in as the owner; the local profiles (``all``) log in as
+# app_rw with a password. app_sweeper has no service yet (the in-process sweeper acts on tenant
+# tables after discovery and runs as app_worker).
+DB_ROLES: dict[str, str | None] = {
+    "api": "app_api",
+    "worker": "app_worker",
+    "job": "app_worker",
+    "migrate": None,
+    "all": "app_rw",
+}
+SERVICE_DB_ROLES = frozenset({"app_api", "app_worker", "app_sweeper"})
+
+
+def db_role_for(service_role: str) -> str | None:
+    """The database role a ``SERVICE_ROLE`` runs as (``ValueError`` for an unknown one)."""
+    if service_role not in DB_ROLES:
+        raise ValueError(f"unknown SERVICE_ROLE {service_role!r}")
+    return DB_ROLES[service_role]
+
+
+def role_verdict(service_role: str, held: frozenset[str]) -> str:
+    """Judge the roles granted DIRECTLY to the signed-in user: ``ok`` when it holds its own
+    service role and not app_rw, ``pending`` while it still holds app_rw (the migrate job has not
+    moved it yet: logged, not fatal). Holding another service's role, or no runtime role at all,
+    raises (fail closed)."""
+    want = db_role_for(service_role)
+    if want is None:
+        return "ok"
+    foreign = (held & SERVICE_DB_ROLES) - {want}
+    if foreign:
+        raise RuntimeError(
+            f"database role mismatch: SERVICE_ROLE={service_role} holds {sorted(foreign)}"
+        )
+    if "app_rw" in held and want != "app_rw":
+        return "pending"
+    if want in held:
+        return "ok"
+    raise RuntimeError(f"database role missing: SERVICE_ROLE={service_role} holds no {want}")
+
+
+async def check_db_role(engine: Any, service_role: str) -> str:
+    """Read the runtime roles granted directly to the signed-in user and apply
+    ``role_verdict`` (startup, staging and production)."""
+    from sqlalchemy import text
+
+    async with engine.connect() as conn:
+        rows = await conn.execute(
+            text(
+                "SELECT g.rolname FROM pg_auth_members m JOIN pg_roles g ON g.oid = m.roleid"
+                " WHERE m.member = (SELECT oid FROM pg_roles WHERE rolname = session_user)"
+                " AND g.rolname = ANY(:names)"
+            ),
+            {"names": sorted(SERVICE_DB_ROLES | {"app_rw"})},
+        )
+        held = frozenset(str(r.rolname) for r in rows)
+    return role_verdict(service_role, held)
 
 
 async def cloud_sql_engine(

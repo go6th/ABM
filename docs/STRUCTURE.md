@@ -59,12 +59,12 @@ with `unwanted-things/README.md` updated and `cleanup.sh` for the irreversible p
 
 | Path | Reached from a live entry point | Tests importing it | Scripts, CI, compose | Verdict |
 | --- | --- | --- | --- | --- |
-| `src/evalgate/` (15 modules) | no | 4 | none (the nightly eval workflow runs `tests/evals`, not this CLI) | park, after the owner confirms the eval harness it replaced |
-| `src/signals/` (9) | no | 6 | none | park with `refresh/` and `alerts/` as one set (monitoring v1, never wired to a run) |
-| `src/refresh/` (14; 3 modules reached) | partly: `replica/schedules.py` imports the cadence helpers | 8 | none | keep the 3 reached modules, park the rest or fold them into `replica/schedules.py` |
-| `src/alerts/` (13; 6 reached) | partly: notifications | 7 | none | keep the reached modules; park `digest.py`, `channels.py`, `outbox.py`, `templates.py`, `engine.py`, `freshness.py`, `caps.py` |
-| `src/privacy/` (6) | no | 1 | none | park; `people/erasure.py` is the erasure path the product uses |
-| `src/quality/` (4), `src/registers/` (5), `src/security/` (5), `src/unitcost/` (3), `src/metrics/` (3), `src/contracts/` (4) | no | 1 each | none | park (release-process tooling from the build phases; `docs/` keeps their reports) |
+| `src/evalgate/` (15 modules) | no | 4 | `.github/workflows/eval.yml` runs `python -m evalgate.cli contamination` and `gate`; `evals/grading_calibration.py` imports it | keep (re-checked 2026-11-03, ADR-0136) |
+| `src/signals/` (9) | no | 6 | none | kept, NOT WIRED (ADR-0134): reached only through the `monitoring`-flagged routes in `api/routes/signals.py`; `tests/guardrails/test_monitoring_not_wired.py` pins its importers |
+| `src/refresh/` (14) | only `refresh.history`, from the `monitoring`-flagged `api/routes/signals.py` (re-checked 2026-11-03; `replica/schedules.py` does not import it) | 8 | none | kept, NOT WIRED (ADR-0134) |
+| `src/alerts/` (13) | `alerts.feedback`, `rules`, `subscriptions` from `api/routes/signals.py`; `alerts.lint`, `sensitive` from `crm_writeback.payloads` (both flag-gated) | 7 | none | kept, NOT WIRED (ADR-0134) |
+| `src/privacy/` (6) | no | 1 | none | PARKED 2026-11-03 in `unwanted-things/dead-code-2026-11/` (ADR-0136); `people/erasure.py` is the erasure path the product uses |
+| `src/quality/` (4), `src/contracts/` (4) | no | 1 each | none | PARKED 2026-11-03 (ADR-0136) (release-process tooling from the build phases; `docs/` keeps their reports). `src/registers/`, `src/security/`, `src/unitcost/` and `src/metrics/` were no-op stubs and are parked in `unwanted-things/retired-stubs/` (ADR-0122) |
 | `src/crm_writeback/` (7; 5 reached), `src/connectors_client/` (15; 11 reached) | partly | 3 and 8 | none | keep (mail and drive connectors and CRM write-back are product features); `connectors_client/notes.py`, `gmail.py`, `crm_hubspot.py`, `crm_salesforce.py` are unreached adapters to review |
 | `src/governance/` (4; 2 reached) | partly | 1 | none | keep the reached two; park `throttle.py`, `account_cost.py` |
 | `src/parallel/` (15; 13 reached) | yes (the governor) | 11 | none | keep; `simulate.py` is a tool, fine to park |
@@ -87,8 +87,9 @@ Duplicates to settle (two implementations of one rule):
   into the build node, the python-docx renderer goes to `unwanted-things/`.
 * Workbook rendering: `exports/excel/*.py` (from the snapshot) and `src/parity/excel/*.py` (from
   the bundle). Same resolution.
-* Retrieval: `account_intelligence/rag/` (hybrid search used by Ask) and `rag/graphrag.py`
-  (unused).
+* Retrieval: `account_intelligence/rag/` keeps `retrieval`, `tokenizer`, `models` (used by
+  `documents/`); the unused question loop (`graph.py`, `graphrag.py` and the rest) was parked
+  (ADR-0136).
 * Count logic for the sheets: `views/tables.py` (file tables), `replica/sheets.py` (live
   sheets) and `src/parity/counts.py` (the formula mirror). The parity module is the one to keep
   once the screens read the bundle.

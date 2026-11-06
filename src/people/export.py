@@ -69,6 +69,9 @@ class PeopleListRow:
     role_lane: str = ""
     # every search that found the person (the kept record and the duplicates merged into it)
     found_via: tuple[FoundVia, ...] = ()
+    # known only from an internal-only provider (ADR-0025): listed here and in the web tables
+    # when the rubric allows it (``internal_listed_in_files``), never in the workspace zip
+    internal: bool = False
 
 
 @dataclass(frozen=True)
@@ -89,8 +92,11 @@ def build_export(
     erased: frozenset[str] = frozenset(),
     profiles: Sequence[Profile] = (),
     si_firms: Sequence[SiFirm] = (),
+    list_internal: bool = False,
 ) -> PeopleExport:
-    """The client-facing read model; raises ``ClientOutputLeak`` on any denied term."""
+    """The client-facing read model; raises ``ClientOutputLeak`` on any denied term. With
+    ``list_internal`` a person known only from an internal-only provider is listed, flagged
+    ``internal`` (ADR-0025 narrowed, owner decision 2026-11-06), instead of only counted."""
     rows = []
     internal = 0
     by_profile = {pr.profile_url: pr for pr in profiles}
@@ -105,7 +111,7 @@ def build_export(
     for p in people:
         if p.status != "in_scope" or p.person_key in erased or not p.profile_url:
             continue
-        if p.internal_only:
+        if p.internal_only and not list_internal:
             internal += 1
             continue
         other = second.get(p.person_key)
@@ -133,10 +139,13 @@ def build_export(
                     )
                 )
             ),
+            internal=p.internal_only,
         )
         # found_via holds search kinds and a research page address that is not printed (only the
         # reference's wording of it is), so it is not scanned as a cell
-        if any(scan_text(str(v)) for k, v in row.__dict__.items() if k != "found_via"):
+        if any(
+            scan_text(str(v)) for k, v in row.__dict__.items() if k not in ("found_via", "internal")
+        ):
             # a person whose own cells name a denied term (a data tool as their title or
             # employer) is kept off the file and counted, never the reason the set fails
             internal += 1

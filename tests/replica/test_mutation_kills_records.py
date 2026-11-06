@@ -343,7 +343,8 @@ def test_the_newest_row_clause_keeps_a_row_only_when_no_later_row_is_the_same_th
     from account_intelligence.replica import current as C
 
     assert C.newest_only("things", "t", "n.k = t.k") == (
-        " AND NOT EXISTS (SELECT 1 FROM things n WHERE n.account_id = t.account_id"
+        " AND NOT EXISTS (SELECT 1 FROM things n WHERE n.tenant_id = t.tenant_id"
+        " AND n.account_id = t.account_id"
         " AND n.k = t.k AND (n.created_at, n.id) > (t.created_at, t.id))"
     )
     assert C.newest_only("job_postings", "j", "n.posting_key = j.posting_key") == C.NEWEST_POSTING

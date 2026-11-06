@@ -14,9 +14,31 @@ type Source = ChatAnswer["sources"][number];
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-// A cited source as a hyperlink to its original page, labelled "6th / <site>". A row with no web
-// page (an uploaded file, a provider's own page) has no link.
+/** The deep-dive sheet a cited table opens in (``source.sheet``), narrowed by the answer's own
+ * filter when it has one: ``/accounts/<domain>/<sheet>?match_col=…&match=…``. None for any other
+ * source. The sheet page shows the rows, and each row's own link opens its web page. */
+export function sheetHref(source: Source): string | null {
+  const sheet = source.sheet;
+  if (!sheet || !sheet.key || !source.account_domain) return null;
+  const base = `/accounts/${encodeURIComponent(source.account_domain)}/${encodeURIComponent(sheet.key)}`;
+  if (!sheet.match_col || !sheet.match) return base;
+  return `${base}?match_col=${encodeURIComponent(sheet.match_col)}&match=${encodeURIComponent(sheet.match)}`;
+}
+
+export const DEEP_DIVE = "Open in the deep dive";
+
+// A cited source as a hyperlink to its original page, labelled "6th / <site>"; a cited table that
+// is a deep-dive sheet opens that sheet in the app instead. A row with no web page (an uploaded
+// file, a provider's own page) has no link.
 export function SourceLink({ source }: { source: Source }) {
+  const sheet = sheetHref(source);
+  if (sheet) {
+    return (
+      <Link className="src-link" href={sheet} prefetch={false} aria-label={`${DEEP_DIVE}: source ${source.n}, ${source.title}`}>
+        {DEEP_DIVE}
+      </Link>
+    );
+  }
   const href = safeLink(source.url ?? "");
   if (!href) return null;
   return (
@@ -51,6 +73,7 @@ export function AnswerView({
 }) {
   const source: Source | undefined = answer.sources.find((s) => s.n === openSource);
   const href = source ? safeLink(source.url ?? "") : null;
+  const sheet = source ? sheetHref(source) : null;
   const offer = answer.offer;
   // citation n as a chip that opens its source card, then the source itself as a hyperlink
   // ("6th / LinkedIn") that opens the original page directly
@@ -82,6 +105,14 @@ export function AnswerView({
       ) : (
         answer.paragraphs.map((para, i) => <AnswerMarkdown key={i} parts={para} cite={cite} />)
       )}
+      {answer.thinking ? (
+        // the model's own summary of how it worked the answer out (models.yaml
+        // ask_model_settings: thinking_display), scrubbed on the server with the answer
+        <details className="sa-thinking">
+          <summary>How this was worked out</summary>
+          <p className="sa-thinking-text">{answer.thinking}</p>
+        </details>
+      ) : null}
       {answer.items ? (
         <div className="card items-card">
           <div className="lbl">{answer.items.title}</div>
@@ -95,10 +126,17 @@ export function AnswerView({
           <span className="cite static" aria-hidden="true">{source.n}</span>
           <span className="grow"><b>{source.title}</b><br /><span className="mut meta">{source.meta}</span></span>
           <span className="acts">
-            {href ? <a className="link" href={href} target="_blank" rel={LINK_REL}>{source.label ?? "Open source"}</a> : null}
+            {sheet ? (
+              <Link className="link" href={sheet} prefetch={false}>{DEEP_DIVE}</Link>
+            ) : href ? (
+              <a className="link" href={href} target="_blank" rel={LINK_REL}>{source.label ?? "Open source"}</a>
+            ) : null}
             <button type="button" className="link" onClick={() => onOpenSource(null)}>Close</button>
           </span>
         </div>
+      ) : null}
+      {answer.notices?.length ? (
+        <p className="mut small" role="status">{answer.notices.join(" ")}</p>
       ) : null}
       {offer && !offerDismissed ? (
         <div className="card wash offer">

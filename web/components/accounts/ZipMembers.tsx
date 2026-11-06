@@ -56,11 +56,8 @@ export function ZipMembers({ documentId, name, page = null }: { documentId: stri
                     <div>
                       <span className="sub">{ROLE_TEXT[m.role] ?? "File"}{m.audience === "owner_only" ? " · owner only" : ""}</span>
                       <p className="small">{page ? <Link href={`${page}#m-${i}`} prefetch={false}>{cellText(m.member)}</Link> : cellText(m.member)}</p>
-                      <span className="sub">
-                        {memberLine(m)}
-                        {" · "}
-                        <a href={`/v1/documents/${encodeURIComponent(documentId)}/members/${encodeURIComponent(m.id)}`} download>Download this file</a>
-                      </span>
+                      <span className="sub">{memberLine(m)}</span>
+                      <span className="sub"> · <a href={`/v1/documents/${encodeURIComponent(documentId)}/members/${encodeURIComponent(m.id)}`} download>Download this file</a></span>
                     </div>
                   </li>
                 ))}

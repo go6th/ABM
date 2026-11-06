@@ -1,4 +1,6 @@
-"""Strictly load the public provider/model catalogue used by chat APIs and the model picker."""
+"""Strictly load the public provider/model catalogue used by chat APIs and the model picker:
+the allow-list and chat limits from ``config/chat_models.yaml``, each model's provider, name,
+context window and prices from ``config/models.yaml`` (the one price table, ``llm.cost``)."""
 
 from __future__ import annotations
 
@@ -6,11 +8,12 @@ from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import yaml
 
 from account_intelligence.config import CONFIG_DIR
+from llm.cost import Price, prices
 
 
 class ChatConfigInvalid(ValueError):
@@ -124,8 +127,31 @@ def _positive_int(value: Any, name: str) -> int:
     return value
 
 
-def load_chat_registry(path: Path | None = None) -> ChatRegistry:
-    """Parse and validate the entire registry before exposing any model to a request."""
+def _model_facts(models_path: Path) -> dict[str, tuple[str, str, int, Price]]:
+    """``id -> (provider, display name, context window, prices)`` of every priced model of
+    ``models.yaml``: the chat catalogue names ids, the one price table prices them
+    (``llm.cost``, ADR-0115)."""
+    try:
+        raw = yaml.safe_load(models_path.read_text())
+        table = prices(models_path)
+    except (OSError, yaml.YAMLError, ValueError) as exc:
+        raise ChatConfigInvalid("models.yaml could not be read or priced") from exc
+    out: dict[str, tuple[str, str, int, Price]] = {}
+    for model_id, spec in (_mapping(raw, "models.yaml").get("models") or {}).items():
+        spec = spec or {}
+        if str(model_id) not in table:
+            continue
+        provider, display_name = spec.get("provider"), spec.get("display_name")
+        if not all(isinstance(v, str) and v.strip() for v in (provider, display_name)):
+            raise ChatConfigInvalid(f"models.yaml {model_id} needs a provider and display_name")
+        window = _positive_int(spec.get("context_window"), f"models.yaml {model_id}.context_window")
+        out[str(model_id)] = (str(provider), str(display_name), window, table[str(model_id)])
+    return out
+
+
+def load_chat_registry(path: Path | None = None, models_path: Path | None = None) -> ChatRegistry:
+    """Parse and validate the entire registry before exposing any model to a request. Model
+    facts and prices come from ``models.yaml`` (beside ``path``, or ``models_path``)."""
     try:
         raw = yaml.safe_load((path or CONFIG_DIR / "chat_models.yaml").read_text())
     except (OSError, yaml.YAMLError) as exc:
@@ -169,34 +195,27 @@ def load_chat_registry(path: Path | None = None) -> ChatRegistry:
     rows = data.get("models")
     if not isinstance(rows, list) or not rows:
         raise ChatConfigInvalid("models must be a nonempty list")
+    beside = path.parent / "models.yaml" if path is not None else None
+    if models_path is None:
+        models_path = (
+            beside if beside is not None and beside.is_file() else CONFIG_DIR / "models.yaml"
+        )
+    facts = _model_facts(models_path)
     models: dict[str, ChatModel] = {}
     for index, raw_model in enumerate(rows):
         name = f"models[{index}]"
         row = _mapping(raw_model, name)
-        required = {
-            "id",
-            "provider",
-            "display_name",
-            "input_usd_per_million",
-            "output_usd_per_million",
-            "cache_write_usd_per_million",
-            "cache_read_usd_per_million",
-            "context_window",
-            "max_output_tokens",
-            "capabilities",
-        }
-        if set(row) != required:
+        if set(row) != {"id", "max_output_tokens", "capabilities"}:
             raise ChatConfigInvalid(f"{name} contains missing or unsupported fields")
         model_id = row.get("id")
-        provider = row.get("provider")
-        display_name = row.get("display_name")
-        if not all(isinstance(v, str) and v.strip() for v in (model_id, provider, display_name)):
-            raise ChatConfigInvalid(f"{name} requires id, provider and display_name")
-        model_id = cast(str, model_id)
-        provider = cast(str, provider)
-        display_name = cast(str, display_name)
+        if not isinstance(model_id, str) or not model_id.strip():
+            raise ChatConfigInvalid(f"{name} requires an id")
         if model_id in models:
             raise ChatConfigInvalid(f"duplicate model id: {model_id}")
+        fact = facts.get(model_id)
+        if fact is None:
+            raise ChatConfigInvalid(f"{name}: {model_id} is not a priced model of models.yaml")
+        provider, display_name, context_window, price = fact
         if provider not in enabled:
             raise ChatConfigInvalid(f"{name} references a disabled or unknown provider")
         caps = _mapping(row.get("capabilities"), f"{name}.capabilities")
@@ -208,19 +227,11 @@ def load_chat_registry(path: Path | None = None) -> ChatRegistry:
             id=model_id,
             provider=provider,
             display_name=display_name,
-            input_usd_per_million=_price(
-                row.get("input_usd_per_million"), f"{name}.input_usd_per_million"
-            ),
-            output_usd_per_million=_price(
-                row.get("output_usd_per_million"), f"{name}.output_usd_per_million"
-            ),
-            cache_write_usd_per_million=_price(
-                row.get("cache_write_usd_per_million"), f"{name}.cache_write_usd_per_million"
-            ),
-            cache_read_usd_per_million=_price(
-                row.get("cache_read_usd_per_million"), f"{name}.cache_read_usd_per_million"
-            ),
-            context_window=_positive_int(row.get("context_window"), f"{name}.context_window"),
+            input_usd_per_million=price.input,
+            output_usd_per_million=price.output,
+            cache_write_usd_per_million=price.cache_write,
+            cache_read_usd_per_million=price.cached_read,
+            context_window=context_window,
             max_output_tokens=_positive_int(
                 row.get("max_output_tokens"), f"{name}.max_output_tokens"
             ),

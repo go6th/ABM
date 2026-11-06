@@ -631,7 +631,6 @@ async def test_a_run_applies_each_roles_effort_and_keys_its_replies_by_it() -> N
         for name, value in {
             "llm": Port(),
             "models": models,
-            "router": None,
             "reply_cache": None,
             "txn": None,
             "payloads": MemoryPayloadStore(),
@@ -647,17 +646,19 @@ async def test_a_run_applies_each_roles_effort_and_keys_its_replies_by_it() -> N
         cat.default_research, cat.default_analysis, research_effort="high", analysis_effort="medium"
     )
     run = deps(chosen)
-    await run.model("abm_pass1_extract", "s", "u")  # research role
+    await run.model("abm_sense_check", "s", "u")  # research role (planner tier)
     await run.model("support_judge", "s", "u")  # analysis role
-    assert seen == [("extractor", "high"), ("judge", "medium")]
+    # extraction keeps its configured effort whatever the user picked (ADR-0114)
+    await run.model("abm_pass1_extract", "s", "u")
+    assert seen == [("planner", "high"), ("judge", "medium"), ("extractor", None)]
     # the same request at another effort is another reply (trying high never reuses medium)
-    await run.model("abm_pass1_extract", "s", "u")
-    assert len(seen) == 2  # same effort: replayed within the run
+    await run.model("abm_sense_check", "s", "u")
+    assert len(seen) == 3  # same effort: replayed within the run
     run.models.research_effort = "medium"
-    await run.model("abm_pass1_extract", "s", "u")
-    assert seen[-1] == ("extractor", "medium") and len(seen) == 3
+    await run.model("abm_sense_check", "s", "u")
+    assert seen[-1] == ("planner", "medium") and len(seen) == 4
     # a run from before the choice keeps each task's own effort
     old = deps(None)
-    await old.model("abm_pass1_extract", "s", "u")
-    assert seen[-1] == ("extractor", None)
+    await old.model("abm_sense_check", "s", "u")
+    assert seen[-1] == ("planner", None)
     assert RunModels.from_json({"research_effort": "turbo"}).research_effort is None

@@ -150,7 +150,7 @@ async def test_a_confirmed_refresh_records_the_chosen_models(
             "POST",
             "/v1/accounts/medica.example/refresh",
             json={"request_id": str(uuid4()), "scope": "full", "credits": full["credits"],
-                  "research_model": KIMI},
+                  "research_model": KIMI, "confirm": True, "confirm_again": True},
         )  # fmt: skip
     finally:
         _allow(world["a"], None)
@@ -160,7 +160,8 @@ async def test_a_confirmed_refresh_records_the_chosen_models(
         "POST",
         "/v1/accounts/medica.example/refresh",
         json={"request_id": str(uuid4()), "scope": "full", "credits": full["credits"],
-              "research_model": FABLE, "analysis_model": OPUS},
+              "research_model": FABLE, "analysis_model": OPUS,
+              "confirm": True, "confirm_again": True},
     )  # fmt: skip
     assert ok.status_code == 201, ok.text
     with psycopg.connect(ADMIN_DSN) as c:

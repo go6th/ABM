@@ -10,11 +10,13 @@ from urllib.parse import parse_qs, urlparse
 from uuid import UUID
 
 from account_intelligence.db.session import tenant_txn
+from account_intelligence.platform.hermetic import MemoryPayloadStore
 from documents.config import load_config
 from documents.embed import HashingEmbedder
-from documents.scan import ScanPort, SignatureScanner
+from documents.scan import ScanPort, StructureGuard
 from documents.service import DocumentService
 from research_files.blobstore import LocalBlobStore
+from tests.fakes.scanner import FakeClamd
 from tests.research_files.world import admin
 
 __all__ = ["admin"]
@@ -37,16 +39,42 @@ class Clock:
         return datetime.now(UTC)
 
 
-def service(root: Path, scanner: ScanPort | None = None) -> DocumentService:
+def service(
+    root: Path,
+    scanner: ScanPort | None = None,
+    quarantine: Path | None = None,
+    *,
+    match_account: bool = False,
+) -> DocumentService:
+    """The document service. ``match_account`` applies the strict PR5 rule (an upload sent to an
+    account waits unless the file names that account's company); without it the tests trust the
+    account they upload to (never held). Production holds only a file that names another company
+    (``config/research_input_modes.yaml``)."""
     cfg = load_config()
+    cfg = cfg.model_copy(
+        update={
+            "company": cfg.company.model_copy(
+                update={
+                    "hold_unmatched_for_account": match_account,
+                    "hold_mismatched_for_account": match_account,
+                }
+            )
+        }
+    )
     return DocumentService(
         tenant_txn,
         LocalBlobStore(root),
-        scanner or SignatureScanner(),
+        scanner or StructureGuard(FakeClamd()),  # the production composition
         HashingEmbedder(cfg.embedding.dimensions, cfg.embedding.model),
         Queue(),
         Clock(),
         cfg,
+        # the research payload store (posting texts and archive copies of an imported workspace)
+        payloads=MemoryPayloadStore(),
+        # a separate quarantine directory stands for the quarantine bucket
+        quarantine=LocalBlobStore(quarantine) if quarantine is not None else None,
+        # one `process` call runs the import and the embedding both; the PR5 tests set it True
+        index_in_own_task=False,
     )
 
 

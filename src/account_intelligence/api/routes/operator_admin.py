@@ -18,15 +18,17 @@ from __future__ import annotations
 from typing import Any, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from account_intelligence.api import contract as C
+from account_intelligence.api import operator_sessions
 from account_intelligence.api.errors import APIProblem
 from account_intelligence.api.operator import StaffIdentity, require_staff
 from account_intelligence.api.policy import OperatorRole, operator_route, register
 from account_intelligence.api.tenant_plane import plane_of
-from account_intelligence.db.session import tenant_txn, untenanted_session
+from account_intelligence.db.session import tenant_txn
+from account_intelligence.db.system_scope import untenanted_session
 from admin import flags, keys, quotas, tenants
 from audit.events import AuditEvent, record
 from identity.sessions import load_policy, step_up_fresh
@@ -36,6 +38,10 @@ router = APIRouter(prefix="/operator/v1", tags=["operator"])
 OPS: frozenset[OperatorRole] = frozenset({"operator"})
 STAFF: frozenset[OperatorRole] = frozenset({"operator", "support"})
 register("GET", "/operator/v1/session", operator_route("read", tenant="none", roles=STAFF))
+register("POST", "/operator/v1/sessions", operator_route("none", tenant="none", roles=STAFF))
+register(
+    "DELETE", "/operator/v1/sessions/current", operator_route("none", tenant="none", roles=STAFF)
+)
 register("GET", "/operator/v1/tenants", operator_route("read", tenant="none", roles=STAFF))
 register("POST", "/operator/v1/tenants", operator_route("admin", tenant="none", roles=OPS))
 for _p in (
@@ -76,6 +82,41 @@ async def operator_session(
         "role": who.role,
         "mfa_fresh": step_up_fresh(who.step_up_at, plane_of(request).clock.now(), load_policy()),
     }
+
+
+@router.post("/sessions", status_code=201, response_model=C.OperatorSessionMinted)
+async def mint_operator_session(
+    request: Request, who: StaffIdentity = Depends(require_staff)
+) -> dict[str, Any]:
+    """Trade a verified staff IdP token (fresh MFA) for an opaque console session (ADR-0111).
+    A session token cannot mint another one: the absolute limit holds."""
+    if getattr(request.state, "operator_session", False):
+        raise HTTPException(status_code=403, detail="an identity provider sign-in is required")
+    policy = load_policy()
+    async with untenanted_session() as s:
+        minted = await operator_sessions.mint(s, who, plane_of(request).clock.now(), policy)
+    await _op_audit(request, who, "operator.session.start", None, None)
+    return {
+        "token": minted.token,
+        "expires_at": minted.expires_at,
+        "idle_timeout_s": policy.idle_timeout_s,
+    }
+
+
+@router.delete("/sessions/current", status_code=204, response_class=Response)
+async def end_operator_session(
+    request: Request,
+    who: StaffIdentity = Depends(require_staff),
+    authorization: str | None = Header(default=None),
+) -> Response:
+    """Sign out: revoke the presented console session (400 for an IdP token, which has none)."""
+    token = (authorization or "").removeprefix("Bearer ").strip()
+    if not operator_sessions.is_session_token(token):
+        raise HTTPException(status_code=400, detail="no console session to end")
+    async with untenanted_session() as s:
+        await operator_sessions.revoke(s, token, plane_of(request).clock.now())
+    await _op_audit(request, who, "operator.session.end", None, None)
+    return Response(status_code=204)
 
 
 async def _op_audit(

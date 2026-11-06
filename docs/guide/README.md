@@ -12,6 +12,7 @@ plain-language way in.*
 
 | # | Page | You learn |
 |---|---|---|
+| 0 | [Structure map](00-structure-map.md) | the whole project on one page as of 2026-11-03: services, folders, layers, the run, Ask, uploads, ticks, dead code and stale docs |
 | 1 | [What this project is](01-what-this-project-is.md) | the product in a minute, the three services, the vocabulary |
 | 2 | [How a research runs](02-how-a-research-runs.md) | the workflow: start → slices → the research graph → grading → files; every way a run can stop; the auto-resume rules; a real worked example |
 | 3 | [Code map](03-code-map.md) | every folder and package, what it is for, its key files, and "find the code by question" |

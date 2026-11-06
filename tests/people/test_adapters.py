@@ -256,14 +256,13 @@ async def test_unavailable_ports_and_run_input() -> None:
 
 
 def _model_deps(llm: Any) -> Any:
-    """Run dependencies whose ``model`` resolves a task kind like ``RunDeps.model`` does without a
-    router (the legacy port under the task kind's legacy tier, R2)."""
-    from llm.tasks import LEGACY_TIER, require
+    """Run dependencies whose ``model`` resolves a task kind like ``RunDeps.model`` does (the
+    port under the task kind's tier and token limit, ``llm.route``, R2)."""
+    from llm.route import route
 
     async def model(task_kind: str, system: str, user: str) -> Any:
-        return await llm.complete(
-            LEGACY_TIER[task_kind], system, user, max_tokens=require(task_kind).max_tokens
-        )
+        r = route(task_kind)
+        return await llm.complete(str(r.tier), system, user, max_tokens=r.max_tokens)
 
     return SimpleNamespace(llm=llm, model=model)
 

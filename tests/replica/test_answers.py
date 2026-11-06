@@ -345,3 +345,28 @@ def test_retrieved_document_passages_get_places_in_the_model_rows():
     keys = [r.key for r in picked]
     assert keys[:MAX_PASSAGES] == [f"passage:doc:{i}" for i in range(MAX_PASSAGES)]
     assert f"passage:doc:{MAX_PASSAGES}" not in keys  # a bounded number of places
+
+
+def test_a_source_from_inside_a_zip_names_its_own_file() -> None:
+    """Eleven chips from one zip each said "From your files: UCB_workspace.zip" (staging
+    2026-11-03); the chip names the member first, a loose upload keeps its own name."""
+    assert (
+        A.file_label("Acme_workspace.zip", "Acme_workspace/deliverables/Acme_People_List.xlsx")
+        == "Acme_People_List.xlsx in Acme_workspace.zip"
+    )
+    assert A.file_label("plan.docx", None) == "plan.docx"
+    assert A.file_label("Book.xlsx", "Book.xlsx") == "Book.xlsx"
+
+
+def test_an_answer_from_uploaded_files_offers_the_web_by_the_accounts_refresh_age() -> None:
+    """File passages and tables carry no date: an answer resting only on them is as fresh as the
+    account's last refresh, so the web offer no longer appears on some answers from one zip and
+    not on others (staging 2026-11-03)."""
+    fresh = acct("UCB", "ucb.example", ["Salesforce"], days=1)
+    passage = row("file", fresh, "Doris Lu, San Francisco Bay Area", days=0)
+    passage.when = None
+    assert A.offer_for(fresh, [passage], True, NOW, None) is None
+    stale = acct("UCB", "ucb.example", ["Salesforce"], days=40)
+    old_passage = row("file", stale, "Doris Lu, San Francisco Bay Area", days=0)
+    old_passage.when = None
+    assert A.offer_for(stale, [old_passage], True, NOW, None) is not None

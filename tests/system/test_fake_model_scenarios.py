@@ -31,7 +31,11 @@ from tests.system import world
 from tests.system.hermetic_stack import Stack, admin, coverage, run_row, wallet
 from tests.system.world import LEDGER_SUM
 
-pytestmark = [pytest.mark.requires_postgres, pytest.mark.asyncio]
+pytestmark = [
+    pytest.mark.requires_postgres,
+    pytest.mark.asyncio,
+    pytest.mark.usefixtures("pin_workflow_v1"),  # these scenarios pin Workflow v1 (ADR-0135)
+]
 PRIVATE_MARKER = "PRIVATE-MARKER-9d41"
 
 

@@ -74,6 +74,7 @@ def test_the_cloud_profiles_serve_no_docs_or_schema(
     env: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("APP_ENV", env)
+    monkeypatch.setenv("SERVICE_ROLE", "api")  # a cloud process names its plane (ADR-0109)
     app = create_app()
     client = TestClient(app, raise_server_exceptions=False)
     for path in ("/docs", "/redoc", "/openapi.json"):

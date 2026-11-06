@@ -29,6 +29,7 @@ from uuid import UUID
 
 from sqlalchemy import text
 
+from account_intelligence.db.session import session_tenant
 from account_intelligence.replica import sheets as SH
 from exports.urlcheck import is_safe_http_url
 
@@ -41,10 +42,15 @@ async def rows(
 ) -> AsyncIterator[dict[str, Any]]:
     """Every row of the filtered, sorted table, as the sheet shows it (``n``, cells, link)."""
     params = SH.params(
-        q, account_id, user_id, now, await SH.hidden_ids(session, q, account_id, user_id, now)
+        q,
+        account_id,
+        user_id,
+        now,
+        await SH.hidden_ids(session, q, account_id, user_id, now),
+        tenant_id=await session_tenant(session),
     )
     order = f"{q.sort.sort} {'DESC' if q.desc else 'ASC'} NULLS LAST, {q.sheet.tiebreak}"
-    where = f"({q.filter.where}) AND ({q.sheet.export_where})"
+    where = f"({q.filter.where}) AND ({q.sheet.export_where}) AND ({SH.match_where(q)})"
     sql = (
         f"SELECT * FROM ({SH.visible_base(q)}) s WHERE {where} ORDER BY {order} OFFSET :o LIMIT :l"  # nosec B608 -- allow-listed sheet SQL; values are bound.
     )
@@ -194,6 +200,8 @@ async def write_xlsx(
         ["Rows", written],
         ["Exported", datetime.now(UTC).strftime("%d %b %Y %H:%M UTC")],
     ]
+    if q.match is not None:
+        lines.insert(3, ["Matched", f"{q.match[0].label} contains {q.match[1]}"])
     if withheld:
         lines.append(["Withheld", f"{withheld} cells held back for review"])
     if not shareable:

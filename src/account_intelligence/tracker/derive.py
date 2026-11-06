@@ -60,8 +60,10 @@ def derive_outcome(
     scope: bool,
     not_attempted_reason: ReasonCode | None,
     config: TrackerConfig | None = None,
+    partial_reason: ReasonCode | None = None,
 ) -> Outcome:
-    """Derive the status. Deterministic and independent of call order."""
+    """Derive the status. Deterministic and independent of call order. ``partial_reason`` is
+    the reporter's own reason for ``cap_hit`` (default ``cap_reached``)."""
     cfg = config or load_tracker_config()
     if (
         not scope
@@ -100,7 +102,7 @@ def derive_outcome(
     if failed:
         return Outcome(Status.PARTIAL, ReasonCode.SOURCE_FAILED)
     if cap_hit:
-        return Outcome(Status.PARTIAL, ReasonCode.CAP_REACHED)
+        return Outcome(Status.PARTIAL, partial_reason or ReasonCode.CAP_REACHED)
     if unknown:
         return Outcome(Status.PARTIAL, ReasonCode.RESULT_COUNT_UNKNOWN)
     return Outcome(Status.PARTIAL, ReasonCode.FEWER_THAN_EXPECTED)

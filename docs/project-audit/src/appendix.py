@@ -60,7 +60,7 @@ def build():
 
     h.append(chapter("E", "Configuration files: which file controls what",
                      "From the previous guide (29 October). Treat the token-guard and slice-limit statements with the corrections in chapter 23."))
-    sec = _section(f"{REPO}/docs/guide/04-config-map.md", r"## A\.")
+    sec = _section(f"{REPO}/unwanted-things/docs-guide-2026-10-29/04-config-map.md", r"## A\.")
     h.append('<div class="md">' + _md(sec, 1) + "</div>")
     h.append(end_chapter())
 

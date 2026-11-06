@@ -5,6 +5,9 @@
 // cite/bold tokenizer, never as HTML. All styling is classes (the CSP forbids inline styles).
 // A column whose value is the same on every row folds into a badge by the title ("All
 // closed") and leaves the table; rows identical in every cell merge into one with a ×N badge.
+// An open question's answer (2026-11-03) is an `insights` section: numbered conclusions, each
+// with its grade and one next step; its facts table comes `collapsed` and opens under
+// "Sources" (a native <details>, keyboard and screen-reader accessible without script).
 import { Fragment, type ReactNode } from "react";
 import type { AnswerSection, AnswerStructured as Structured } from "@/lib/gen/api.gen";
 
@@ -104,6 +107,34 @@ function AnswerTable({ section, cite }: { section: AnswerSection; cite: (n: stri
   );
 }
 
+const GRADE_CLASS: Record<string, string> = {
+  Confirmed: "confirmed",
+  Probable: "probable",
+  Hypothesis: "hypothesis",
+};
+
+function AnswerInsights({ section, cite }: { section: AnswerSection; cite: (n: string) => ReactNode }) {
+  const items = section.insights ?? [];
+  return (
+    <section className="sa-section">
+      {section.title ? <div className="sa-title">{section.title}</div> : null}
+      <ol className="sa-insights">
+        {items.map((item, j) => (
+          <li key={j} className="card sa-insight">
+            <p className="sa-insight-text">{citedText(item.conclusion, cite)}</p>
+            <div className="sa-insight-meta">
+              <span className={`sa-grade ${GRADE_CLASS[item.grade] ?? "probable"}`}>{item.grade}</span>
+              <span className="sa-insight-action">
+                <span className="sa-insight-label">Next step:</span> {citedText(item.action, cite)}
+              </span>
+            </div>
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
 export function AnswerStructured({
   data,
   cite,
@@ -126,7 +157,19 @@ export function AnswerStructured({
         ) : null}
       </div>
       {data.sections.map((section, i) => {
+        if (section.kind === "table" && section.collapsed) {
+          const n = section.rows?.length ?? 0;
+          return (
+            <details key={i} className="sa-sources">
+              <summary>
+                Sources: {n} {n === 1 ? "fact" : "facts"} this answer rests on
+              </summary>
+              <AnswerTable section={{ ...section, title: null }} cite={cite} />
+            </details>
+          );
+        }
         if (section.kind === "table") return <AnswerTable key={i} section={section} cite={cite} />;
+        if (section.kind === "insights") return <AnswerInsights key={i} section={section} cite={cite} />;
         if (section.kind === "callout") {
           const tone = section.tone === "warn" || section.tone === "good" ? section.tone : "info";
           return (

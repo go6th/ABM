@@ -103,7 +103,11 @@ def _dedupe(records: Sequence[CoverageRecord]) -> tuple[list[CoverageRecord], li
 
 def _people_blocked(profile: WorkspaceProfile, tables: Mapping[str, RepairedTable]) -> bool:
     people = tables.get("people")
-    return (not profile.people_consent) or bool(people and people.stats.get("consent_missing"))
+    if people is not None:
+        # the People table says whether people were collected (an uploaded list stands without
+        # the pipeline's consent flag, 2026-11-05)
+        return bool(people.stats.get("consent_missing"))
+    return not profile.people_consent
 
 
 def _mail_blocked(profile: WorkspaceProfile, tables: Mapping[str, RepairedTable]) -> bool:
@@ -118,6 +122,35 @@ def _join_reasons(parts: Sequence[str]) -> str:
         if text and text.lower() not in (s.lower() for s in seen):
             seen.append(text)
     return "; ".join(seen)
+
+
+# coverage items whose evidence is a repaired table: row key -> (table key, table title)
+_TABLE_ITEMS: dict[str, tuple[str, str]] = {
+    "company_news": ("news", "News"),
+    "job_board_by_lane": ("jobs", "Job postings"),
+    "job_postings_read_classified": ("jobs", "Job postings"),
+    "job_postings_12_months": ("jobs", "Job postings"),
+    "technology_detections": ("tech", "Tech stack and teams"),
+    "people_by_platform": ("people", "People"),
+    "full_profiles_senior_people": ("people", "People"),
+}
+
+
+def _table_evidence(row_key: str, tables: Mapping[str, RepairedTable]) -> int | None:
+    """The rows of the repaired table an item is proven by; None when the item has no table
+    or the table was not built."""
+    pair = _TABLE_ITEMS.get(row_key.strip())
+    if pair is None:
+        return None
+    table = tables.get(pair[0])
+    if table is None:
+        return None
+    rows = [
+        r
+        for r in table.main.rows
+        if not str(r.get(table.main.columns[0], "")).startswith("Not collected")
+    ]
+    return len(rows)
 
 
 def build_coverage(
@@ -141,9 +174,20 @@ def build_coverage(
         if status is None:
             status = "Not checked"
             reasons.append(f"status word not recognised: {rec.status.strip()}")
+        table_rows = _table_evidence(rec.row_key, tables)
         if status == "Done" and rec.evidence_rows <= 0 and not _codes(rec):
+            if table_rows:
+                pass  # the repaired table itself is the evidence (postings, people, news...)
+            elif rec.proof_note.strip():
+                pass  # an uploaded Account Summary's own account of what was done
+            else:
+                status = "Partial"
+                reasons.append(REASON_NO_EVIDENCE)
+                downgraded += 1
+        if status == "Done" and table_rows == 0 and rec.row_key in _TABLE_ITEMS:
+            # the item's table is empty: it cannot be Done, whatever the tracker said
             status = "Partial"
-            reasons.append(REASON_NO_EVIDENCE)
+            reasons.append(f"{_TABLE_ITEMS[rec.row_key][1]} table is empty")
             downgraded += 1
 
         blockers: list[str] = []
@@ -163,13 +207,21 @@ def build_coverage(
             reason = core.NOT_APPLICABLE
         else:
             reason = _join_reasons(reasons) or core.not_collected("reason not recorded")
+        if blockers:
+            evidence = core.not_collected(_join_reasons(blockers).lower())
+        elif table_rows is not None:
+            evidence = f"{table_rows} rows" + (f"; {', '.join(_codes(rec))}" if _codes(rec) else "")
+        elif rec.evidence_rows <= 0 and not _codes(rec) and rec.proof_note.strip():
+            evidence = " ".join(rec.proof_note.split())[:300]
+        else:
+            evidence = evidence_cell(rec)
         row = {
             "#": str(rec.number or seq),
             "Research item": rec.item.strip() or core.NOT_FOUND,
             "Priority": rec.priority.strip() or core.NOT_FOUND,
             "Status": status,
             "Reason": reason,
-            "Evidence (row counts / source codes)": evidence_cell(rec),
+            "Evidence (row counts / source codes)": evidence,
             "Last run": core.iso(rec.last_run),
         }
         sheet.rows.append(row)

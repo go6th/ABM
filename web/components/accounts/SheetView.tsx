@@ -9,6 +9,7 @@ import type { Sheet, SheetCellText } from "@/lib/gen/api.gen";
 import { LINK_REL, ownHref, safeLink } from "@/lib/render";
 import { Grade, Pill, type PillTone } from "@/ui/design";
 import { fillClass, tdClass } from "./cell-fill";
+import { matchParams } from "./sheet-match";
 
 // numbers are printed in one fixed locale: the server and the browser would otherwise disagree
 // ("5,400" and "5.400") and React reports a hydration mismatch on every cut cell
@@ -119,16 +120,20 @@ function sortedBy(sheet: Sheet): string {
   return `Sorted by ${col.label} ${sheet.dir === "asc" ? "ascending" : "descending"}.`;
 }
 
-/** One whole cell of the table (the page cuts long cells), under the page's filter and sort. */
-export function cellHref(domain: string, sheet: Pick<Sheet, "key" | "filter" | "sort" | "dir">): string {
-  const q = new URLSearchParams({ filter: sheet.filter ?? "", sort: sheet.sort ?? "", dir: sheet.dir ?? "" });
-  return `/v1/accounts/${encodeURIComponent(domain)}/sheets/${encodeURIComponent(sheet.key)}/cell?${q.toString()}`;
+type View = Pick<Sheet, "key" | "filter" | "sort" | "dir" | "match">;
+
+function viewParams(sheet: View): URLSearchParams {
+  return new URLSearchParams({ filter: sheet.filter ?? "", sort: sheet.sort ?? "", dir: sheet.dir ?? "", ...matchParams(sheet) });
 }
 
-/** The table's own CSV or Excel download (every row under the chosen filter and sort). */
-export function exportHref(domain: string, sheet: Pick<Sheet, "key" | "filter" | "sort" | "dir">, format: "csv" | "xlsx"): string {
-  const q = new URLSearchParams({ filter: sheet.filter ?? "", sort: sheet.sort ?? "", dir: sheet.dir ?? "" });
-  return `/v1/accounts/${encodeURIComponent(domain)}/sheets/${encodeURIComponent(sheet.key)}/${format}?${q.toString()}`;
+/** One whole cell of the table (the page cuts long cells), under the page's filter, sort and match. */
+export function cellHref(domain: string, sheet: View): string {
+  return `/v1/accounts/${encodeURIComponent(domain)}/sheets/${encodeURIComponent(sheet.key)}/cell?${viewParams(sheet).toString()}`;
+}
+
+/** The table's own CSV or Excel download (every row under the chosen filter, sort and match). */
+export function exportHref(domain: string, sheet: View, format: "csv" | "xlsx"): string {
+  return `/v1/accounts/${encodeURIComponent(domain)}/sheets/${encodeURIComponent(sheet.key)}/${format}?${viewParams(sheet).toString()}`;
 }
 
 /** A short hash of text (cyrb53): row identity without keeping whole cells as React keys. */
@@ -182,7 +187,7 @@ export function SheetView({ sheet, domain, base, moreHref }: { sheet: Sheet; dom
   }, [measure, sheet, big]);
   // a new page, filter or sort opens at its first row (the frame keeps its scroll otherwise;
   // the sideways scroll stays, so a heading sorted at the right stays in view)
-  const view = `${sheet.filter}|${sheet.sort}|${sheet.dir}|${sheet.offset}`;
+  const view = `${sheet.filter}|${sheet.sort}|${sheet.dir}|${sheet.offset}|${sheet.match?.col ?? ""}|${sheet.match?.value ?? ""}`;
   useEffect(() => {
     const el = frame.current;
     if (el) el.scrollTop = 0;
@@ -190,10 +195,11 @@ export function SheetView({ sheet, domain, base, moreHref }: { sheet: Sheet; dom
   const columns = sheet.columns ?? [];
   const rows = sheet.rows ?? [];
   const filters = sheet.filters ?? [];
-  const query = (change: Record<string, string>) => {
-    const q = new URLSearchParams({ filter: sheet.filter ?? "", sort: sheet.sort ?? "", dir: sheet.dir ?? "", ...change });
+  const query = (change: Record<string, string>, keepMatch = true) => {
+    const q = new URLSearchParams({ filter: sheet.filter ?? "", sort: sheet.sort ?? "", dir: sheet.dir ?? "", ...(keepMatch ? matchParams(sheet) : {}), ...change });
     return `${base}?${q.toString()}`;
   };
+  const match = sheet.match && sheet.match.col && sheet.match.value ? sheet.match : null;
   // every row of the table, whatever the filter (a table without an "all" chip counts its total)
   const all = filters.find((f) => f.key === "all")?.count ?? sheet.total ?? 0;
   const cell = cellHref(domain, sheet);
@@ -201,6 +207,12 @@ export function SheetView({ sheet, domain, base, moreHref }: { sheet: Sheet; dom
   return (
     <>
       <div className="sheet-bar">
+        {match ? (
+          // the rows an Ask citation opened: removing the chip shows the whole table again
+          <Link className="fc" href={query({}, false)} aria-current="true" aria-label={`Remove the match ${match.label}: ${match.value}`} prefetch={false} scroll={false}>
+            {match.label}: {match.value} <span aria-hidden="true">×</span>
+          </Link>
+        ) : null}
         {filters.map((f) => (
           <Link key={f.key} className="fc" href={query({ filter: f.key })} aria-current={sheet.filter === f.key ? "true" : undefined} prefetch={false} scroll={false}>
             {f.key === "all" ? `All ${f.count}` : `${f.label} · ${f.count}`}
@@ -258,8 +270,8 @@ export function SheetView({ sheet, domain, base, moreHref }: { sheet: Sheet; dom
         ) : null}
         {rows.length ? null : (
           <div className="state">
-            <h2>{all ? "No rows match this filter" : "Nothing here yet"}</h2>
-            <p>{all ? "Choose another filter above." : "Rows appear here when research finds them."}</p>
+            <h2>{all ? "No rows match this filter" : match ? `No rows match ${match.label}: ${match.value}` : "Nothing here yet"}</h2>
+            <p>{all ? "Choose another filter above." : match ? "Remove the match above to see the whole table." : "Rows appear here when research finds them."}</p>
           </div>
         )}
       </div>

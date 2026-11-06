@@ -40,12 +40,16 @@ async def test_every_job_table_is_forced_rls_and_insert_only_for_app_rw() -> Non
                 " FROM pg_policies WHERE tablename = %s",
                 (table,),
             ).fetchall()
-            assert policies and all(r == ["app_rw"] and u and k for r, u, k in policies), table
-            for privilege in ("UPDATE", "DELETE", "TRUNCATE"):
-                granted = c.execute(
-                    "SELECT has_table_privilege('app_rw', %s, %s)", (table, privilege)
-                ).fetchone()[0]
-                assert not granted, (table, privilege)
+            # app_rw's policy and app_api's copy of it (migration 0101, ADR-0123)
+            assert policies and all(
+                r in (["app_rw"], ["app_api"]) and u and k for r, u, k in policies
+            ), table
+            for role in ("app_rw", "app_api", "app_worker"):
+                for privilege in ("UPDATE", "DELETE", "TRUNCATE"):
+                    granted = c.execute(
+                        "SELECT has_table_privilege(%s, %s, %s)", (role, table, privilege)
+                    ).fetchone()[0]
+                    assert not granted, (role, table, privilege)
             assert c.execute(
                 "SELECT is_nullable FROM information_schema.columns"
                 " WHERE table_name = %s AND column_name = 'tenant_id'",

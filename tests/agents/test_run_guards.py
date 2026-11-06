@@ -136,7 +136,9 @@ async def test_g7_a_run_with_no_credits_blocks_paid_rows_and_keeps_free_ones(h: 
     ]
     assert paid and all(r.blocked_reason == "budget_cap" for r in paid)
     assert free and all(r.status == "stored" for r in free)
-    assert h.credit.spent[record.run_id] == 0 and state["outcome"] == "partial"
+    # the graph ran to the end and never votes on the terminal status (ADR-0128): the open rows
+    # are the tracker's to judge, once, when the run finishes (runs.lifecycle.finish)
+    assert h.credit.spent[record.run_id] == 0 and state["outcome"] == "completed"
 
 
 async def test_g7_unattended_run_records_instead_of_pausing(h: Harness) -> None:
@@ -144,7 +146,9 @@ async def test_g7_unattended_run_records_instead_of_pausing(h: Harness) -> None:
     assert not await h.service.pending(h.tenant, record.run_id)
     rows = manifest(h, record.run_id)
     assert any(r.blocked_reason == "spend_not_approved" for r in rows.values())
-    assert h.credit.spent[record.run_id] == 0 and state["outcome"] == "partial"
+    # the graph ran to the end and never votes on the terminal status (ADR-0128): the open rows
+    # are the tracker's to judge, once, when the run finishes (runs.lifecycle.finish)
+    assert h.credit.spent[record.run_id] == 0 and state["outcome"] == "completed"
 
 
 async def test_unattended_sense_proposals_are_recorded_and_rows_stay_partial(make) -> None:  # type: ignore[no-untyped-def]
@@ -167,7 +171,9 @@ async def test_declined_sense_pulls_leave_rows_partial(make) -> None:  # type: i
     state = await h.service.resume(h.tenant, record.run_id, False)
     row = h.tracker.rows_by_run[record.run_id]["leadership_changes"]
     assert (row.status, row.reason) == ("partial", "pull_not_approved")
-    assert h.credit.spent[record.run_id] == 0 and state["outcome"] == "partial"
+    # the graph ran to the end and never votes on the terminal status (ADR-0128): the open rows
+    # are the tracker's to judge, once, when the run finishes (runs.lifecycle.finish)
+    assert h.credit.spent[record.run_id] == 0 and state["outcome"] == "completed"
 
 
 # Token guard (owner decision 2026-10-23) -------------------------------------------------------

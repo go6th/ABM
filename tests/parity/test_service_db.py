@@ -1,7 +1,7 @@
 """The parity service and routes on the database: a rendered version is recorded and stored,
 served to the tenant's readers with the internal-only material for admins only, paged per
-table, downloaded with the manifest's digest, refused for another tenant, and corrected into
-the next version. Needs Postgres, LibreOffice, Node and the built Word renderer."""
+table, downloaded with the manifest's digest and refused for another tenant; the parked edit
+route answers 404. Needs Postgres, LibreOffice, Node and the built Word renderer."""
 
 from __future__ import annotations
 
@@ -53,7 +53,7 @@ class _Clock:
         return datetime.now(UTC)
 
 
-async def test_a_version_is_rendered_served_and_corrected(synthetic_doc: dict[str, Any]) -> None:
+async def test_a_version_is_rendered_and_served(synthetic_doc: dict[str, Any]) -> None:
     w = make_world()
     store = MemoryPayloadStore()
     service = ParityService(tenant_txn, store, _Clock())
@@ -128,6 +128,8 @@ async def test_a_version_is_rendered_served_and_corrected(synthetic_doc: dict[st
     r = await _get(plane_for(stranger.tenant, store), f"{base}/bundle")
     assert r.status_code == 404
 
+    # the edit route is parked (ADR-0136, no screen called it); ParityService.edit is covered
+    # by tests/parity/test_guards_db.py
     person = synthetic_doc["people_rows"][0]["name"]
     r = await _post(
         admin,
@@ -135,21 +137,7 @@ async def test_a_version_is_rendered_served_and_corrected(synthetic_doc: dict[st
         f"{base}/edits",
         json={"overrides": [{"name": person, "priority": "C", "note": "checked by hand"}]},
     )
-    assert r.status_code == 201, r.text
-    assert r.json()["version"] == 2 and r.json()["status"] == "built"
-    r = await _get(admin, f"{base}/bundle")
-    edited = r.json()["bundle"]
-    assert edited["overrides"] == [
-        *synthetic_doc.get("overrides", []),
-        {"name": person, "priority": "C", "note": "checked by hand"},
-    ]
-    assert next(p for p in edited["people_rows"] if p["name"] == person)["priority"] == "C"
-    r = await _get(admin, f"{base}/bundle", params={"version": 1})
-    assert r.json()["bundle"]["overrides"] == synthetic_doc.get("overrides", [])
-    r = await _post(
-        admin, "POST", f"{base}/edits", json={"overrides": [{"name": "Nobody", "priority": "A"}]}
-    )
-    assert r.status_code == 422
+    assert r.status_code == 404
 
 
 async def test_a_failed_gate_records_a_failed_version_and_serves_nothing(

@@ -136,13 +136,15 @@ async def list_sources(session: Any, accounts: Sequence[UUID]) -> dict[str, Any]
     rows = await session.execute(
         sql_text(
             "SELECT d.id AS document_id, d.name AS document, d.sha256, d.created_at,"
-            " d.detected_type, p.location->>'member' AS member,"
+            " d.detected_type, p.location->>'member' AS member, min(m.role) AS role,"
             " bool_or(p.kind = 'crm_row') AS has_rows,"
             " bool_or(p.kind = 'transcript_window') AS has_transcript,"
             " count(*) AS passages,"
             " count(DISTINCT p.location->>'row') FILTER (WHERE p.kind = 'crm_row') AS rows,"
             " max((p.location->>'page')::int) FILTER (WHERE p.kind <> 'crm_row') AS pages"
             " FROM document_passages p JOIN documents d ON d.id = p.document_id"
+            " LEFT JOIN document_members m ON m.document_id = d.id"
+            " AND m.member_path = p.location->>'member'"
             " WHERE d.account_id = ANY(:scope) AND d.status = 'indexed'"
             " GROUP BY d.id, d.name, d.sha256, d.created_at, d.detected_type, 6"
             " ORDER BY d.name, member NULLS FIRST"
@@ -159,6 +161,7 @@ async def list_sources(session: Any, accounts: Sequence[UUID]) -> dict[str, Any]
                 "document": str(r.document),
                 "document_id": str(r.document_id),
                 "member": str(r.member) if r.member else None,
+                "role": str(r.role) if r.role else None,
                 "shape": shape,
                 "passages": int(r.passages),
                 "rows": int(r.rows) if r.has_rows else None,
@@ -202,7 +205,7 @@ async def search(
 ) -> dict[str, Any]:
     """The ``top_k`` passages the hybrid search ranks first for ``question``, narrowed by the
     validated filters; each with its chunk id and citation."""
-    from documents.retrieve import retrieve
+    from documents.retrieve import member_pattern, retrieve
 
     # a document filter narrows the retrieval itself (within=), not the results after it, so a
     # filtered search finds passages of the named file however small its share of the workspace
@@ -216,6 +219,12 @@ async def search(
     doc_ids: set[str] | None = None
     narrowed = [f for f in filters if f["field"] != "document"]
     with_docs = [f for f in filters if f["field"] == "document"]
+    # a member filter narrows the retrieval itself too (2026-11-03: applied only after a top-50
+    # search of the whole zip, it returned nothing for a small member such as the Account
+    # Summary whenever the other members outranked it)
+    patterns = [
+        member_pattern(f["value"], f["op"] == "eq") for f in narrowed if f["field"] == "member"
+    ]
     if with_docs:
         listed = await list_sources(session, scope)
         for f in with_docs:
@@ -226,11 +235,25 @@ async def search(
                 if (m["document"].casefold() == wanted if f["op"] == "eq"
                     else wanted in m["document"].casefold())
             }  # fmt: skip
+            if not match:
+                # a file inside an uploaded zip, named as the document ("UCB_Account_Summary.docx"
+                # in UCB_workspace.zip): the search is on that member of its archive
+                inner = [
+                    m
+                    for m in listed["sources"]
+                    if m.get("member") and _names_member(str(m["member"]), wanted, f["op"])
+                ]
+                if inner:
+                    match = {m["document_id"] for m in inner}
+                    patterns.append(member_pattern(f["value"], exact=False))
+                    narrowed.append({"field": "member", "op": "icontains", "value": f["value"]})
             doc_ids = match if doc_ids is None else doc_ids & match
         if not doc_ids:
             return {"passages": [], "hits": 0}
     within = [UUID(d) for d in doc_ids] if doc_ids is not None else None
-    passages = await retrieve(session, question, scope, embedder, k=fetch, within=within)
+    passages = await retrieve(
+        session, question, scope, embedder, k=fetch, within=within, members=patterns or None
+    )
     out: list[tuple[Any, Any]] = []
     for p in passages:
         doc_id, seq = parse_chunk_id(p.key)
@@ -271,6 +294,14 @@ async def search(
                 }
             )
     return {"passages": kept[:top_k], "hits": len(kept)}
+
+
+def _names_member(member: str, wanted: str, op: str) -> bool:
+    """Whether a document filter's value names this archive member: its whole path or its file
+    name (``eq``), or a part of it (``icontains``)."""
+    path = member.casefold()
+    name = path.rsplit("/", 1)[-1]
+    return wanted in (path, name) if op == "eq" else wanted in path
 
 
 async def read_passage(session: Any, chunk_id: str, scope: Sequence[UUID]) -> dict[str, Any]:

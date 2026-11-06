@@ -23,6 +23,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
+from functools import cache
 
 from account_intelligence.grading.config import GradingConfig
 from account_intelligence.grading.product import statement_policy
@@ -132,6 +133,25 @@ def use_client_guard(guard: Callable[[str], str | None] | None) -> None:
     _CLIENT_GUARD = guard
 
 
+# The same guard's term replacement, for the run's own records in the workspace zip (pull log,
+# raw pulls): a posting title the Job Postings cell withheld ("Parallel Computing Engineer") was
+# printed whole in data/jobs_12mo.json, so the guard refused the zip (2026-11-05). Set with the
+# guard; None leaves the records as the export scrub leaves them.
+_CLIENT_SCRUB: Callable[[str, str], tuple[str, int]] | None = None
+
+
+def use_client_scrub(scrub: Callable[[str, str], tuple[str, int]] | None) -> None:
+    """Register (or with None remove) the guard's term replacement ``client_scrub`` applies."""
+    global _CLIENT_SCRUB  # noqa: PLW0603 - the one registration point, set once at import
+    _CLIENT_SCRUB = scrub
+
+
+def client_scrub(text: str, marker: str) -> tuple[str, int]:
+    """``(text, n)``: every term the client-output guard refuses replaced by ``marker``, counted;
+    the text unchanged when no guard is registered."""
+    return _CLIENT_SCRUB(text, marker) if _CLIENT_SCRUB is not None else (text, 0)
+
+
 def client_rule(text: str) -> str | None:
     """The reason the application's client-output guard refuses ``text`` (``third_party_domain``,
     ``tool_name``, ``provider_name`` or ``guarded_name``), or None when it is clean or no guard is
@@ -218,6 +238,22 @@ def names_own(term: str, own_names: Iterable[str]) -> bool:
     return any(pattern.search(name) for name in own_names if name and name.strip())
 
 
+@cache
+def platform_names() -> frozenset[str]:
+    """The platform names and aliases of the job lexicon (``config/job_lanes.yaml``), case
+    folded: words every account's files print as technology names."""
+    import yaml
+
+    from account_intelligence.config import CONFIG_DIR
+
+    data = yaml.safe_load((CONFIG_DIR / "job_lanes.yaml").read_text(encoding="utf-8"))
+    names: set[str] = set()
+    for lane in data.get("lanes") or ():
+        for platform in lane.get("platforms") or ():
+            names.update(str(n) for n in (platform.get("name"), *(platform.get("aliases") or ())))
+    return frozenset(n.strip().casefold() for n in names if n and n.strip())
+
+
 def restricted_terms(
     terms: Iterable[str], attribution: str, own_names: Iterable[str] = ()
 ) -> tuple[str, ...]:
@@ -226,9 +262,13 @@ def restricted_terms(
     that is the attribution or one of its words goes (a client whose own name is the platform's,
     "6th", would otherwise refuse every file for every other account, as on staging
     2026-10-16); a term that is the account's own identity or a whole-word part of it
-    (``names_own``) goes, since the account's own files name it. Sorted, distinct."""
+    (``names_own``) goes, since the account's own files name it; a term that is a platform
+    name of the job lexicon (``platform_names``) goes, since every account's files name the
+    platforms (staging 2026-11-06: a tenant account workday.com made "Workday" restricted, and
+    the Olympus Job Postings file withheld its Workday row as a leak). Sorted, distinct."""
     own = {attribution.strip().casefold(), *attribution.casefold().split()}
     identity = tuple(n for n in own_names if n and n.strip())
+    platforms = platform_names()
     kept = {
         t.strip()
         for t in terms
@@ -236,6 +276,7 @@ def restricted_terms(
         and t.strip()
         and len(t.strip()) > 3
         and t.strip().casefold() not in own
+        and t.strip().casefold() not in platforms
         and not names_own(t, identity)
     }
     return tuple(sorted(kept, key=lambda t: (t.casefold(), t)))

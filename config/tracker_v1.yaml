@@ -7,7 +7,13 @@ d_12_completion_policy:
   # needs public sources the run was not asked to search, is a stated gap, not a blocker; so is an
   # internal-history row when the client's own mail, notes and files are not switched on (the
   # skill's usual case: "pass 1 skipped: no internal access", 2026-10-21)
-  high_reasons_allowed_for_completed: ["not_in_uploaded_data", "not_searched_file_only", "no_internal_access"]
+  # 2026-11-05 (staging run 8ed9911a ended PARTIAL on these alone, the graph and gate passed): a
+  # row only the client can unblock is a stated gap too. People data waits for the admin's
+  # consent, a follow-up search for an approval, the live board search for a careers site the
+  # company does not publish. Real execution failures (source_failed, not_available_yet for a
+  # row never reached, the jobs row's own reasons) still block. Billing is unchanged: COMPLETED
+  # and PARTIAL settle the same real spend (replica/credits.py JOB_END)
+  high_reasons_allowed_for_completed: ["not_in_uploaded_data", "not_searched_file_only", "no_internal_access", "consent_required", "pull_not_approved", "careers_site_not_found"]
 d_13_tracker_rules:
   attempts_per_row: 3
   lead_proof:
@@ -68,6 +74,11 @@ reason_codes:
   swept_deadline: "Swept due to deadline"
   swept_unreported: "Swept unreported"
   cap_reached: "Execution cap reached"
+  # the jobs row's own partial reasons (2026-11-05)
+  postings_not_read: "Some matching postings were not read yet"
+  feed_incomplete: "The job feed did not return every posting"
+  counts_inconsistent: "Posting counts did not add up"
+  careers_site_not_found: "No careers site was found for this company"
   source_failed: "Source failed during execution"
   fewer_than_expected: "Fewer results than expected"
   result_count_unknown: "Result count not reported by the source"

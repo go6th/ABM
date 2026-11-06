@@ -90,7 +90,7 @@ class Stack:
         started = await who.browser.call(
             "POST",
             "/v1/runs",
-            json={"domain": domain, **body},
+            json={"domain": domain, "confirm": True, "confirm_again": True, **body},
             headers={"Idempotency-Key": uuid4().hex},
         )
         assert started.status_code == 202, started.text

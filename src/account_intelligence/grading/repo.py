@@ -478,6 +478,124 @@ async def record_document_fact(
     return fact_id, True
 
 
+async def record_imported_fact(
+    s: AsyncSession,
+    *,
+    run: RunInfo,
+    attribute_key: str,
+    value: str,
+    quote: str,
+    document_id: UUID,
+    location: dict[str, Any],
+    grade: str,
+    visibility: str,
+    flags: Sequence[str],
+    config_hash: str,
+    fields: Mapping[str, Any] | None = None,
+    lane: str | None = None,
+    confirming_question: str | None = None,
+) -> tuple[UUID, bool]:
+    """A finding read from an uploaded Account Summary or Sources and Evidence file (workspace
+    import phase 3, 2026-11-03), in the caller's transaction: graded as the file grades it
+    (``grade``: confirmed, probable, hypothesis, lead; flagged ``imported_grade`` because the
+    platform did not read the source itself) and ``private`` unless the caller says the file is
+    authoritative (``visibility`` public: the product's own package or an admin's mark). Only a
+    public Confirmed fact may be stated to a prospect. A Hypothesis carries its confirming
+    question (``ck_facts_hypothesis_has_question``): the file's own, else a plain one flagged
+    ``question_generated`` (a file's platform table grades without one, UCB 2026-11-04).
+    Idempotent per run and content."""
+    if grade not in ("confirmed", "probable", "hypothesis", "lead"):
+        grade = "lead"
+    question = " ".join((confirming_question or "").split())[:1000] or None
+    if grade == "hypothesis" and question is None:
+        question = f"Is this right: {' '.join(value.split())[:900]}?"
+        flags = (*flags, "question_generated")
+    elif grade != "hypothesis":
+        question = None
+    if visibility not in ("public", "private"):
+        visibility = "private"
+    normalised = " ".join(value.lower().split())
+    key = hashlib.sha256(
+        json.dumps(
+            [str(run.run_id), attribute_key, normalised, str(document_id), location],
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        ).encode("utf-8")
+    ).hexdigest()
+    claim_hash = hashlib.sha256(f"{attribute_key}\x1f{normalised}".encode()).hexdigest()
+    row = (
+        await s.execute(
+            text(
+                "INSERT INTO facts (account_id, tenant_id, attribute_key, value_json, fingerprint,"
+                " product_grade, read_in_primary_this_run, visibility, run_id, claim_hash,"
+                " write_key, claim_kind, value_text, flags, precedence_rule, config_hash,"
+                " schema_version, may_state_to_prospect, lane, lead_status, confirming_question)"
+                " VALUES (:account, (SELECT app_tenant()), :key, CAST(:vj AS jsonb), :fp, :pg,"
+                " :prim, :vis, :run, :ch, :wk, 'sourced', :value, CAST(:flags AS jsonb),"
+                " 'imported_grade', :cfg, 1, :may, :lane, :lead, :q)"
+                " ON CONFLICT (tenant_id, write_key) WHERE write_key IS NOT NULL DO NOTHING"
+                " RETURNING id"
+            ),
+            {
+                "account": run.account_id,
+                "key": attribute_key,
+                "vj": json.dumps(
+                    {**dict(fields or {}), "value": value, "normalised": normalised}, default=str
+                ),
+                "fp": fingerprint(run.account_id, attribute_key, normalised),
+                "pg": grade,
+                # the file says Confirmed only for what its research read at the source in that
+                # run (the table's rule: Confirmed needs a primary read); the import keeps the claim
+                "prim": grade == "confirmed",
+                "vis": visibility,
+                "run": run.run_id,
+                "ch": claim_hash,
+                "wk": key,
+                "value": value,
+                "flags": json.dumps(sorted({"from_uploaded_file", "imported_grade", *flags})),
+                "cfg": config_hash,
+                # the table's rule: exactly the Confirmed facts may be stated; a private one
+                # never reaches a client file anyway (visibility)
+                "may": grade == "confirmed",
+                "lane": lane,
+                # a Lead waits for a verification the platform has not run (the table's rule)
+                "lead": "pending" if grade == "lead" else None,
+                "q": question,
+            },
+        )
+    ).first()
+    if row is None:
+        existing: Any = (
+            await s.execute(text("SELECT id FROM facts WHERE write_key = :wk"), {"wk": key})
+        ).scalar_one()
+        return UUID(str(existing)), False
+    fact_id = UUID(str(row.id))
+    await s.execute(
+        text(
+            "INSERT INTO fact_evidence (fact_id, evidence_kind, supporting_sentence, span_sha256,"
+            " document_id, document_location, is_aggregator)"
+            " VALUES (:f, 'document', :s, :h, :d, CAST(:loc AS jsonb), false)"
+        ),
+        {
+            "f": fact_id,
+            "s": quote[:2000],
+            "h": hashlib.sha256(quote.encode("utf-8")).hexdigest(),
+            "d": document_id,
+            "loc": json.dumps(location, default=str),
+        },
+    )
+    await s.execute(
+        text(
+            "INSERT INTO grade_events (fact_id, run_id, from_product, to_product, from_engine,"
+            " to_engine, actor, reason_code) VALUES (:f, :r, NULL, :tp, NULL, NULL,"
+            " 'document_extraction', 'initial')"
+        ),
+        {"f": fact_id, "r": run.run_id, "tp": grade},
+    )
+    return fact_id, True
+
+
 async def mark_document_facts(s: AsyncSession, document_id: UUID, account_id: UUID | None) -> int:
     """Every current fact citing ``document_id`` is marked for re-evaluation (status
     ``needs_reevaluation``, plus an insert-only ``fact_reevaluations`` row); facts are never

@@ -1,0 +1,1354 @@
+diff --git a/config/research_input_modes.yaml b/config/research_input_modes.yaml
+index a222532..7ab9397 100644
+--- a/config/research_input_modes.yaml
++++ b/config/research_input_modes.yaml
+@@ -71,6 +71,9 @@ company:
+     proton.me, protonmail.com, live.com, msn.com, gmx.com, yandex.com, mail.com]
+   ambiguity_margin: 0.25             # top candidate must beat the second by this share of its score
+   min_score: 2.0                     # e.g. a legal name plus a matching email domain
++  bind_min_confidence: 2.0           # an upload binds to (or proceeds on) an account at this score or more;
++                                     # below it, or no match, it waits as needs_account (PR5)
++  hold_unmatched_for_account: true   # false: trust the account an upload was sent to (switch back)
+ 
+ extraction:
+   task_kind: file_extract_facts      # registered in src/llm/route.py
+diff --git a/docs/plans/ingestion-hardening-pr5.md b/docs/plans/ingestion-hardening-pr5.md
+new file mode 100644
+index 0000000..61a9963
+--- /dev/null
++++ b/docs/plans/ingestion-hardening-pr5.md
+@@ -0,0 +1,47 @@
++# Ingestion hardening PR5: import before index, company match first (2026-11-04)
++
++## Description
++
++PR5 reorders the document pipeline so the account page fills before any embedding is written. The
++company is matched first (`documents.service._match`, using `documents.company.Resolver`): an upload
++sent to an account proceeds only when the file's resolved company is that account's domain; an upload
++sent to no account is bound to the owner's account of the company's domain when there is one. Anything
++else (no company, ambiguous, below `company.bind_min_confidence`, or another company than the
++account) is held in the new status `needs_account` with the detected company shown; nothing is imported
++or indexed until the user picks an account (`POST /v1/documents/confirm-company`, which now also
++releases a held upload bound to the same account and can move it to another). A document that is
++`parsed` and bound then runs `_import_step` (the deliverables import, its own leased step; status
++`indexing` so the sweep covers it), enqueues itself, and the next task embeds (`_index`) and then
++analyses. The import reads `document_passages` and the zip, never the vectors. A zip with `deliverables/`
++holding a deliverable file but no `RESTORE.md`/`MANIFEST.json` is treated as a workspace (parent of the
++`deliverables/` folder is the root) and logs `documents.workspace_marker_missing` once per document.
++Ask adds `notices: ["Some files are still being indexed; search may miss them."]` to the answer when a
++bound document of the account is not yet `indexed`. Migration `0110_needs_account` (down_revision `0106`;
++re-chain on merge) adds the status to `ck_documents_status`.
++
++Switches: `company.bind_min_confidence` (2.0 = the resolver's `min_score`, so every "resolved" passes),
++`company.hold_unmatched_for_account` (true; false trusts the account an upload was sent to, the way to
++go back if the rule proves too strict on staging), `DocumentService.index_in_own_task` (true in
++production; false lets one `process` call run import and embedding, used by the older service tests).
++
++## Staging verification
++
++1. Deploy, run migration 0110 (`alembic upgrade head`), confirm `\d+ documents` shows `needs_account`.
++2. On an account page, upload the account's own workspace zip (with `deliverables/`). In the log
++   (Cloud Logging, filter `jsonPayload.tenant_id=... `), note the times of:
++   - `documents.processed` with `state=quarantined` -> the upload completing (the `complete` call),
++   - `documents.imported` (the import step finished),
++   - first `documents.indexed_page`, last `documents.indexed_page`, `documents.indexed`.
++   Definition of done: `documents.imported` is within 60 s of the upload completing, and before
++   `documents.indexed`. Reload the account page at that moment: People, Jobs, Tech stack, Signals and
++   Sources are non-zero while the file list still says "Indexing". Ask during that window carries the
++   notice line.
++3. Upload a zip without `RESTORE.md` but with `deliverables/`: it imports, and the log has one
++   `documents.workspace_marker_missing` for that document.
++4. Upload a file about another company to an account: the card says "Needs account" with the detected
++   company, nothing imported (account counts unchanged), no `documents.imported` line. Pick the account
++   in the card: `documents.imported` then `documents.indexed` follow.
++5. Upload without an account a file naming a company that has an account: it binds and imports by
++   itself. Upload a file naming no company: it waits as "Needs account".
++6. Watch `documents.needs_account` log lines (state/reason) for how often the rule holds real uploads;
++   if too many, set `company.hold_unmatched_for_account: false` in `config/research_input_modes.yaml`.
+diff --git a/migrations/0110_needs_account.down.sql b/migrations/0110_needs_account.down.sql
+new file mode 100644
+index 0000000..0bf7a3f
+--- /dev/null
++++ b/migrations/0110_needs_account.down.sql
+@@ -0,0 +1,6 @@
++-- Undo migration 0110: held uploads go back to 'parsed' (account NULL or bound: the old waiting
++-- state), then the status list loses 'needs_account'.
++UPDATE documents SET status = 'parsed' WHERE status = 'needs_account';
++ALTER TABLE documents DROP CONSTRAINT ck_documents_status;
++ALTER TABLE documents ADD CONSTRAINT ck_documents_status CHECK (status IN ('awaiting_upload',
++   'quarantined', 'scanning', 'rejected', 'parsing', 'parsed', 'indexing', 'indexed', 'failed'));
+diff --git a/migrations/0110_needs_account.sql b/migrations/0110_needs_account.sql
+new file mode 100644
+index 0000000..8b9d489
+--- /dev/null
++++ b/migrations/0110_needs_account.sql
+@@ -0,0 +1,11 @@
++-- Migration 0110 (2026-11-04, ingestion hardening PR5): documents.status gains 'needs_account'.
++--
++-- An upload whose company could not be matched to its account (no match, ambiguous, or the
++-- detected company is another domain than the account it was uploaded to) is held in this status:
++-- nothing is imported or indexed until the user binds it (confirm-company). Uploads at 'parsed'
++-- with no account (the old hold) are shown as needs_account by the view and are released the same
++-- way, so no row is rewritten here.
++ALTER TABLE documents DROP CONSTRAINT ck_documents_status;
++ALTER TABLE documents ADD CONSTRAINT ck_documents_status CHECK (status IN ('awaiting_upload',
++   'quarantined', 'scanning', 'rejected', 'parsing', 'parsed', 'needs_account', 'indexing',
++   'indexed', 'failed'));
+diff --git a/migrations/versions/0110_needs_account.py b/migrations/versions/0110_needs_account.py
+new file mode 100644
+index 0000000..b898838
+--- /dev/null
++++ b/migrations/versions/0110_needs_account.py
+@@ -0,0 +1,26 @@
++"""documents.status 'needs_account': the held-upload state (2026-11-04, ingestion hardening PR5).
++
++Revision ID: 0110
++Revises: 0106
++"""
++
++from pathlib import Path
++
++from alembic import op
++
++revision = "0110"
++down_revision = "0106"
++branch_labels = None
++depends_on = None
++
++
++def upgrade() -> None:
++    """Add the status to the documents check constraint."""
++    sql = Path(__file__).resolve().parents[1] / "0110_needs_account.sql"
++    op.execute(sql.read_text())
++
++
++def downgrade() -> None:
++    """Held uploads return to parsed; the constraint goes back to 0052's list."""
++    sql = Path(__file__).resolve().parents[1] / "0110_needs_account.down.sql"
++    op.execute(sql.read_text())
+diff --git a/src/account_intelligence/api/contract.py b/src/account_intelligence/api/contract.py
+index 4ca0b6b..c9e6b95 100644
+--- a/src/account_intelligence/api/contract.py
++++ b/src/account_intelligence/api/contract.py
+@@ -2342,6 +2342,9 @@ class ChatAnswer(Out):
+     # the model's readable thinking summary (models.yaml ask_model_settings, 2026-11-03), shown
+     # under "How this was worked out"; scrubbed with the answer
+     thinking: str | None = None
++    # short notes about the answer's reach (PR5: "Some files are still being indexed; search
++    # may miss them."), shown as a muted line under the answer
++    notices: list[str] = Field(default_factory=list)
+ 
+ 
+ class ChatTurn(Out):
+diff --git a/src/account_intelligence/api/routes/ask.py b/src/account_intelligence/api/routes/ask.py
+index 4c9d89d..6b79c07 100644
+--- a/src/account_intelligence/api/routes/ask.py
++++ b/src/account_intelligence/api/routes/ask.py
+@@ -128,6 +128,28 @@ class AskBody(BaseModel):
+     effort: str | None = Field(default=None, min_length=1, max_length=16)
+ 
+ 
++INDEXING_NOTICE = "Some files are still being indexed; search may miss them."
++# a document bound to an account that is not yet searchable but is on its way (a held upload,
++# needs_account, waits for the user and is not counted)
++_IN_PROGRESS = ("quarantined", "scanning", "parsing", "parsed", "indexing")
++
++
++async def _indexing_notices(tenant_id: UUID, account_id: UUID | None) -> list[str]:
++    """PR5: the account page fills from the import before the embeddings are written, so an
++    answer asked in between searches an incomplete index. When any bound document of the account
++    (of every account the caller can see, without a scope) is not yet ``indexed``, say so."""
++    async with tenant_txn(tenant_id) as session:
++        pending = await session.scalar(
++            text(
++                "SELECT 1 FROM documents WHERE tenant_id = :t AND account_id IS NOT NULL"
++                " AND status = ANY(:st) AND (CAST(:a AS uuid) IS NULL OR account_id = :a)"
++                " LIMIT 1"
++            ),
++            {"t": tenant_id, "a": account_id, "st": list(_IN_PROGRESS)},
++        )
++    return [INDEXING_NOTICE] if pending else []
++
++
+ def week_of(now: datetime) -> date:
+     """The Monday of the week (the question counts' bucket)."""
+     return (now - timedelta(days=now.weekday())).date()
+@@ -493,6 +515,11 @@ async def ask(
+             # an open question's insights keep their facts table under "Sources"
+             ensure_table(draft, collapsed=shape is not None)
+             answer = A.finish(draft, q, ws, now, scope)
++            notices = await _indexing_notices(
++                ident.tenant_id, scope.id if scope is not None else None
++            )
++            if notices:
++                answer["notices"] = notices
+             if failed:
+                 # the same question, one tap away
+                 answer["followups"] = [body.question[:200], *answer["followups"]][:2]
+diff --git a/src/account_intelligence/api/routes/documents.py b/src/account_intelligence/api/routes/documents.py
+index 71906a6..ae5b1a0 100644
+--- a/src/account_intelligence/api/routes/documents.py
++++ b/src/account_intelligence/api/routes/documents.py
+@@ -472,7 +472,8 @@ async def list_documents(
+ async def confirm_company(
+     body: ConfirmCompany, request: Request, ident: Identity = Depends(require_role(*UPLOADERS))
+ ) -> dict[str, Any]:
+-    """Bind the documents to the confirmed company's account and index them."""
++    """Bind the documents to the confirmed company's account and index them; an upload held as
++    ``needs_account`` is released to it (the account picker on a held upload calls this)."""
+     from account_intelligence.runs import lifecycle
+     from documents import repo
+     from documents.service import DocumentError
+@@ -483,7 +484,10 @@ async def confirm_company(
+         rows = await repo.many(s, list(body.document_ids))
+         if len(rows) != len(set(body.document_ids)):
+             raise APIProblem(404, "not_found", "Document refused", "A document was not found.")
+-        bound_to = {r.account_id for r in rows if r.account_id is not None}
++        # an upload held as needs_account may be moved to any account the user picks (PR5)
++        bound_to = {
++            r.account_id for r in rows if r.account_id is not None and r.status != "needs_account"
++        }
+         if bound_to:
+             same: int = (
+                 await s.execute(
+diff --git a/src/documents/config.py b/src/documents/config.py
+index fb7914d..80e33a4 100644
+--- a/src/documents/config.py
++++ b/src/documents/config.py
+@@ -98,6 +98,13 @@ class CompanyCfg(_M):
+     free_mail_domains: tuple[str, ...]
+     ambiguity_margin: float = Field(gt=0, lt=1)
+     min_score: float = Field(gt=0)
++    # an upload binds to an account (or proceeds on the account it was uploaded to) only when the
++    # best candidate scores at least this (PR5); the default is the `resolved` floor, so a
++    # resolved company passes
++    bind_min_confidence: float = Field(default=2.0, gt=0)
++    # an upload sent to an account proceeds only when its company is that account's; False turns
++    # that check off (the switch back if it proves too strict) and trusts the account chosen
++    hold_unmatched_for_account: bool = True
+ 
+ 
+ class ExtractionCfg(_M):
+diff --git a/src/documents/filemap.py b/src/documents/filemap.py
+index ea93c42..0fe0b94 100644
+--- a/src/documents/filemap.py
++++ b/src/documents/filemap.py
+@@ -130,6 +130,7 @@ STATES = {
+     "scanning": "being scanned",
+     "parsing": "still being read",
+     "parsed": "read, still being indexed",
++    "needs_account": "read, waiting for the user to pick its account, so not searchable",
+     "indexing": "still being indexed",
+     "rejected": "rejected and not read",
+     "failed": "could not be read",
+diff --git a/src/documents/repo.py b/src/documents/repo.py
+index fb1babe..73c5210 100644
+--- a/src/documents/repo.py
++++ b/src/documents/repo.py
+@@ -24,7 +24,8 @@ _COLS = (
+     "id, account_id, name, declared_bytes, size_bytes, declared_type, detected_type, sha256,"
+     " quarantine_key, upload_token_sha256, object_key, status, reject_reason, stop_detail,"
+     " redaction_tier, authoritative, detected_company, passages, redactions, uploaded_by,"
+-    " upload_expires_at, created_at, updated_at, parts_total, indexed_through, audience"
++    " upload_expires_at, created_at, updated_at, parts_total, indexed_through, audience,"
++    " imported_at"
+ )
+ PART_SPAN = 10_000_000  # passage numbers per part: part n writes n * PART_SPAN + 1, + 2, ...
+ # a text column is multi-valued (a cell holds "a, b; c" items) when a fifth or more of its
+@@ -258,16 +259,22 @@ async def write_passages(
+         )
+ 
+ 
+-async def bind_account(s: AsyncSession, document_ids: Sequence[UUID], account_id: UUID) -> int:
+-    """Bind unbound documents (and their passages and map) to the confirmed account."""
++async def bind_account(
++    s: AsyncSession, document_ids: Sequence[UUID], account_id: UUID, *, rebind: bool = False
++) -> int:
++    """Bind unbound documents (and their passages, map, members and tables) to the confirmed
++    account. ``rebind`` also moves documents held as ``needs_account`` that were bound to another
++    account (the user picked a different one)."""
++    held = " OR status = 'needs_account'" if rebind else ""
+     res = await s.execute(
+         text(
+             "UPDATE documents SET account_id = :a, updated_at = now() WHERE id = ANY(:ids)"
+-            " AND (account_id IS NULL OR account_id = :a)"
++            f" AND (account_id IS NULL OR account_id = :a{held})"  # nosec B608 -- fixed text.
+         ),
+         {"a": account_id, "ids": list(document_ids)},
+     )
+-    for table in ("document_passages", "document_redactions"):
++    tables = ("document_passages", "document_redactions", "document_members", "document_tables")
++    for table in tables:
+         await s.execute(
+             text(f"UPDATE {table} SET account_id = :a WHERE document_id = ANY(:ids)"),  # nosec B608 -- table from a fixed tuple.
+             {"a": account_id, "ids": list(document_ids)},
+@@ -275,6 +282,49 @@ async def bind_account(s: AsyncSession, document_ids: Sequence[UUID], account_id
+     return int(res.rowcount or 0)  # type: ignore[attr-defined]
+ 
+ 
++async def release_hold(s: AsyncSession, document_ids: Sequence[UUID]) -> list[UUID]:
++    """Release uploads held as ``needs_account`` (now bound) back to ``parsed``; the ids moved."""
++    rows = await s.execute(
++        text(
++            "UPDATE documents SET status = 'parsed', updated_at = now() WHERE id = ANY(:ids)"
++            " AND status = 'needs_account' AND account_id IS NOT NULL RETURNING id"
++        ),
++        {"ids": list(document_ids)},
++    )
++    return [UUID(str(r.id)) for r in rows]
++
++
++async def account_domain(s: AsyncSession, account_id: UUID) -> str | None:
++    """The domain of a live account of the tenant (RLS limits it to the user's own)."""
++    value = (
++        await s.execute(
++            text("SELECT domain FROM accounts WHERE id = :a AND deleted_at IS NULL"),
++            {"a": account_id},
++        )
++    ).scalar_one_or_none()
++    return str(value) if value else None
++
++
++async def account_for_domain(
++    s: AsyncSession, document_id: UUID, registrable_domain: str
++) -> UUID | None:
++    """The live account of the document's owner whose domain is ``registrable_domain`` (or a
++    subdomain of it); None when there is none. The tenant is the session's (``app_tenant()``)."""
++    row = (
++        await s.execute(
++            text(
++                "SELECT a.id FROM accounts a JOIN documents d ON d.id = :d"
++                " AND d.tenant_id = a.tenant_id AND a.owner_user_id = d.owner_user_id"
++                " WHERE a.tenant_id = (SELECT app_tenant()) AND a.deleted_at IS NULL"
++                " AND (a.domain = :r OR a.domain LIKE '%.' || :r) ORDER BY a.domain = :r DESC, a.id"
++                " LIMIT 1"
++            ),
++            {"d": document_id, "r": registrable_domain},
++        )
++    ).first()
++    return UUID(str(row.id)) if row else None
++
++
+ async def passages(s: AsyncSession, document_id: UUID) -> list[Any]:
+     """A document's passages in order."""
+     rows = await s.execute(
+diff --git a/src/documents/service.py b/src/documents/service.py
+index 51077d6..1354cda 100644
+--- a/src/documents/service.py
++++ b/src/documents/service.py
+@@ -26,9 +26,13 @@
+   an unavailable scanner ends ``rejected`` with the reason, and the parser never sees the bytes.
+ * Audio is accepted only when a transcription vendor is configured; today it is rejected with a
+   clear message.
+-* A document uploaded without an account stops at ``parsed`` with the detected company; the
+-  user confirms the company (``confirm_company``), which binds and indexes it. Ambiguity is never
+-  resolved by guessing.
++* The company is matched first (PR5), since the import and the index both depend on it. A
++  document whose company is resolved to its account's domain (uploaded to that account), or to the
++  domain of one of the owner's accounts (uploaded with none), is bound and goes on: the
++  deliverables import first (the account page fills), then the embedding as the next task. Any
++  other upload (no company, ambiguous, or another company than its account) waits as
++  ``needs_account`` with the detected company; nothing is imported or indexed until the user
++  confirms the account (``confirm_company``). Ambiguity is never resolved by guessing.
+ * Deleting a document removes its index rows, passages, redaction map and row, and marks every
+   fact that cites it for re-evaluation; its raw object and registry row go only when no other
+   document of the tenant shares the same bytes (brief B1).
+@@ -62,7 +66,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
+ from documents import repo
+ from documents import workspace as ws
+ from documents.chunking import Chunker, Passage, TableIngestTruncated
+-from documents.company import Resolver
++from documents.company import Resolver, registrable
+ from documents.config import InputModesConfig, load_config
+ from documents.embed import EmbeddingPort
+ from documents.redact import Redactor
+@@ -114,6 +118,7 @@ MESSAGES = {
+     "not_uploaded": "No file arrived for this upload. Upload it again.",
+     "empty": "The file has no readable content.",
+     "parts_failed": "Some parts of the file could not be read. Try those parts again.",
++    "needs_account": "Pick the account this file belongs to.",
+ }
+ # archive members the parser listed but did not read (the file list says so, by name)
+ SKIP_CHECKS = {
+@@ -247,6 +252,10 @@ class DocumentService:
+     # the research payload store (posting texts of an imported workspace); None locally where
+     # the container has none
+     payloads: Any | None = None
++    # True: the deliverables import is a step of its own and the embedding is queued as the next
++    # task, so the account page fills before any vector is written (PR5); False runs both in one
++    # call (the service tests that drive a document with a single ``process``)
++    index_in_own_task: bool = True
+     # the model analysis an indexed upload gets by itself (``app.auto_analysis.start`` bound to
+     # the container; None in tests of the service alone): called as (tenant_id, document_id)
+     analysis: Any | None = None
+@@ -488,9 +497,31 @@ class DocumentService:
+                 return status
+             row = await self._row(tenant_id, document_id)
+         if row is not None and row.status in ("parsed", "indexing") and row.account_id is not None:
++            if row.imported_at is None and (row.status == "parsed" or row.indexed_through is None):
++                # PR5: the account's rows first, from the passages and the zip (no embedding
++                # needed), so the account page fills while the vectors are still being written
++                status = await self._leased(
++                    tenant_id, document_id, ("parsed", "indexing"), self._import_step
++                )
++                if status in ("busy", "noop"):
++                    return status
++                if self.index_in_own_task:
++                    await self.scheduler.enqueue_document(tenant_id, document_id)
++                    return "indexing"
+             return await self._leased(tenant_id, document_id, ("parsed", "indexing"), self._index)
+         return "noop" if row is None else str(row.status)
+ 
++    @_doc_logged
++    async def _import_step(self, tenant_id: UUID, row: Any) -> str:
++        """Import the uploaded deliverables of a bound document before it is embedded. The status
++        moves to ``indexing`` first, so the sweep finds a document whose worker died here. A
++        failed import is logged and left unmarked (the sweep's backfill reads it again) and never
++        stops the indexing."""
++        async with self.txn(tenant_id) as s:
++            await repo.set_status(s, row.id, "indexing")
++        await self._import_deliverables(tenant_id, row)
++        return "indexing"
++
+     async def _row(self, tenant_id: UUID, document_id: UUID) -> Any:
+         async with self.txn(tenant_id) as s:
+             return await repo.get(s, document_id)
+@@ -767,7 +798,15 @@ class DocumentService:
+         try:
+             async with self._heartbeat(renew) as beat, self._local(doc.object_key) as path:
+                 listing = _zip_listing(path) if str(doc.detected_type or "") == "zip" else []
+-                roles = ws.member_roles([name for name, _ in listing])
++                names = [name for name, _ in listing]
++                roles = ws.member_roles(names)
++                if part_no == 0 and ws.marker_missing(names):
++                    # a deliverables/ folder but no RESTORE.md or MANIFEST.json: read as a
++                    # workspace all the same (PR5), said once per document in the log
++                    _log.warning(
++                        "documents.workspace_marker_missing",
++                        extra={"tenant_id": str(tenant_id), "document_id": str(doc.id)},
++                    )
+                 async for unit in self._units(path, doc, spec):
+                     if unit.fatal and unit.check == "unsupported_type":
+                         raise SandboxFailed("unsupported_type")
+@@ -879,17 +918,62 @@ class DocumentService:
+             if any((p.evidence or {}).get("truncated") for p in parts):
+                 company["truncated_at_passages"] = self.c.parsing.max_passages
+             tier = await repo.policy_tier(s, self.c.redaction.default_tier)
++            verdict, bind_to = await self._match(s, doc, company)
++            if bind_to is not None and doc.account_id is None:
++                await repo.bind_account(s, [document_id], bind_to)
++            status = "parsed" if verdict == "proceed" else "needs_account"
+             await repo.set_status(
+                 s,
+                 document_id,
+-                "parsed",
++                status,
+                 passages=passages,
+                 redactions=sum(int((p.evidence or {}).get("redactions") or 0) for p in parts),
+                 redaction_tier=tier,
+                 detected_company=company,
+             )
+             await self._audit(s, "document.parse", document_id, "ok")
+-        return "parsed"
++            if status == "needs_account":
++                _log.info(
++                    "documents.needs_account",
++                    extra={
++                        "tenant_id": str(tenant_id),
++                        "document_id": str(document_id),
++                        "state": str(company.get("status")),
++                        "reason": str(company.get("reason") or "no_match"),
++                    },
++                )
++        return status
++
++    async def _match(
++        self, s: AsyncSession, doc: Any, company: dict[str, Any]
++    ) -> tuple[str, UUID | None]:
++        """Company match first (PR5), since the import and the index both depend on it: returns
++        ``("proceed", account to bind or None)`` or ``("hold", None)``. A company counts only
++        when the resolver says ``resolved`` and its score reaches ``bind_min_confidence``.
++        Uploaded to an account: proceed only when the company is that account's domain (the
++        registrable domains match). Uploaded without one: bind to the owner's account of that
++        domain when there is one. Anything else waits as ``needs_account``.
++        A document that was decided before (a re-read of an indexed one) is not asked again."""
++        found = company.get("company") or {}
++        domain = (
++            registrable(str(found["domain"]))
++            if company.get("status") == "resolved"
++            and found.get("domain")
++            and float(found.get("score") or 0) >= self.c.company.bind_min_confidence
++            else None
++        )
++        if doc.account_id is not None:
++            if doc.detected_company or not self.c.company.hold_unmatched_for_account:
++                return "proceed", None
++            own = await repo.account_domain(s, doc.account_id)
++            if domain and own and registrable(own) == domain:
++                return "proceed", None
++            return "hold", None
++        if domain:
++            account = await repo.account_for_domain(s, doc.id, domain)
++            if account is not None:
++                return "proceed", account
++        return "hold", None
+ 
+     async def retry_part(self, tenant_id: UUID, document_id: UUID, part_no: int) -> dict[str, Any]:
+         """Try a failed part again: it is queued again and the document reads on."""
+@@ -1010,7 +1094,6 @@ class DocumentService:
+                 return "indexing"
+         async with self.txn(tenant_id) as s:
+             await repo.set_status(s, row.id, "indexed")
+-        await self._import_deliverables(tenant_id, row)
+         await self._analyse(tenant_id, row)
+         _log.info(
+             "documents.indexed",
+@@ -1127,18 +1210,22 @@ class DocumentService:
+     async def confirm_company(
+         self, tenant_id: UUID, document_ids: list[UUID], account_id: UUID
+     ) -> list[UUID]:
+-        """Bind documents to the account the user confirmed, then index the parsed ones."""
++        """Bind documents to the account the user confirmed, then index the parsed ones. An upload
++        held as ``needs_account`` is released, to this account even when it was held on another."""
+         async with self.txn(tenant_id) as s:
+             rows = await repo.many(s, document_ids)
+             if len(rows) != len(set(document_ids)):
+                 raise DocumentError("not_found", "A document was not found.")
+-            if any(r.account_id not in (None, account_id) for r in rows):
++            if any(
++                r.account_id not in (None, account_id) and r.status != "needs_account" for r in rows
++            ):
+                 raise DocumentError(
+                     "already_bound", "A document already belongs to another account."
+                 )
+-            await repo.bind_account(s, document_ids, account_id)
++            await repo.bind_account(s, document_ids, account_id, rebind=True)
++            released = set(await repo.release_hold(s, document_ids))
+         for r in rows:
+-            if r.status == "parsed":
++            if r.status == "parsed" or r.id in released:
+                 await self.scheduler.enqueue_document(tenant_id, r.id)
+         return [r.id for r in rows]
+ 
+@@ -1270,8 +1357,13 @@ class DocumentService:
+         stage = {
+             "awaiting_upload": "uploading", "quarantined": "scanning", "scanning": "scanning",
+             "parsing": "parsing", "parsed": "parsed", "indexing": "indexing",
++            "needs_account": "needs_account",
+             "indexed": "indexed", "rejected": "failed", "failed": "failed",
+         }[row.status]  # fmt: skip
++        # an upload that waited at "parsed" with no account before 0110 is a held upload too
++        held = row.status == "needs_account" or (row.status == "parsed" and row.account_id is None)
++        if held:
++            stage = "needs_account"
+         company = row.detected_company or {}
+         return {
+             "document_id": str(row.id),
+@@ -1288,7 +1380,11 @@ class DocumentService:
+             else (
+                 MESSAGES["parts_failed"]
+                 if row.stop_detail == "parts_failed"
+-                else ("The file could not be read." if row.status == "failed" else None)
++                else (
++                    "The file could not be read."
++                    if row.status == "failed"
++                    else (MESSAGES["needs_account"] if held else None)
++                )
+             ),
+             "passages": row.passages or (parts or {}).get("passages", 0),
+             "parts_total": int(row.parts_total or 0),
+@@ -1316,7 +1412,7 @@ class DocumentService:
+             "redaction_tier": row.redaction_tier,
+             "authoritative": bool(row.authoritative),
+             "company": company or None,
+-            "needs_company": row.account_id is None and row.status == "parsed",
++            "needs_company": held,
+             "created_at": row.created_at.isoformat(),
+         }
+ 
+diff --git a/src/documents/workspace.py b/src/documents/workspace.py
+index 011d565..e0fd1e5 100644
+--- a/src/documents/workspace.py
++++ b/src/documents/workspace.py
+@@ -99,9 +99,8 @@ def _parts(path: str) -> list[str]:
+     return [p for p in posixpath.normpath(path.replace("\\", "/")).split("/") if p and p != "."]
+ 
+ 
+-def workspace_root(names: Iterable[str]) -> str | None:
+-    """The folder prefix (``""`` for the zip's root, else ``"<folder>/"``) that holds a root
+-    marker, the shallowest when several do; None when the zip is not a workspace package."""
++def _marker_root(names: Iterable[str]) -> str | None:
++    """The shallowest folder prefix holding a root marker, else None."""
+     best: str | None = None
+     for name in names:
+         parts = _parts(name)
+@@ -114,6 +113,42 @@ def workspace_root(names: Iterable[str]) -> str | None:
+     return best
+ 
+ 
++def _deliverables_root(names: Iterable[str]) -> str | None:
++    """The fallback root (PR5, 2026-11-04): the parent of the shallowest ``deliverables/`` folder
++    that holds at least one file with a deliverable suffix; None when there is none."""
++    best: str | None = None
++    for name in names:
++        parts = _parts(name)
++        if len(parts) < 2 or not parts[-1].lower().endswith(
++            tuple(suffix for suffix, _ in _DELIVERABLE_SUFFIXES)
++        ):
++            continue
++        if parts[-2].lower() != "deliverables":
++            continue
++        prefix = "/".join(parts[:-2])
++        prefix = f"{prefix}/" if prefix else ""
++        if best is None or prefix.count("/") < best.count("/"):
++            best = prefix
++    return best
++
++
++def workspace_root(names: Iterable[str]) -> str | None:
++    """The folder prefix (``""`` for the zip's root, else ``"<folder>/"``) that holds a root
++    marker, the shallowest when several do; without a marker, the parent of a ``deliverables/``
++    folder that holds a deliverable file (``marker_missing``); None when the zip is not a
++    workspace package."""
++    names = list(names)
++    found = _marker_root(names)
++    return found if found is not None else _deliverables_root(names)
++
++
++def marker_missing(names: Iterable[str]) -> bool:
++    """True when the zip is a workspace only by the ``deliverables/`` fallback (no RESTORE.md or
++    MANIFEST.json anywhere): the caller logs ``documents.workspace_marker_missing`` once."""
++    names = list(names)
++    return _marker_root(names) is None and _deliverables_root(names) is not None
++
++
+ def classify_member(path: str, root: str) -> MemberRole:
+     """The role of one member under ``root`` (a prefix from ``workspace_root``)."""
+     parts = _parts(path)
+diff --git a/tests/documents/test_documents_db.py b/tests/documents/test_documents_db.py
+index 9fb5665..01efda4 100644
+--- a/tests/documents/test_documents_db.py
++++ b/tests/documents/test_documents_db.py
+@@ -170,7 +170,7 @@ async def test_company_is_detected_and_ambiguity_is_never_guessed(
+     two = await upload(svc, tenant_a, "compare.txt", fixtures.two_companies_txt())
+     for d in (clear, two):
+         assert (
+-            await svc.process(tenant_a, UUID(d["document_id"])) == "parsed"
++            await svc.process(tenant_a, UUID(d["document_id"])) == "needs_account"
+         )  # unbound: not indexed
+     detected = doc_row(clear["document_id"])["detected_company"]
+     assert detected["status"] == "resolved"
+@@ -284,7 +284,7 @@ async def test_documents_are_invisible_to_another_tenant(
+     assert await svc.list(tenant_b, None) == []
+     async with tenant_txn(tenant_b) as s:
+         assert await repo.passages(s, doc) == []
+-    assert doc_row(doc)["status"] == "parsed"
++    assert doc_row(doc)["status"] == "needs_account"
+ 
+ 
+ async def test_page_limit_stops_the_parse_with_its_reason(tenant_a: UUID, tmp_path: Path) -> None:
+diff --git a/tests/documents/test_file_runs.py b/tests/documents/test_file_runs.py
+index 89c471f..50a348f 100644
+--- a/tests/documents/test_file_runs.py
++++ b/tests/documents/test_file_runs.py
+@@ -86,7 +86,7 @@ async def indexed_documents(stack: Stack, who: Client) -> tuple[list[str], str]:
+     ]
+     await process(stack)
+     status = (await who.browser.call("GET", f"/v1/documents/{docs[1]}/status")).json()
+-    assert status["stage"] == "parsed" and status["needs_company"] is True
++    assert status["stage"] == "needs_account" and status["needs_company"] is True
+     assert status["company"]["company"]["domain"] == "northwind.example"
+     confirmed = await who.browser.call(
+         "POST",
+diff --git a/tests/documents/test_needs_account_db.py b/tests/documents/test_needs_account_db.py
+new file mode 100644
+index 0000000..a8ae6f3
+--- /dev/null
++++ b/tests/documents/test_needs_account_db.py
+@@ -0,0 +1,247 @@
++"""PR5 (ingestion hardening): the company is matched first, the account's rows are imported
++before the embedding, and an upload that cannot be matched waits as ``needs_account``.
++SYNTHETIC files only (the Holdings workspace zip, the Northwind notes)."""
++
++from __future__ import annotations
++
++from datetime import UTC, datetime, timedelta
++from pathlib import Path
++from typing import Any
++from uuid import UUID, uuid4
++
++import pytest
++
++from account_intelligence.db.session import SessionLocal, acting_as
++from documents.service import DocumentError, DocumentService, sweep_documents
++from tests.conftest import _make_account
++from tests.documents import fixtures, workspace_zip
++from tests.documents.test_deliverables_import import USER, _counts
++from tests.documents.test_workspace_zip_import_db import _zip_with_twins
++from tests.documents.world import admin, doc_row, service, upload
++
++pytestmark = [pytest.mark.requires_postgres, pytest.mark.asyncio]
++
++
++def _two_step_service(root: Path, *, match_account: bool = True) -> DocumentService:
++    svc = service(root, match_account=match_account)
++    svc.index_in_own_task = True  # production: the import is a step, the embedding the next task
++    return svc
++
++
++def _chunks(doc: UUID) -> int:
++    return int(admin("SELECT count(*) FROM chunks WHERE doc_id = %s", doc)[0][0])
++
++
++UPLOADER = "user-1"  # the owner tests.documents.world.upload gives a document
++
++
++def _account(tenant: UUID, domain: str) -> UUID:
++    return _make_account(tenant, domain)  # owner "test-owner" (USER)
++
++
++def _account_of_uploader(tenant: UUID, domain: str) -> UUID:
++    rows = admin(
++        "INSERT INTO accounts (tenant_id, owner_user_id, domain) VALUES (%s, %s, %s) RETURNING id",
++        tenant,
++        UPLOADER,
++        domain,
++    )
++    return UUID(str(rows[0][0]))
++
++
++async def test_the_account_page_fills_before_any_embedding_is_written(
++    tenant_a: UUID, tmp_path: Path
++) -> None:
++    """Definition of done for PR5: People, Jobs, Tech stack, Signals and Sources are non-zero
++    while the document is not yet indexed and has no chunk."""
++    svc = _two_step_service(tmp_path, match_account=False)
++    account = _account(tenant_a, workspace_zip.ACCOUNT_DOMAIN)
++    with acting_as(USER):
++        done = await upload(svc, tenant_a, workspace_zip.ZIP_NAME, _zip_with_twins(), account)
++        doc = UUID(done["document_id"])
++        # task 1: scan, read, match the company, import; the embedding is queued, not run
++        status = await svc.process(tenant_a, doc)
++        assert status == "indexing", doc_row(doc)["detected_company"]
++        assert (tenant_a, doc) in svc.scheduler.documents
++        row = doc_row(doc)
++        assert row["status"] == "indexing" and row["account_id"] == account
++        assert _chunks(doc) == 0
++        assert admin("SELECT imported_at IS NOT NULL FROM documents WHERE id = %s", doc) == [
++            (True,)
++        ]
++        counts = await _counts(tenant_a, account)
++        for key in ("people", "jobs", "tech", "signals", "sources"):
++            assert counts[key] > 0, (key, counts)
++        # task 2: the embedding; the import is not run again
++        before = dict(counts)
++        assert await svc.process(tenant_a, doc) == "indexed"
++        assert _chunks(doc) > 0
++        assert await _counts(tenant_a, account) == before
++
++
++async def test_an_upload_whose_company_is_another_domain_waits_for_the_user(
++    tenant_a: UUID, tmp_path: Path
++) -> None:
++    """Uploaded to an account but the file names another company: held, nothing imported or
++    indexed; confirming the same account releases it."""
++    svc = _two_step_service(tmp_path)
++    account = _account(tenant_a, f"other-{uuid4().hex[:6]}.example")
++    with acting_as(USER):
++        done = await upload(svc, tenant_a, workspace_zip.ZIP_NAME, _zip_with_twins(), account)
++        doc = UUID(done["document_id"])
++        assert await svc.process(tenant_a, doc) == "needs_account"
++        row = doc_row(doc)
++        assert row["status"] == "needs_account" and row["account_id"] == account
++        # the tables of this synthetic package carry no company evidence: nothing to match
++        assert row["detected_company"]["status"] == "none"
++        counts = await _counts(tenant_a, account)
++        assert (counts["people"], counts["jobs"], counts["tech"]) == (0, 0, 0)
++        assert _chunks(doc) == 0
++        view = await svc.status(tenant_a, doc)
++        assert view["stage"] == "needs_account" and view["needs_company"] is True
++        assert view["message"] == "Pick the account this file belongs to."
++        assert view["company"]["status"] == "none"
++        # a held upload is not processed again by a duplicate task
++        assert await svc.process(tenant_a, doc) == "needs_account"
++
++        await svc.confirm_company(tenant_a, [doc], account)
++        assert (tenant_a, doc) in svc.scheduler.documents
++        assert await svc.process(tenant_a, doc) == "indexing"  # imported, embedding queued
++        assert (await _counts(tenant_a, account))["people"] > 0
++        assert await svc.process(tenant_a, doc) == "indexed"
++
++
++async def test_a_held_upload_can_be_moved_to_another_account(
++    tenant_a: UUID, tmp_path: Path
++) -> None:
++    svc = _two_step_service(tmp_path)
++    wrong = _account(tenant_a, f"wrong-{uuid4().hex[:6]}.example")
++    right = _account(tenant_a, f"right-{uuid4().hex[:6]}.example")
++    with acting_as(USER):
++        done = await upload(svc, tenant_a, "notes.docx", fixtures.notes_docx(), wrong)
++        doc = UUID(done["document_id"])
++        assert await svc.process(tenant_a, doc) == "needs_account"
++        await svc.confirm_company(tenant_a, [doc], right)
++        assert doc_row(doc)["account_id"] == right
++        assert (
++            admin(
++                "SELECT count(*) FROM document_passages WHERE document_id = %s AND account_id = %s",
++                doc,
++                right,
++            )[0][0]
++            >= 1
++        )
++        assert await svc.process(tenant_a, doc) == "indexing"
++        assert await svc.process(tenant_a, doc) == "indexed"
++        # an indexed document is bound for good
++        with pytest.raises(DocumentError):
++            await svc.confirm_company(tenant_a, [doc], wrong)
++
++
++async def test_an_upload_without_an_account_binds_to_the_account_of_its_company(
++    tenant_a: UUID, tmp_path: Path
++) -> None:
++    svc = _two_step_service(tmp_path)
++    account = _account_of_uploader(tenant_a, "northwind.example")
++    with acting_as(UPLOADER):
++        clear = await upload(svc, tenant_a, "notes.docx", fixtures.notes_docx())
++        doc = UUID(clear["document_id"])
++        assert await svc.process(tenant_a, doc) == "indexing"  # bound by itself, then imported
++        assert doc_row(doc)["account_id"] == account
++        assert await svc.process(tenant_a, doc) == "indexed"
++        assert _chunks(doc) > 0
++
++
++async def test_ambiguous_or_unknown_companies_wait_as_needs_account(
++    tenant_a: UUID, tmp_path: Path
++) -> None:
++    svc = _two_step_service(tmp_path)
++    _account_of_uploader(tenant_a, "northwind.example")
++    with acting_as(UPLOADER):
++        two = await upload(svc, tenant_a, "compare.txt", fixtures.two_companies_txt())
++        assert await svc.process(tenant_a, UUID(two["document_id"])) == "needs_account"
++        row = doc_row(two["document_id"])
++        assert row["account_id"] is None and row["detected_company"]["status"] == "ambiguous"
++        # resolved, but no account of the owner has that domain: also waits
++        other = _two_step_service(tmp_path / "b")
++        admin("UPDATE accounts SET domain = 'elsewhere.example' WHERE tenant_id = %s", tenant_a)
++        lone = await upload(other, tenant_a, "notes.docx", fixtures.notes_docx())
++        assert await other.process(tenant_a, UUID(lone["document_id"])) == "needs_account"
++        assert doc_row(lone["document_id"])["account_id"] is None
++        view = await other.status(tenant_a, UUID(lone["document_id"]))
++        assert view["stage"] == "needs_account" and view["needs_company"] is True
++
++
++async def test_a_row_waiting_at_parsed_with_no_account_reads_as_needs_account(
++    tenant_a: UUID, tmp_path: Path
++) -> None:
++    """Rows written before 0110 (parsed, account NULL) show and release as held uploads."""
++    svc = _two_step_service(tmp_path)
++    account = _account(tenant_a, f"x-{uuid4().hex[:6]}.example")
++    with acting_as(USER):
++        done = await upload(svc, tenant_a, "notes.docx", fixtures.notes_docx())
++        doc = UUID(done["document_id"])
++        await svc.process(tenant_a, doc)
++        admin("UPDATE documents SET status = 'parsed' WHERE id = %s", doc)
++        view = await svc.status(tenant_a, doc)
++        assert view["stage"] == "needs_account" and view["needs_company"] is True
++        await svc.confirm_company(tenant_a, [doc], account)
++        assert (tenant_a, doc) in svc.scheduler.documents
++        assert await svc.process(tenant_a, doc) == "indexing"
++
++
++async def test_the_sweep_recovers_a_document_whose_import_step_died(
++    tenant_a: UUID, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
++) -> None:
++    svc = _two_step_service(tmp_path, match_account=False)
++    account = _account(tenant_a, workspace_zip.ACCOUNT_DOMAIN)
++
++    class Died(Exception):
++        pass
++
++    async def import_dies(tenant_id: UUID, row: Any) -> None:
++        raise Died
++
++    with acting_as(USER):
++        done = await upload(svc, tenant_a, workspace_zip.ZIP_NAME, _zip_with_twins(), account)
++        doc = UUID(done["document_id"])
++        monkeypatch.setattr(svc, "_import_deliverables", import_dies)
++        with pytest.raises(Died):
++            await svc.process(tenant_a, doc)
++        monkeypatch.undo()
++        # the worker is gone: its lease is still held and has expired
++        admin(
++            "UPDATE documents SET lease_owner = 'dead', lease_expires_at = now() - interval"
++            " '1 hour' WHERE id = %s",
++            doc,
++        )
++        row = doc_row(doc)
++        assert row["status"] == "indexing"
++        assert admin("SELECT imported_at FROM documents WHERE id = %s", doc) == [(None,)]
++        swept = await sweep_documents(
++            SessionLocal, svc.scheduler, datetime.now(UTC) + timedelta(seconds=1), orphan_after_s=60
++        )
++        assert doc in swept and svc.scheduler.documents[-1] == (tenant_a, doc)
++        assert await svc.process(tenant_a, doc) == "indexing"  # the import, then the queue
++        assert (await _counts(tenant_a, account))["people"] > 0
++        assert await svc.process(tenant_a, doc) == "indexed"
++
++
++async def test_ask_says_when_a_bound_file_is_still_being_indexed(
++    tenant_a: UUID, tmp_path: Path
++) -> None:
++    from account_intelligence.api.routes.ask import INDEXING_NOTICE, _indexing_notices
++
++    svc = service(tmp_path)  # one call indexes
++    account = _account(tenant_a, "northwind.example")
++    other = _account(tenant_a, f"quiet-{uuid4().hex[:6]}.example")
++    with acting_as(USER):
++        done = await upload(svc, tenant_a, "notes.docx", fixtures.notes_docx(), account)
++        doc = UUID(done["document_id"])
++        # uploaded and not yet read: bound to the account, not searchable
++        assert await _indexing_notices(tenant_a, account) == [INDEXING_NOTICE]
++        assert await _indexing_notices(tenant_a, None) == [INDEXING_NOTICE]
++        assert await _indexing_notices(tenant_a, other) == []
++        assert await svc.process(tenant_a, doc) == "indexed"
++        assert await _indexing_notices(tenant_a, account) == []
++        assert await _indexing_notices(tenant_a, None) == []
+diff --git a/tests/documents/test_workspace_roles.py b/tests/documents/test_workspace_roles.py
+index 62f5e0a..4b200bb 100644
+--- a/tests/documents/test_workspace_roles.py
++++ b/tests/documents/test_workspace_roles.py
+@@ -7,6 +7,7 @@ from __future__ import annotations
+ from documents.workspace import (
+     DELIVERABLE_ROLES,
+     MemberRole,
++    marker_missing,
+     may_import,
+     member_roles,
+     skip_check,
+@@ -86,3 +87,48 @@ def test_a_zip_without_a_root_marker_has_no_roles_and_imports_everything() -> No
+     inner = member_roles(["ws/RESTORE.md", "ws/internal/notes.docx", "ws/Acme_Internal_Only.docx"])
+     assert inner["ws/internal/notes.docx"] is MemberRole.OWNER_ONLY
+     assert inner["ws/Acme_Internal_Only.docx"] is MemberRole.OWNER_ONLY
++
++
++FALLBACK_ROOT = [
++    "deliverables/BD_People_List.xlsx",
++    "deliverables/BD_Job_Postings.xlsx",
++    "notes/pull_log.md",
++    "build/build_jobs.py",
++    "data/jobs_12mo.json",
++]
++
++
++def test_a_zip_with_deliverables_and_no_marker_is_a_workspace() -> None:
++    """The marker fallback (PR5): the parent of a deliverables/ folder holding a deliverable file
++    is the root, whether that is the zip's root or one folder down; roles are unchanged."""
++    assert workspace_root(FALLBACK_ROOT) == ""
++    assert marker_missing(FALLBACK_ROOT)
++    roles = member_roles(FALLBACK_ROOT)
++    assert roles["deliverables/BD_People_List.xlsx"] is MemberRole.DELIVERABLE_PEOPLE
++    assert roles["deliverables/BD_Job_Postings.xlsx"] is MemberRole.DELIVERABLE_JOBS
++    assert roles["notes/pull_log.md"] is MemberRole.NOTE
++    assert roles["build/build_jobs.py"] is MemberRole.BUILD
++    assert roles["data/jobs_12mo.json"] is MemberRole.RAW_PULL
++    assert may_import(roles, "deliverables/BD_People_List.xlsx")
++    assert not may_import(roles, "data/jobs_12mo.json")
++
++    nested = ["acme/" + n for n in FALLBACK_ROOT] + ["acme/README.txt"]
++    assert workspace_root(nested) == "acme/"
++    assert marker_missing(nested)
++    assert member_roles(nested)["acme/deliverables/BD_People_List.xlsx"] is (
++        MemberRole.DELIVERABLE_PEOPLE
++    )
++    assert member_roles(nested)["acme/README.txt"] is MemberRole.OTHER
++
++
++def test_the_fallback_needs_a_deliverable_file_and_never_beats_a_marker() -> None:
++    # a loose bundle with a deliverables/ folder that holds no deliverable file stays loose
++    loose = ["deliverables/readme.txt", "deliverables/notes.docx", "other/data.csv"]
++    assert workspace_root(loose) is None and not marker_missing(loose)
++    assert member_roles(loose) == {}
++    assert workspace_root(["a.csv", "b.xlsx", "c_people_list.xlsx"]) is None
++    # a marker decides: no fallback, nothing logged
++    with_marker = ["ws/RESTORE.md", *["other/" + n for n in FALLBACK_ROOT]]
++    assert workspace_root(with_marker) == "ws/"
++    assert not marker_missing(with_marker)
++    assert marker_missing(PACKAGE) is False
+diff --git a/tests/documents/world.py b/tests/documents/world.py
+index 02c184f..3a83c6b 100644
+--- a/tests/documents/world.py
++++ b/tests/documents/world.py
+@@ -39,8 +39,16 @@ class Clock:
+         return datetime.now(UTC)
+ 
+ 
+-def service(root: Path, scanner: ScanPort | None = None) -> DocumentService:
++def service(
++    root: Path, scanner: ScanPort | None = None, *, match_account: bool = False
++) -> DocumentService:
++    """The document service. ``match_account`` keeps the PR5 rule that an upload sent to an account
++    must name that account's company; the other tests trust the account they upload to."""
+     cfg = load_config()
++    if not match_account:
++        cfg = cfg.model_copy(
++            update={"company": cfg.company.model_copy(update={"hold_unmatched_for_account": False})}
++        )
+     return DocumentService(
+         tenant_txn,
+         LocalBlobStore(root),
+@@ -51,6 +59,8 @@ def service(root: Path, scanner: ScanPort | None = None) -> DocumentService:
+         cfg,
+         # the research payload store (posting texts and archive copies of an imported workspace)
+         payloads=MemoryPayloadStore(),
++        # one `process` call runs the import and the embedding both; the PR5 tests set it True
++        index_in_own_task=False,
+     )
+ 
+ 
+diff --git a/web/components/accounts/NewResearch.tsx b/web/components/accounts/NewResearch.tsx
+index 84ed0d5..29e3998 100644
+--- a/web/components/accounts/NewResearch.tsx
++++ b/web/components/accounts/NewResearch.tsx
+@@ -11,7 +11,7 @@
+ import { useRouter } from "next/navigation";
+ import { useCallback, useEffect, useRef, useState } from "react";
+ import { api, ApiError, newIdempotencyKey } from "@/lib/api";
+-import { DOMAIN_RE, allIndexed, cleanDomain, detectedCompany, needingCompany, type CompanyCandidate } from "@/lib/documents";
++import { DOMAIN_RE, allIndexed, cleanDomain, detectedCompany, isSettled, needingCompany, type CompanyCandidate } from "@/lib/documents";
+ import type { CompanyConfirmed, DocumentStatus, ResearchEstimate, RunCreated, RunStatusView } from "@/lib/gen/api.gen";
+ import { LimitNote, LimitReached, limitReached, useMyLimits } from "@/components/Limits";
+ import { UsageProceed } from "@/components/UsageProceed";
+@@ -111,7 +111,7 @@ export function useAttachLate(waiting: DocumentStatus[], company: Company | null
+   const sent = useRef(new Set<string>());
+   useEffect(() => {
+     if (!company || !accountId) return;
+-    const late = waiting.filter((d) => (d.stage === "parsed" || d.stage === "indexed") && !sent.current.has(d.document_id));
++    const late = waiting.filter((d) => isSettled(d.stage) && !sent.current.has(d.document_id));
+     if (!late.length) return;
+     late.forEach((d) => sent.current.add(d.document_id));
+     api<CompanyConfirmed>("POST", "/v1/documents/confirm-company", { document_ids: late.map((d) => d.document_id), company_name: company.name, domain: company.domain })
+@@ -159,7 +159,7 @@ function FileTab({ initialDrive, estimate }: { initialDrive: boolean; estimate:
+   const waiting = needingCompany(docs);
+   const ready = allIndexed(docs);
+   const bound = accountId ?? docs.find((d) => d.account_id)?.account_id ?? null;
+-  const settled = waiting.length > 0 && docs.every((d) => d.stage === "parsed" || d.stage === "indexed" || d.stage === "failed");
++  const settled = waiting.length > 0 && docs.every((d) => isSettled(d.stage) || d.stage === "failed");
+   const onAttached = useCallback((id: string, name: string, domain: string) => { setAccountId(id); setAttached(name); setCompany({ name, domain }); setRefresh((n) => n + 1); }, []);
+   const autoFailed = useAutoAttach(waiting, settled, onAttached);
+   const reread = useCallback(() => setRefresh((n) => n + 1), []);
+@@ -216,7 +216,7 @@ function FileTab({ initialDrive, estimate }: { initialDrive: boolean; estimate:
+ 
+   return (
+     <div className="stack-20">
+-      <DocumentDrop onChange={onChange} disabled={busy} initialDrive={initialDrive} refresh={refresh} />
++      <DocumentDrop picker={false} onChange={onChange} disabled={busy} initialDrive={initialDrive} refresh={refresh} />
+       {attached && !changing ? (
+         <div className="card pad-sm row-space wrap" role="status">
+           <span>These files are about <b>{attached}</b>.</span>
+@@ -225,7 +225,7 @@ function FileTab({ initialDrive, estimate }: { initialDrive: boolean; estimate:
+       ) : null}
+       {needsChoice ? (
+         <CompanyChoice
+-          docs={changing ? docs.filter((d) => d.stage === "parsed" || d.stage === "indexed") : waiting}
++          docs={changing ? docs.filter((d) => isSettled(d.stage)) : waiting}
+           onConfirmed={(id, chosen) => { setAccountId(id); setCompany(chosen); setAttached(null); setChanging(false); setRefresh((n) => n + 1); }}
+         />
+       ) : null}
+diff --git a/web/components/accounts/UploadedFilesCard.tsx b/web/components/accounts/UploadedFilesCard.tsx
+index 6b4c293..f6fc32a 100644
+--- a/web/components/accounts/UploadedFilesCard.tsx
++++ b/web/components/accounts/UploadedFilesCard.tsx
+@@ -7,6 +7,7 @@ import type { DocumentStatus } from "@/lib/gen/api.gen";
+ import { STAGE_TEXT, fileSize, filesLine, progressLine, stageOf, stageTone } from "@/lib/documents";
+ import { cellText } from "@/lib/render";
+ import { Status } from "@/ui/primitives";
++import { AccountPicker } from "@/components/ws/AccountPicker";
+ import { DeleteFileButton } from "./DeleteFileButton";
+ import { WhatWasRead } from "./WhatWasRead";
+ import { ZipMembers } from "./ZipMembers";
+@@ -39,6 +40,7 @@ export function UploadedFilesCard({ docs, domain = null }: { docs: DocumentStatu
+                   {d.audience === "owner_only" ? <span className="sub">Owner only: visible to you and admins</span> : null}
+                   {(d.members_read ?? 0) + (d.members_skipped?.length ?? 0) > 0 ? <ZipMembers documentId={d.document_id} name={d.name} page={page} /> : null}
+                   {d.passages ? <WhatWasRead documentId={d.document_id} name={d.name} /> : null}
++                  {stage === "needs_account" ? <AccountPicker doc={d} /> : null}
+                   <DeleteFileButton documentId={d.document_id} name={d.name} />
+                 </div>
+                 <Status tone={stageTone(stage)}>{STAGE_TEXT[stage]}</Status>
+diff --git a/web/components/ask/AnswerView.tsx b/web/components/ask/AnswerView.tsx
+index 0903eca..be790cc 100644
+--- a/web/components/ask/AnswerView.tsx
++++ b/web/components/ask/AnswerView.tsx
+@@ -108,6 +108,9 @@ export function AnswerView({
+           </span>
+         </div>
+       ) : null}
++      {answer.notices?.length ? (
++        <p className="mut small" role="status">{answer.notices.join(" ")}</p>
++      ) : null}
+       {offer && !offerDismissed ? (
+         <div className="card wash offer">
+           <div className="txt">
+diff --git a/web/components/ws/AccountPicker.tsx b/web/components/ws/AccountPicker.tsx
+new file mode 100644
+index 0000000..0b2ebb3
+--- /dev/null
++++ b/web/components/ws/AccountPicker.tsx
+@@ -0,0 +1,60 @@
++"use client";
++// A held upload ("Needs account", ingestion hardening PR5): the server could not match the file's
++// company to an account, so nothing is imported or indexed until the user picks one. Shows the
++// detected company and the user's accounts; "Use this account" confirms it (the same
++// confirm-company call a new research makes), after which the server imports and indexes the file.
++import { useRouter } from "next/navigation";
++import { useEffect, useState } from "react";
++import { api, ApiError } from "@/lib/api";
++import { detectedLine } from "@/lib/documents";
++import type { AccountPage, CompanyConfirmed, DocumentStatus } from "@/lib/gen/api.gen";
++
++type Option = { id?: string | null; domain: string; name: string | null };
++
++export function AccountPicker({ doc, onConfirmed, disabled = false }: { doc: DocumentStatus; onConfirmed?: () => void; disabled?: boolean }) {
++  const router = useRouter();
++  const [options, setOptions] = useState<Option[] | null>(null);
++  const [chosen, setChosen] = useState<string>(doc.account_id ?? "");
++  const [busy, setBusy] = useState(false);
++  const [error, setError] = useState<string | null>(null);
++  const detected = detectedLine(doc);
++
++  useEffect(() => {
++    let live = true;
++    api<AccountPage>("GET", "/v1/accounts?limit=200")
++      .then((page) => { if (live) setOptions(page.accounts); })
++      .catch(() => { if (live) setOptions([]); });
++    return () => { live = false; };
++  }, []);
++
++  const pick = options?.find((o) => o.id === chosen) ?? null;
++  const confirm = async () => {
++    if (!pick) return;
++    setBusy(true);
++    setError(null);
++    try {
++      await api<CompanyConfirmed>("POST", "/v1/documents/confirm-company", { document_ids: [doc.document_id], company_name: pick.name ?? pick.domain, domain: pick.domain });
++      if (onConfirmed) onConfirmed();
++      else router.refresh();
++    } catch (e) {
++      setError(e instanceof ApiError ? e.detail : "The account could not be set. Try again.");
++    } finally {
++      setBusy(false);
++    }
++  };
++
++  return (
++    <div className="stack-8 needs-account" role="group" aria-label={`Pick the account for ${doc.name}`}>
++      <p className="small">{doc.message ?? "Pick the account this file belongs to."}</p>
++      {detected ? <p className="small muted">The file looks like it is about {detected}.</p> : <p className="small muted">No company could be matched from the file.</p>}
++      <div className="row nowrap">
++        <select aria-label={`Account for ${doc.name}`} value={chosen} disabled={disabled || busy || !options} onChange={(e) => setChosen(e.target.value)}>
++          <option value="">Choose an account</option>
++          {(options ?? []).map((o) => <option key={o.id ?? o.domain} value={o.id ?? ""}>{o.name ? `${o.name} (${o.domain})` : o.domain}</option>)}
++        </select>
++        <button type="button" className="btn" disabled={disabled || busy || !pick} onClick={() => void confirm()}>Use this account</button>
++      </div>
++      {error ? <p className="small" role="alert">{error}</p> : null}
++    </div>
++  );
++}
+diff --git a/web/components/ws/DocumentDrop.tsx b/web/components/ws/DocumentDrop.tsx
+index b1f1605..4ceb9a2 100644
+--- a/web/components/ws/DocumentDrop.tsx
++++ b/web/components/ws/DocumentDrop.tsx
+@@ -15,13 +15,17 @@ import { Status } from "@/ui/primitives";
+ import { cellText } from "@/lib/render";
+ import type { DocumentStatus, DriveFile } from "@/lib/gen/api.gen";
+ import { DRIVE_LABEL, DriveChooser, type DriveSource } from "./DriveChooser";
++import { AccountPicker } from "./AccountPicker";
+ 
+ export interface DropItem { key: string; name: string; size: number; stage: Stage; message: string | null; doc: DocumentStatus | null; sent: number; driveId?: string; driveSource?: DriveSource }
+ 
+ const POLL_MS = 2000;
+ 
+-export function DocumentDrop({ accountId = null, onChange, disabled = false, initialDrive = false, refresh = 0 }: {
++export function DocumentDrop({ accountId = null, onChange, disabled = false, initialDrive = false, refresh = 0, picker = true }: {
+   accountId?: string | null;
++  // show the account picker under a file the server holds as "Needs account" (a new research
++  // confirms the company in its own panel instead)
++  picker?: boolean;
+   onChange: (docs: DocumentStatus[]) => void;
+   disabled?: boolean;
+   initialDrive?: boolean;
+@@ -151,6 +155,14 @@ export function DocumentDrop({ accountId = null, onChange, disabled = false, ini
+     }
+   };
+ 
++  const reload = async (it: DropItem) => {
++    if (!it.doc) return;
++    try {
++      const doc = await api<DocumentStatus>("GET", `/v1/documents/${it.doc.document_id}/status`);
++      update(it.key, { doc, stage: stageOf(doc), message: doc.message ?? null });
++    } catch { /* the next refresh tries again */ }
++  };
++
+   const drop = (saved: Saved) => {
+     forgetPaused(saved);
+     setPaused((prev) => prev.filter((p) => p.documentId !== saved.documentId));
+@@ -249,6 +261,9 @@ export function DocumentDrop({ accountId = null, onChange, disabled = false, ini
+                 ) : it.doc && it.doc.parts_total > 1 && it.stage === "parsing" ? (
+                   <progress className="upload-bar" max={it.doc.parts_total} value={it.doc.parts_done} aria-label={`Reading ${it.name}`} />
+                 ) : null}
++                {picker && it.doc && it.stage === "needs_account" ? (
++                  <AccountPicker doc={it.doc} disabled={disabled} onConfirmed={() => void reload(it)} />
++                ) : null}
+                 {it.doc?.parts_failed.length ? (
+                   <ul className="part-fails" aria-label={`Parts of ${it.name} that could not be read`}>
+                     {it.doc.parts_failed.map((f) => (
+diff --git a/web/lib/documents.ts b/web/lib/documents.ts
+index 3e19afd..a39b995 100644
+--- a/web/lib/documents.ts
++++ b/web/lib/documents.ts
+@@ -11,7 +11,7 @@ export const AUDIO = [".mp3", ".wav", ".m4a"];
+ // no size or count limit here: the server checks each file against the admin's per-file limit
+ // (owner decision 2026-10-14: files of any size, 20 GB by default)
+ 
+-export type Stage = "waiting" | "uploading" | "scanning" | "parsing" | "parsed" | "indexing" | "indexed" | "failed";
++export type Stage = "waiting" | "uploading" | "scanning" | "parsing" | "parsed" | "needs_account" | "indexing" | "indexed" | "failed";
+ 
+ export const STAGE_TEXT: Record<Stage, string> = {
+   waiting: "Waiting",
+@@ -19,6 +19,7 @@ export const STAGE_TEXT: Record<Stage, string> = {
+   scanning: "Scanning",
+   parsing: "Reading",
+   parsed: "Read, waiting for the company",
++  needs_account: "Needs account",
+   indexing: "Indexing",
+   indexed: "Ready",
+   failed: "Failed",
+@@ -27,7 +28,7 @@ export const STAGE_TEXT: Record<Stage, string> = {
+ export function stageTone(stage: Stage): StatusTone {
+   if (stage === "indexed") return "ok";
+   if (stage === "failed") return "bad";
+-  if (stage === "parsed") return "warn";
++  if (stage === "parsed" || stage === "needs_account") return "warn";
+   return "neutral";
+ }
+ 
+@@ -178,3 +179,22 @@ export function memberLine(m: DocumentMember): string {
+   const status = MEMBER_STATUS_TEXT[m.status] ?? m.status;
+   return what ? `${status}: ${what}` : status;
+ }
++
++/** The server holds an upload until its account is picked: nothing is imported or indexed yet. */
++export function isHeld(doc: Pick<DocumentStatus, "stage">): boolean {
++  return doc.stage === "needs_account";
++}
++
++/** A file read and waiting (for its company or its account) or done: the choice screen may judge it. */
++export function isSettled(stage: string): boolean {
++  return stage === "parsed" || stage === "needs_account" || stage === "indexed";
++}
++
++/** The company a held upload was detected as, in words ("Acme Corp (acme.com)"), else null. */
++export function detectedLine(doc: Pick<DocumentStatus, "company">): string | null {
++  const found = (doc.company ?? null) as Detection | null;
++  const c = found?.status === "resolved" ? found.company : null;
++  if (!c) return null;
++  const name = c.name ?? c.domain;
++  return c.domain && c.name ? `${name} (${c.domain})` : (name ?? null);
++}
+diff --git a/web/tests/unit/needs-account.test.tsx b/web/tests/unit/needs-account.test.tsx
+new file mode 100644
+index 0000000..7d8d2b0
+--- /dev/null
++++ b/web/tests/unit/needs-account.test.tsx
+@@ -0,0 +1,91 @@
++// @vitest-environment jsdom
++// An upload the server holds as "Needs account" (ingestion hardening PR5): the file card says so,
++// names the company the file looks like it is about, and lets the user pick an account, which
++// calls confirm-company. The Ask answer shows the "still being indexed" notice as a muted line.
++import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
++import { afterEach, beforeEach, expect, test, vi } from "vitest";
++import { AccountPicker } from "@/components/ws/AccountPicker";
++import { UploadedFilesCard } from "@/components/accounts/UploadedFilesCard";
++import { AnswerView } from "@/components/ask/AnswerView";
++import { STAGE_TEXT, detectedLine, isSettled, stageOf, stageTone } from "@/lib/documents";
++import type { ChatAnswer, DocumentStatus } from "@/lib/gen/api.gen";
++
++const refresh = vi.fn();
++vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
++const apiMock = vi.fn();
++vi.mock("@/lib/api", async (original) => ({ ...(await original<typeof import("@/lib/api")>()), api: (...args: unknown[]) => apiMock(...args) }));
++
++beforeEach(() => { apiMock.mockReset(); refresh.mockReset(); });
++afterEach(cleanup);
++
++const held = (over: Partial<DocumentStatus> = {}): DocumentStatus => ({
++  document_id: "d1", account_id: null, name: "Notes.docx", status: "needs_account", stage: "needs_account", declared_type: "docx",
++  detected_type: "docx", size_bytes: 1024, reason: null, message: "Pick the account this file belongs to.", passages: 12, redactions: 0, redaction_tier: "standard",
++  authoritative: false, needs_company: true, created_at: "2026-11-04T00:00:00Z", parts_total: 1, parts_done: 1, parts_failed: [], indexed_passages: 0, members_read: 0, members_skipped: [], audience: "client",
++  company: { status: "resolved", company: { name: "Northwind Traders Inc", domain: "northwind.example", score: 2.5 }, candidates: [] },
++  ...over,
++} as DocumentStatus);
++
++const accounts = { accounts: [
++  { id: "a1", domain: "northwind.example", name: "Northwind", latest_run: null },
++  { id: "a2", domain: "acme.example", name: null, latest_run: null },
++], next_after: null };
++
++test("the stage reads Needs account, warns, and is not polled as working", () => {
++  expect(STAGE_TEXT.needs_account).toBe("Needs account");
++  expect(stageTone("needs_account")).toBe("warn");
++  expect(stageOf(held())).toBe("needs_account");
++  expect(isSettled("needs_account")).toBe(true);
++  expect(detectedLine(held())).toBe("Northwind Traders Inc (northwind.example)");
++  expect(detectedLine(held({ company: { status: "ambiguous", company: null, candidates: [] } }))).toBeNull();
++});
++
++test("the picker names the detected company and confirms the chosen account", async () => {
++  apiMock.mockImplementation(async (method: string, path: string) => {
++    if (method === "GET" && path.startsWith("/v1/accounts")) return accounts;
++    return { account_id: "a1", domain: "northwind.example", document_ids: ["d1"] };
++  });
++  const done = vi.fn();
++  render(<AccountPicker doc={held()} onConfirmed={done} />);
++  expect(screen.getByText("Pick the account this file belongs to.")).toBeTruthy();
++  expect(screen.getByText(/looks like it is about Northwind Traders Inc \(northwind.example\)/)).toBeTruthy();
++  const button = screen.getByRole("button", { name: "Use this account" }) as HTMLButtonElement;
++  expect(button.disabled).toBe(true); // nothing chosen yet
++  await screen.findByRole("option", { name: "Northwind (northwind.example)" });
++  fireEvent.change(screen.getByLabelText("Account for Notes.docx"), { target: { value: "a1" } });
++  fireEvent.click(button);
++  await waitFor(() => expect(done).toHaveBeenCalled());
++  expect(apiMock).toHaveBeenCalledWith("POST", "/v1/documents/confirm-company", { document_ids: ["d1"], company_name: "Northwind", domain: "northwind.example" });
++});
++
++test("an account without a name is confirmed by its domain, and a refusal is shown", async () => {
++  apiMock.mockImplementation(async (method: string) => {
++    if (method === "GET") return accounts;
++    throw new Error("nope");
++  });
++  render(<AccountPicker doc={held({ company: null })} />);
++  expect(screen.getByText("No company could be matched from the file.")).toBeTruthy();
++  await screen.findByRole("option", { name: "acme.example" });
++  fireEvent.change(screen.getByLabelText("Account for Notes.docx"), { target: { value: "a2" } });
++  fireEvent.click(screen.getByRole("button", { name: "Use this account" }));
++  await screen.findByRole("alert");
++  expect(apiMock).toHaveBeenLastCalledWith("POST", "/v1/documents/confirm-company", { document_ids: ["d1"], company_name: "acme.example", domain: "acme.example" });
++});
++
++test("the account page lists a held upload with its picker, preselected to the bound account", async () => {
++  apiMock.mockResolvedValue(accounts);
++  render(<UploadedFilesCard docs={[held({ account_id: "a1" })]} domain="northwind.example" />);
++  expect(screen.getByText("Needs account")).toBeTruthy();
++  await screen.findByRole("option", { name: "Northwind (northwind.example)" });
++  expect((screen.getByLabelText("Account for Notes.docx") as HTMLSelectElement).value).toBe("a1");
++});
++
++test("the Ask answer shows the indexing notice as a muted line", () => {
++  const answer = {
++    account_domain: null, account_name: null, answered: true, followups: [], items: null, offer: null,
++    paragraphs: [[{ t: "text", v: "Plain text" }]], sources: [], notices: ["Some files are still being indexed; search may miss them."],
++    used: { mail_drive: "not_connected", web: "not_used", workspace: "used" },
++  } as unknown as ChatAnswer;
++  render(<AnswerView answer={answer} openSource={null} onOpenSource={() => undefined} offerDismissed={false} onDismissOffer={() => undefined} onFollowUp={() => undefined} onPickAccount={() => undefined} busy={false} />);
++  expect(screen.getByRole("status").textContent).toBe("Some files are still being indexed; search may miss them.");
++});

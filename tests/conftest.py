@@ -189,6 +189,25 @@ def _test_scope() -> None:
 
 
 @pytest.fixture(autouse=True)
+def _fake_clamd_when_unconfigured(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Hermetic containers have no clamd: give them the content-only double (EICAR infected, rest
+    clean) behind the real structure guard, where production would be ``unavailable``. A test
+    that sets CLAMD_HOST gets the real ClamdScanner; ``scanner_for`` itself is exercised by
+    tests/documents/test_units."""
+    import documents.scan as scan
+    from tests.fakes.scanner import FakeClamd
+
+    real = scan.scanner_for
+
+    def scanner_for(app_env: str, kind: str, host: str | None, port: int):
+        if kind == "clamd" and not host:
+            return scan.StructureGuard(FakeClamd())  # the production composition
+        return real(app_env, kind, host, port)
+
+    monkeypatch.setattr(scan, "scanner_for", scanner_for)
+
+
+@pytest.fixture(autouse=True)
 def _system_scope_by_default() -> Iterator[None]:
     """Direct service calls in tests act as system jobs (private workspaces, migration 0063):
     they see every row of their tenant, and rows they insert are owned by ``test-owner`` (the

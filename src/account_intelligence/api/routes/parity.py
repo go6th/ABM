@@ -4,8 +4,9 @@ One built version serves the screens, the stored data and the downloads alike: `
 the document, ``manifest`` the stored files with their digests and the recalculated Summary
 values, ``screen`` everything the account workspace draws in one read, ``tables/{table}`` a page
 of one table's rows in the file's own order and text (``parity.tables``), ``files/{name}`` the
-stored bytes of one file as an attachment, ``versions`` the history, and ``edits`` an analyst
-correction that writes the next version and renders again (``parity.service``).
+stored bytes of one file as an attachment and ``versions`` the history. The ``edits`` route (an
+analyst correction rendered as the next version) had no web caller and was parked (ADR-0136);
+``parity.service.ParityService.edit`` stays.
 
 The internal-only material (``prose.internal_only``, ``meta.pursuing_client_internal`` and the
 ``*_Internal_Only.docx`` file) is served to an admin of the tenant only, never to any other
@@ -37,8 +38,6 @@ from parity.gate.files import refused_name
 from parity.service import (
     BundleVersion,
     ParityService,
-    ParityStale,
-    ParityUnavailable,
     ParityVersions,
 )
 from tenancy.storage import PathRefused, require_owned
@@ -51,7 +50,6 @@ register("GET", f"{_BASE}/manifest", tenant_route("read_public", "read", step_up
 register("GET", f"{_BASE}/screen", tenant_route("read_public", "read", step_up=False))
 register("GET", f"{_BASE}/tables/{{table}}", tenant_route("read_public", "read", step_up=False))
 register("GET", f"{_BASE}/files/{{name}}", tenant_route("export_files", "export", step_up=False))
-register("POST", f"{_BASE}/edits", tenant_route("edit_shared_views", "run", step_up=False))
 
 _FILE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._&'-]{0,180}\.(docx|xlsx|zip|json)$")
 _TABLE_ID = re.compile(r"^[a-z0-9_]{1,40}(:[A-Za-z0-9 ().&'-]{1,60})?$")
@@ -352,51 +350,3 @@ async def parity_file(
             "Cache-Control": "no-store",
         },
     )
-
-
-@router.post("/{domain}/parity/edits", response_model=C.ParityVersionInfo, status_code=201)
-async def parity_edit(
-    domain: str, edit: C.ParityEdit, request: Request, ident: Identity = Depends(authorize)
-) -> Any:
-    """Apply analyst corrections (priority, lane, note by person) to a built version: the
-    corrections are recorded as overrides, every number is recomputed and the files are
-    rendered again as the account's next version (built or failed)."""
-    found = await _found(request, ident, domain, edit.version)
-    service = _service(request)
-    async with tenant_txn(ident.tenant_id) as s:
-        account_id = await account_id_of(s, domain)
-        await audit_action(
-            s,
-            request,
-            audit_class="run",
-            action="parity_edit",
-            resource_type="account",
-            resource_id=account_id,
-        )
-    try:
-        created = await service.edit(
-            ident.tenant_id, found, [o.model_dump(exclude_none=True) for o in edit.overrides]
-        )
-    except KeyError as unknown:
-        raise APIProblem(
-            422,
-            "unknown_person",
-            "No such person on the list",
-            "Name a person as the People sheet prints them.",
-            extra={"name": str(unknown)[:200]},
-        ) from None
-    except ParityStale:
-        raise APIProblem(
-            409,
-            "package_stale",
-            "The workspace's exclusions changed",
-            "The exclusion list changed after this version was built; refresh the research.",
-        ) from None
-    except ParityUnavailable as missing:
-        raise APIProblem(
-            503,
-            "parity_unavailable",
-            "The file renderer is not available",
-            f"This server cannot render the files ({missing}).",
-        ) from None
-    return _info(created)

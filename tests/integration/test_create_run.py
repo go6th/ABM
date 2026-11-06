@@ -74,7 +74,7 @@ def _set_balance(tenant: UUID, amount: float) -> None:
 
 async def _create(tenant: UUID, domain: str, key: str):
     return await runs.create_run(
-        runs.RunBody(domain=domain),
+        runs.RunBody(domain=domain, confirm=True, confirm_again=True),
         REQUEST,
         key,
         Identity("u1", tenant, "admin"),  # type: ignore[arg-type]

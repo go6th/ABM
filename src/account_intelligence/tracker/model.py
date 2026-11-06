@@ -84,6 +84,14 @@ class ReasonCode(StrEnum):
     # Added 2026-10-21: an internal-history row on a run without the client's mail, notes and
     # files switched on (the skill never substitutes web searches for it)
     NO_INTERNAL_ACCESS = "no_internal_access"
+    # Added 2026-11-05: the jobs row's own partial reasons. ``cap_reached`` was shown for all
+    # three although no cap was involved (staging run 8ed9911a, caps off)
+    POSTINGS_NOT_READ = "postings_not_read"
+    FEED_INCOMPLETE = "feed_incomplete"
+    COUNTS_INCONSISTENT = "counts_inconsistent"
+    # the live board search needs the account's verified careers site; none was found (it was
+    # reported as ``not_available_yet``, which also names rows the run never reached)
+    CAREERS_SITE_NOT_FOUND = "careers_site_not_found"
 
 
 SWEEP_REASONS = frozenset(

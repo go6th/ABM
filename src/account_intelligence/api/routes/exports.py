@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any, Literal
 from uuid import UUID
 
@@ -127,7 +128,10 @@ async def create_export(
         pkg = packages.blocked(body.kind, "tables_withheld")
     elif body.kind == "csv":
         assert body.table is not None
-        pkg, csv_body = packages.csv_package(ident.tenant_id, run_id, body.table, api[body.table])
+        # building and checking a package is CPU and zip work: off the event loop (ADR-0130)
+        pkg, csv_body = await asyncio.to_thread(
+            packages.csv_package, ident.tenant_id, run_id, body.table, api[body.table]
+        )
     else:
         produced, verbatim_quotes, build_manifest = await _deliverables(
             request, ident.tenant_id, run_id
@@ -136,13 +140,21 @@ async def create_export(
             pkg = packages.blocked(body.kind, "build_failed")
         elif body.kind == "files":
             left_out = [i.split(":", 1)[0] for i in (build_manifest.files_withheld or ())]
-            pkg = packages.files_package(produced, api, left_out)
+            pkg = await asyncio.to_thread(packages.files_package, produced, api, left_out)
         else:
             builder = request.app.state.container.builder
             converter = getattr(builder, "pdf", None)
             summary = next((b for k, _, _, b in produced if k == "summary"), None)
-            pdf = converter.pdf_bytes(summary) if converter and summary else None
-            text_ = converter.text_of_pdf(pdf) if converter and pdf else None
+            # LibreOffice and pdftotext are subprocesses waited on for up to minutes: in a thread,
+            # never on the event loop (event-loop audit item 1, ADR-0130)
+            pdf = (
+                await asyncio.to_thread(converter.pdf_bytes, summary)
+                if converter and summary
+                else None
+            )
+            text_ = (
+                await asyncio.to_thread(converter.text_of_pdf, pdf) if converter and pdf else None
+            )
             if pdf is not None and text_ is not None:
                 # the sources the build cited (its manifest), so the summary's citations are
                 # checked against them, not reported as orphans
@@ -155,7 +167,8 @@ async def create_export(
                         if ref and ref not in account_ids:
                             account_ids.append(ref)
                 # the checks read the PDF's extracted text (pdftotext), never its raw bytes
-                result = doc_checks(
+                result = await asyncio.to_thread(
+                    doc_checks,
                     text_.encode("utf-8"),
                     "summary_pdf",
                     account_ids,
@@ -174,7 +187,9 @@ async def create_export(
                     )
                     pkg = packages.blocked("pdf", "doc_checks_failed")
                 else:
-                    pkg = packages.pdf_package(ident.tenant_id, run_id, pdf, text_, api)
+                    pkg = await asyncio.to_thread(
+                        packages.pdf_package, ident.tenant_id, run_id, pdf, text_, api
+                    )
                     if pkg.status == "delivered":
                         await plane.objects.put_if_absent(pkg.files[0].key, pdf, "application/pdf")
             else:

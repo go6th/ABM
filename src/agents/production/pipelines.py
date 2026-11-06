@@ -34,7 +34,9 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 from collections import Counter
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import Any
@@ -160,10 +162,15 @@ class RunPipelines:
         previous = await repo.load_previous(wanted) if wanted else None
         pipeline = JobsPipeline(
             jobs_cfg,
-            ConnectorPostingSource(deps, host, ctx.blocked_hosts),
+            ConnectorPostingSource(
+                deps,
+                host,
+                ctx.blocked_hosts,
+                careers_page_unverified=bool(careers_url and not host),
+            ),
             ConnectorPageReader(deps),
             LlmPostingClassifier(deps, "classify_posting", "posting_classifier.v1"),
-            LlmPostingClassifier(deps, "second_pass_posting", "posting_second_pass.v1"),
+            LlmPostingClassifier(deps, "second_pass_posting", "posting_second_pass.v2"),
             canary=deps.canary,
             hostile_markers=tuple(gcfg.spans.instruction_markers),
             is_hostile=hostile,
@@ -678,3 +685,315 @@ class RunPipelines:
                 )
                 written += 1
         return written, skipped
+
+
+# ---------------------------------------------------------------------------------------------
+# Workspace import (phase 2, 2026-11-03): the Tech Stack and Teams workbook of an uploaded
+# workspace stored under the file-import run, the same tables the research writes.
+
+
+@dataclass(frozen=True)
+class ImportedStackItem:
+    """One Confirmed stack row: business function, category, technology, postings naming it."""
+
+    business_function: str
+    category: str
+    technology: str
+    postings: int = 0
+
+
+@dataclass(frozen=True)
+class ImportedDetection:
+    """One Platform Ranking row: the platform, its postings count and dates, and what the
+    workbook checked (whether the separate stack pull showed it, whether matches were read)."""
+
+    technology: str
+    source_count: int = 0
+    last_seen_at: str | None = None
+    first_seen_at: str | None = None
+    open_now: int | None = None
+    in_confirmed_stack: bool | None = None
+    checked_by_reading: bool | None = None
+    # what the detections feed carries (a raw pull): confidence, where it was seen
+    score: float | None = None
+    seen_on_postings: int | None = None
+    seen_on_pages: int | None = None
+    behind_firewall: bool | None = None
+    locations: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class ImportedNewsEvent:
+    """One news feed event of a raw pull."""
+
+    headline: str
+    event_id: str | None = None
+    category: str | None = None
+    summary: str | None = None
+    article_sentence: str | None = None
+    found_at: date | None = None
+    effective_date: date | None = None
+    confidence: float | None = None
+    source_url: str | None = None
+    location: str | None = None
+    related: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class ImportedConnection:
+    """One partner, vendor or integration connection of a raw pull."""
+
+    company_domain: str
+    company_name: str | None = None
+    category: str | None = None
+    source_category: str | None = None
+    first_seen_at: date | None = None
+    last_seen_at: date | None = None
+    source_url: str | None = None
+
+
+@dataclass(frozen=True)
+class ImportedTeam:
+    """One Platform teams row."""
+
+    team: str
+    function: str | None = None
+    postings_count: int = 0
+    first_activity: date | None = None
+    last_activity: date | None = None
+    lane_technologies: tuple[str, ...] = ()
+    technologies: tuple[tuple[str, int | None], ...] = ()
+    locations: tuple[tuple[str, int | None], ...] = ()
+    merged_count: int = 0
+
+
+async def import_stack_items(
+    s: Any,
+    tenant_id: UUID,
+    account_id: UUID,
+    run_id: UUID,
+    items: Sequence[ImportedStackItem],
+    source_ref: str,
+) -> int:
+    """Store an uploaded Confirmed stack sheet as ``tech_stack_items`` of the file-import run,
+    one row per (function, category, technology) in sheet order; a row the run already holds
+    is left as is. Returns the rows written."""
+    written = 0
+    for position, item in enumerate(items):
+        key = (
+            item.business_function.strip()[:200],
+            item.category.strip()[:200],
+            item.technology.strip()[:200],
+        )
+        if not key[2]:
+            continue
+        res = await s.execute(
+            text(
+                "INSERT INTO tech_stack_items (tenant_id, owner_user_id, account_id,"
+                " run_id, business_function, category, technology, postings, position,"
+                " source_ref) VALUES (:t, coalesce((SELECT a.owner_user_id FROM accounts a"
+                " WHERE a.tenant_id = :t AND a.id = :a), app_user()), :a, :r, :f, :c, :n,"
+                " :p, :o, :s)"
+                " ON CONFLICT (tenant_id, run_id, business_function, category, technology)"
+                " DO NOTHING"
+            ),
+            {
+                "t": tenant_id,
+                "a": account_id,
+                "r": run_id,
+                "f": key[0],
+                "c": key[1],
+                "n": key[2],
+                "p": max(0, int(item.postings)),
+                "o": position,
+                "s": source_ref,
+            },
+        )
+        written += int(bool(res.rowcount))
+    return written
+
+
+async def import_detections(
+    s: Any,
+    tenant_id: UUID,
+    account_id: UUID,
+    run_id: UUID,
+    items: Sequence[ImportedDetection],
+    source_ref: str,
+) -> int:
+    """Store an uploaded Platform Ranking sheet as ``tech_detections`` of the file-import run
+    (one row per platform with the ranking's own columns); a platform the run already holds is
+    left as is. Returns the rows written."""
+    written = 0
+    for item in items:
+        name = item.technology.strip()[:200]
+        if not name:
+            continue
+        res = await s.execute(
+            text(
+                "INSERT INTO tech_detections (tenant_id, account_id, run_id, technology,"
+                " first_seen_at, last_seen_at, source_count, source_ref, open_now,"
+                " in_confirmed_stack, checked_by_reading, score, seen_on_postings,"
+                " seen_on_pages, behind_firewall, locations)"
+                " VALUES (:t, :a, :r, :n, :f, :l, :c, :s, :open, :stack, :checked, :score,"
+                " :on_postings, :on_pages, :firewall, CAST(:locations AS jsonb))"
+                " ON CONFLICT (tenant_id, run_id, technology) DO NOTHING"
+            ),
+            {
+                "t": tenant_id,
+                "a": account_id,
+                "r": run_id,
+                "n": name,
+                "f": item.first_seen_at,
+                "l": item.last_seen_at,
+                "c": max(0, int(item.source_count)),
+                "s": source_ref,
+                "open": item.open_now,
+                "stack": item.in_confirmed_stack,
+                "checked": item.checked_by_reading,
+                "score": item.score,
+                "on_postings": item.seen_on_postings,
+                "on_pages": item.seen_on_pages,
+                "firewall": item.behind_firewall,
+                "locations": json.dumps(list(item.locations)) if item.locations else None,
+            },
+        )
+        written += int(bool(res.rowcount))
+    return written
+
+
+async def import_platform_teams(
+    s: Any,
+    tenant_id: UUID,
+    account_id: UUID,
+    run_id: UUID,
+    items: Sequence[ImportedTeam],
+    source_ref: str,
+) -> int:
+    """Store an uploaded Platform teams sheet as ``platform_teams`` of the file-import run
+    (0103); a team the run already holds (same name, any case) is left as is. Returns the rows
+    written."""
+    written = 0
+    for item in items:
+        name = item.team.strip()[:300]
+        if not name:
+            continue
+        res = await s.execute(
+            text(
+                "INSERT INTO platform_teams (tenant_id, owner_user_id, account_id, run_id, team,"
+                " function, postings_count, first_activity, last_activity, lane_technologies,"
+                " technologies, locations, source_ref, merged_count)"
+                " VALUES (:t, coalesce((SELECT a.owner_user_id FROM accounts a"
+                " WHERE a.tenant_id = :t AND a.id = :a), app_user()), :a, :r, :team, :fn, :n,"
+                " :first, :last, :lanes, CAST(:techs AS jsonb), CAST(:locs AS jsonb), :s, :m)"
+                " ON CONFLICT (tenant_id, run_id, lower(team)) DO NOTHING"
+            ),
+            {
+                "t": tenant_id,
+                "a": account_id,
+                "r": run_id,
+                "team": name,
+                "fn": (item.function or None),
+                "n": max(0, int(item.postings_count)),
+                "first": item.first_activity,
+                "last": item.last_activity,
+                "lanes": list(item.lane_technologies),
+                "techs": json.dumps([{"name": t, "postings": c} for t, c in item.technologies]),
+                "locs": json.dumps([{"place": t, "postings": c} for t, c in item.locations]),
+                "s": source_ref,
+                "m": item.merged_count,
+            },
+        )
+        written += int(bool(res.rowcount))
+    return written
+
+
+async def import_news_events(
+    s: Any,
+    tenant_id: UUID,
+    account_id: UUID,
+    run_id: UUID,
+    items: Sequence[ImportedNewsEvent],
+    source_ref: str,
+) -> int:
+    """Store the news feed events of an uploaded raw pull as ``news_events`` of the file-import
+    run (0105), one per feed id (else headline and date); an event the run already holds is
+    left as is. Returns the rows written."""
+    written = 0
+    for item in items:
+        headline = " ".join(item.headline.split())[:1000]
+        if not headline:
+            continue
+        key = item.event_id or f"{headline.casefold()}|{item.effective_date or ''}"
+        res = await s.execute(
+            text(
+                "INSERT INTO news_events (tenant_id, owner_user_id, account_id, run_id, event_id,"
+                " event_key, category, headline, summary, article_sentence, found_at,"
+                " effective_date, confidence, source_url, location, related, source_ref)"
+                " VALUES (:t, coalesce((SELECT a.owner_user_id FROM accounts a WHERE a.tenant_id"
+                " = :t AND a.id = :a), app_user()), :a, :r, :id, :key, :cat, :headline, :summary,"
+                " :sentence, :found, :effective, :conf, :url, :loc, CAST(:related AS jsonb), :s)"
+                " ON CONFLICT (tenant_id, run_id, event_key) DO NOTHING"
+            ),
+            {
+                "t": tenant_id,
+                "a": account_id,
+                "r": run_id,
+                "id": item.event_id,
+                "key": key[:600],
+                "cat": item.category,
+                "headline": headline,
+                "summary": (item.summary or "")[:4000] or None,
+                "sentence": (item.article_sentence or "")[:2000] or None,
+                "found": item.found_at,
+                "effective": item.effective_date,
+                "conf": item.confidence,
+                "url": (item.source_url or "")[:2000] or None,
+                "loc": (item.location or "")[:200] or None,
+                "related": json.dumps(list(item.related)),
+                "s": source_ref,
+            },
+        )
+        written += int(bool(res.rowcount))
+    return written
+
+
+async def import_connections(
+    s: Any,
+    tenant_id: UUID,
+    account_id: UUID,
+    run_id: UUID,
+    items: Sequence[ImportedConnection],
+) -> int:
+    """Store the connections of an uploaded raw pull as ``org_connections`` of the file-import
+    run (0105); a connection the run already holds is left as is. Returns the rows written."""
+    written = 0
+    for item in items:
+        domain = item.company_domain.strip().casefold()[:253]
+        if not domain:
+            continue
+        res = await s.execute(
+            text(
+                "INSERT INTO org_connections (tenant_id, owner_user_id, account_id, run_id,"
+                " category, source_category, company_domain, company_name, first_seen_at,"
+                " last_seen_at, source_url)"
+                " VALUES (:t, coalesce((SELECT a.owner_user_id FROM accounts a WHERE a.tenant_id"
+                " = :t AND a.id = :a), app_user()), :a, :r, :cat, :source_cat, :domain, :name,"
+                " :first, :last, :url)"
+                " ON CONFLICT (tenant_id, run_id, company_domain, category) DO NOTHING"
+            ),
+            {
+                "t": tenant_id,
+                "a": account_id,
+                "r": run_id,
+                "cat": (item.category or "other")[:60],
+                "source_cat": (item.source_category or "")[:60] or None,
+                "domain": domain,
+                "name": (item.company_name or "")[:300] or None,
+                "first": item.first_seen_at,
+                "last": item.last_seen_at,
+                "url": (item.source_url or "")[:2000] or None,
+            },
+        )
+        written += int(bool(res.rowcount))
+    return written

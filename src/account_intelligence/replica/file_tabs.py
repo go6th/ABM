@@ -136,6 +136,9 @@ class Delivered:
     # the data rows the builder counted into the file's manifest (None: not a builder's file)
     rows: int | None = None
     size: int | None = None  # the stored bytes (deliverables.size_bytes)
+    # an uploaded workspace's own file (manifest ``source: workspace_import``): it stands in for
+    # the stored table like a builder's file, by its own main sheet (exact copy, 2026-11-05)
+    imported: bool = False
 
 
 class TooLarge(ValueError):
@@ -187,11 +190,11 @@ def fill_tokens() -> dict[str, str]:
     """RGB hex (six upper-case digits) -> fill token, from the export theme's ``excel.fills``
     (``config/export_theme.yaml``, validated by ``exports.config``); empty when the theme names
     none or cannot be loaded."""
-    from exports.config import load_export_config
+    from exports.config import default_export_config
     from exports.errors import ConfigError
 
     try:
-        fills = load_export_config().theme.excel.fills
+        fills = default_export_config().theme.excel.fills
     except ConfigError:
         return {}
     out: dict[str, str] = {}
@@ -546,7 +549,7 @@ async def delivered_file(session: Any, account_id: UUID, sheet_key: str) -> Deli
         )
     ).first()
     # a file built under another exclusion list than the tenant's current one is not read (F1)
-    if row is not None and _built_under(row.manifest_json) != await _current_hash(session):
+    if row is not None and not fresh(row.manifest_json, await _current_hash(session)):
         return None
     return _delivered(row)
 
@@ -555,6 +558,20 @@ async def _current_hash(session: Any) -> str:
     from views.materialize import current_exclusion_hash
 
     return await current_exclusion_hash(session)
+
+
+def fresh(manifest: Any, current: str) -> bool:
+    """Whether a stored file may be shown under the tenant's current exclusion set: built under
+    it, or an uploaded workspace's own file (``source: workspace_import``), which no exclusion
+    list rebuilds (the owner's file is shown as it is, exact copy 2026-11-05)."""
+    if isinstance(manifest, str):
+        try:
+            manifest = json.loads(manifest)
+        except ValueError:
+            manifest = None
+    if isinstance(manifest, dict) and manifest.get("source") == "workspace_import":
+        return True
+    return _built_under(manifest) == current
 
 
 def _built_under(manifest: Any) -> str:
@@ -587,6 +604,7 @@ def _delivered(row: Any) -> Delivered | None:
         str(row.object_key),
         rows if isinstance(rows, int) and not isinstance(rows, bool) else None,
         int(row.size_bytes) if row.size_bytes is not None else None,
+        imported=isinstance(manifest, dict) and manifest.get("source") == "workspace_import",
     )
 
 
@@ -615,8 +633,8 @@ async def delivered_files(
         )
     ).all()
     current = await _current_hash(session)
-    fresh = [r for r in rows if _built_under(r.manifest_json) == current]
-    by_kind = {r.kind: _delivered(r) for r in fresh}
+    shown = [r for r in rows if fresh(r.manifest_json, current)]
+    by_kind = {r.kind: _delivered(r) for r in shown}
     return {k: d for k, kind in kinds.items() if (d := by_kind.get(kind)) is not None}
 
 
@@ -648,13 +666,14 @@ async def main_rows(payloads: Any, tenant_id: UUID, found: Delivered, sheet_key:
     """The rows of the delivered file's own main table when it stands in for the stored table
     (``builder_main``, else ``main_table``), else None. The answer is remembered by file content,
     so a file is opened for its count once per process. A file whose manifest states no row
-    count is not this builder's: None."""
-    from exports.config import load_export_config
+    count is not this builder's: None, unless it is an uploaded workspace's own file, counted by
+    its main sheet."""
+    from exports.config import default_export_config
 
-    if found.rows is None:
+    if found.rows is None and not found.imported:
         return None
 
-    columns = getattr(load_export_config().rules.workbooks, KINDS[sheet_key]).columns
+    columns = getattr(default_export_config().rules.workbooks, KINDS[sheet_key]).columns
     signature = hash(tuple(c.header for c in columns))
     key = (str(tenant_id), found.object_key, found.sha256, sheet_key, found.rows, signature)
     hit, value = _count_cached(key)
@@ -675,13 +694,13 @@ def builder_main(book: Book, found: Delivered, sheet_key: str) -> Tab | None:
     table's rows and the table's header agrees with the configured headers (``headers_agree``:
     the file may carry columns added since, or lack columns the configuration gained since it
     was delivered), else None."""
-    from exports.config import load_export_config
+    from exports.config import default_export_config
 
     main = book.tab(None)
     table = main.table if main is not None else None
     if table is None or found.rows is None or len(table.rows) != found.rows:
         return None
-    columns = getattr(load_export_config().rules.workbooks, KINDS[sheet_key]).columns
+    columns = getattr(default_export_config().rules.workbooks, KINDS[sheet_key]).columns
     return main if headers_agree(table.header, [c.header for c in columns]) else None
 
 
@@ -708,9 +727,9 @@ def main_table(book: Book) -> Tab | None:
 
 def main_sheet_of(sheet_key: str) -> str:
     """The workbook sheet the deep-dive table shows (``workbooks.<kind>.sheet``)."""
-    from exports.config import load_export_config
+    from exports.config import default_export_config
 
-    books = load_export_config().rules.workbooks
+    books = default_export_config().rules.workbooks
     return str(getattr(books, KINDS[sheet_key]).sheet)
 
 
@@ -861,11 +880,13 @@ def grid_query(
     offset: int,
     limit: int,
     filter_key: str | None = None,
+    match_col: str | None = None,
+    match: str | None = None,
 ) -> Any:
     """A validated request over the main tab (``sheets.BadSheetQuery`` for an unknown or
-    unsortable column, a direction other than asc or desc, or a filter the file's table does not
-    have: it has All and the stored table's chips whose column the file carries); the page is
-    clamped like ``sheets.parse`` clamps it."""
+    unsortable column, a direction other than asc or desc, a filter the file's table does not
+    have: it has All and the stored table's chips whose column the file carries, or a match the
+    table cannot take: ``_grid_match``); the page is clamped like ``sheets.parse`` clamps it."""
     from account_intelligence.replica.sheets import FILE_ORDER, MAX_PAGE, BadSheetQuery, Query
 
     sheet = grid_sheet(tab, live)
@@ -883,7 +904,38 @@ def grid_query(
         direction == "desc",
         max(0, offset),
         max(1, min(limit, MAX_PAGE)),
+        match=_grid_match(tab, live, match_col, match),
     )
+
+
+def _grid_match(tab: Tab, live: Any, match_col: str | None, match: str | None) -> Any:
+    """The match of a request over the main tab: a matchable column of the sheet (the live
+    sheet's or the file-shaped sheet's, ``sheets.parse_match``) found in the file's table by its
+    header (the column's label, case folded). Returned as a ``sheets.Col`` with the sheet's key
+    and the file's header, whose ``sort`` names the tab column (``c3``)."""
+    from account_intelligence.replica.sheets import (
+        FILE_TABLES,
+        BadSheetQuery,
+        Col,
+        file_sheet,
+        match_value,
+    )
+
+    value = match_value(match)
+    if match_col is None and value is None:
+        return None
+    sheets = [live, file_sheet(live.key)] if live.key in FILE_TABLES else [live]
+    labels = {
+        c.label.strip().casefold()
+        for sheet in sheets
+        for c in sheet.cols
+        if c.key == match_col and c.match
+    }
+    header = (tab.table or Block("table")).header
+    j = next((i for i, h in enumerate(header) if h.strip().casefold() in labels), None)
+    if j is None or value is None:
+        raise BadSheetQuery("unknown match column")
+    return (Col(str(match_col), header[j], f"c{j + 1}", match=True), value)
 
 
 def _sort_value(text_value: str) -> tuple[int, Any]:
@@ -900,14 +952,14 @@ def _chip_headers(kind: str) -> tuple[tuple[str, str, str, str], ...]:
     by its header in the file (``sheets.chip_specs``). Read once per process: the export
     configuration is parsed from YAML on every ``load_export_config`` call."""
     from account_intelligence.replica.sheets import chip_specs
-    from exports.config import load_export_config
+    from exports.config import default_export_config
     from views.tables import specs
 
     columns = specs()[kind].exported_columns  # type: ignore[index]
     header_of = {c.key: c.header for c in columns}
     return tuple(
         (key, label, header_of[column], value)
-        for key, label, column, value in chip_specs(kind, columns, load_export_config().rules)
+        for key, label, column, value in chip_specs(kind, columns, default_export_config().rules)
         if column in header_of
     )
 
@@ -930,16 +982,27 @@ def _chips(tab: Tab, sheet_key: str) -> list[tuple[Any, int, str]]:
     ]
 
 
+def _matched(tab: Tab, q: Any) -> list[tuple[Cell, ...]]:
+    """The main tab's rows under the request's match (``_grid_match``: the cell in the matched
+    column contains the text, case folded), every row without one."""
+    rows = list((tab.table or Block("table")).rows)
+    if q.match is None:
+        return rows
+    col, value = q.match
+    j, wanted = int(col.sort[1:]) - 1, value.casefold()
+    return [r for r in rows if j < len(r) and wanted in r[j].text.casefold()]
+
+
 def _kept(tab: Tab, q: Any) -> list[tuple[Cell, ...]]:
-    """The main tab's rows under the request's filter (All: every row)."""
-    table = tab.table or Block("table")
+    """The main tab's rows under the request's match and filter (All: every matched row)."""
+    rows = _matched(tab, q)
     if q.filter.key == "all":
-        return list(table.rows)
+        return rows
     chip = next((c for c in _chips(tab, q.sheet.key) if c[0].key == q.filter.key), None)
     if chip is None:
         return []
     _, j, value = chip
-    return [r for r in table.rows if j < len(r) and r[j].text.strip() == value]
+    return [r for r in rows if j < len(r) and r[j].text.strip() == value]
 
 
 def _order(tab: Tab, q: Any) -> list[tuple[Cell, ...]]:
@@ -990,11 +1053,12 @@ def grid_rows(tab: Tab, q: Any) -> list[dict[str, Any]]:
 
 
 def _filter_counts(tab: Tab, q: Any) -> list[dict[str, Any]]:
-    """The chips with the rows each holds over the whole table (not the filtered page)."""
-    table = tab.table or Block("table")
-    out = [{"key": "all", "label": "All", "count": len(table.rows)}]
+    """The chips with the rows each holds over the whole table, within the request's match
+    (not the filtered page)."""
+    rows = _matched(tab, q)
+    out = [{"key": "all", "label": "All", "count": len(rows)}]
     for f, j, value in _chips(tab, q.sheet.key):
-        n = sum(1 for r in table.rows if j < len(r) and r[j].text.strip() == value)
+        n = sum(1 for r in rows if j < len(r) and r[j].text.strip() == value)
         out.append({"key": f.key, "label": f.label, "count": n})
     return out
 
@@ -1002,6 +1066,8 @@ def _filter_counts(tab: Tab, q: Any) -> list[dict[str, Any]]:
 def grid_page(tab: Tab, q: Any) -> dict[str, Any]:
     """One page of the main tab in the shape ``sheets.read`` returns (an offset past the end
     is an empty page with the table's total); only the page's rows are shaped."""
+    from account_intelligence.replica.sheets import match_out
+
     ordered = _order(tab, q)
     width = len((tab.table or Block("table")).header)
     page = [
@@ -1025,6 +1091,7 @@ def grid_page(tab: Tab, q: Any) -> dict[str, Any]:
         "filter": q.filter.key,
         "sort": q.sort.key,
         "dir": "desc" if q.desc else "asc",
+        "match": match_out(q),
         "total": len(ordered),
         "offset": q.offset,
         "rows": page,

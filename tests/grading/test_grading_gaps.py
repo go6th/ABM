@@ -122,15 +122,28 @@ def test_registry_domains_after_the_first_and_unlisted_hosts(cfg: GradingConfig)
     assert unlisted.lineage_group == "host:elsewhere.example.net" and not unlisted.lineage_known
 
 
-def test_judge_profile_is_ok_only_when_judge_and_generator_differ(cfg: GradingConfig) -> None:
-    from account_intelligence.grading.judge import model_profile
+def test_a_judge_on_the_generators_model_is_replaced_or_fails_never_capped(
+    cfg: GradingConfig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """G12 (ADR-0118): equal judge and generator profiles used to return False, which capped
+    every claim at Probable with ``unjudged`` and no error. Now the judge runs on another Claude
+    model of the allow-list (``RunDeps.chosen_model``), or ``JudgeNotIndependent`` is raised."""
+    import llm.choice as choice
+    from llm.route import JudgeNotIndependent
 
-    differs = model_profile(cfg.judge.judge_task) != model_profile(cfg.judge.generator_task)
-    assert judge_profile_ok(cfg) is differs
+    assert judge_profile_ok(cfg) is True
     same = cfg.model_copy(
         update={"judge": cfg.judge.model_copy(update={"judge_task": cfg.judge.generator_task})}
     )
-    assert judge_profile_ok(same) is False
+    assert judge_profile_ok(same) is True  # another Claude model judges
+    cat = choice.catalogue()
+    generator = next(m for m in cat.models if m.provider == "anthropic")
+    alone = dataclasses.replace(
+        cat, models=tuple(m for m in cat.models if m.provider != "anthropic" or m is generator)
+    )
+    monkeypatch.setattr(choice, "catalogue", lambda *a: alone)
+    with pytest.raises(JudgeNotIndependent):
+        judge_profile_ok(same)
 
 
 # Fact repository ------------------------------------------------------------------------------

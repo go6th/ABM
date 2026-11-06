@@ -59,16 +59,65 @@ def _column(column: ColumnInfo, *, values: bool, header: bool) -> str:
     return f"{name} [{'; '.join(notes)}]"
 
 
-def _table(t: TableInfo, *, values: bool, header: bool) -> str:
+# a workspace package holds the delivered files and the raw pulls they were built from; the two
+# disagree where the raw pull went stale (2026-11-04: UCB's raw feed said a posting was closed
+# that the delivered Job Postings workbook, built after the live board check, says is Open)
+DELIVERED_TAG = " [DELIVERED FILE: count and filter here]"
+RAW_TAG = " [raw pull: an input to the delivered files, may be stale]"
+DELIVERED_RULE = (
+    "Some tables are DELIVERED FILES and some are raw pulls they were built from. For a count,"
+    " a status (open or closed), a list or a filter, answer from the delivered table that holds"
+    " the field. Read a raw pull only for a field no delivered table has, and say that you did."
+    " Where the two disagree, the delivered file wins."
+)
+
+
+def _kind(member: str | None) -> str:
+    """``delivered`` for a member under ``deliverables/``, ``raw`` under ``data/``, else ``""``."""
+    parts = [p.lower() for p in (member or "").replace("\\", "/").split("/")[:-1]]
+    if "deliverables" in parts:
+        return "delivered"
+    if "data" in parts:
+        return "raw"
+    return ""
+
+
+def _table(t: TableInfo, *, values: bool, header: bool, tag: str = "") -> str:
     where = t.document + (f", {t.member}" if t.member else "")
     key = f"; key: {t.business_key}" if t.business_key else ""
-    head = f'TABLE "{t.name}" — {where} — {t.row_count} rows, {len(t.columns)} columns{key}'
+    head = f'TABLE "{t.name}"{tag} — {where} — {t.row_count} rows, {len(t.columns)} columns{key}'
     lines = [head]
     lines += [f"  - {_column(c, values=values, header=header)}" for c in t.columns]
     return "\n".join(lines)
 
 
 DOCUMENTS_SHOWN = 40
+
+
+def _plural(label: str, n: int) -> str:
+    return label if n == 1 or label.endswith("s") else f"{label}s"
+
+
+def _files_line(members: Sequence[Mapping[str, Any]]) -> str:
+    """``(N files)`` for a zip, by role when the members have one (a workspace package:
+    ``(366 files: 5 deliverables, 3 notes, 302 captured pages, ...)``), else empty."""
+    from collections import Counter
+
+    from documents.workspace import ROLE_LABELS
+
+    if not any(m.get("member") for m in members):
+        return ""
+    roles = Counter(str(m["role"]) for m in members if m.get("role"))
+    if not roles:
+        return f" ({len(members)} files)"
+    order = list(ROLE_LABELS)
+    parts = [
+        f"{n} {_plural(ROLE_LABELS.get(r, r), n)}"
+        for r, n in sorted(
+            roles.items(), key=lambda kv: order.index(kv[0]) if kv[0] in order else 99
+        )
+    ]
+    return f" ({len(members)} files: {', '.join(parts)})"
 
 
 def _prose(sources: Sequence[Mapping[str, Any]]) -> list[str]:
@@ -86,7 +135,7 @@ def _prose(sources: Sequence[Mapping[str, Any]]) -> list[str]:
         pages = sum(int(m.get("pages") or 0) for m in members)
         passages = sum(int(m.get("passages") or 0) for m in members)
         size = f"{pages} pages" if pages else f"{passages} passages"
-        files = f" ({len(members)} files)" if any(m.get("member") for m in members) else ""
+        files = _files_line(members)
         out.append(f"DOCUMENT ({what}) — {name}{files} — {size}")
     if len(by_file) > DOCUMENTS_SHOWN:
         out.append(
@@ -104,8 +153,11 @@ STATES = {
     "scanning": "being scanned",
     "parsing": "still being read",
     "parsed": "read, still being indexed",
+    "needs_account": "read, waiting for the user to pick its account, so not searchable",
     "indexing": "still being indexed",
     "rejected": "rejected and not read",
+    "scan_failed": "not read: the malware scanner could not be reached",
+    "abandoned": "the upload was never finished",
     "failed": "could not be read",
 }
 
@@ -162,10 +214,22 @@ def render(
     covered = _coverage(coverage)
     if not tables and not prose and not covered:
         return ""
+    # a workspace package: the delivered tables first and tagged, the raw pulls last (a loose
+    # upload, with no delivered table, keeps its order and gets no tag)
+    kinds = {t.id: _kind(t.member) for t in tables}
+    package = "delivered" in kinds.values() and "raw" in kinds.values()
+    order = {"delivered": 0, "": 1, "raw": 2}
+    if package:
+        tables = sorted(tables, key=lambda t: order[kinds[t.id]])
+    tags = {"delivered": DELIVERED_TAG, "raw": RAW_TAG, "": ""} if package else {}
     # most detail first; each step down drops one kind of detail, never a table or a column
     for values, header in ((True, True), (False, True), (False, False)):
-        body = [_table(t, values=values, header=header) for t in tables] + prose
+        body = [
+            _table(t, values=values, header=header, tag=tags.get(kinds[t.id], "")) for t in tables
+        ] + prose
         head = ["<workspace_files>", HEADER, f"{len(tables)} table(s) in total."]
+        if package:
+            head.append(DELIVERED_RULE)
         text = (
             "\n".join([*head, *body, *([COVERAGE_RULE, *covered] if covered else [])])
             + "\n</workspace_files>"

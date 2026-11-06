@@ -458,17 +458,14 @@ def test_seeds_map_types_and_need_a_source(acc: dict[str, Any]) -> None:
     assert by["Platform team hiring build roles."]["Detected"] == profile.run_date.isoformat()
     assert by["Firm prices notes offering."]["Type"] == "Funding / financial"
     assert "Firm sells a division." not in by  # funding_ma with no wording to decide: dropped
-    assert "Site visit on Tuesday." not in by
-    assert "Tech detected." not in by
+    # a stored signal is never lost for its type word (UCB, 2026-11-05): it files under Other
+    # or the type its wording shows
+    assert by["Site visit on Tuesday."]["Type"] == "Other"
+    assert by["Tech detected."]["Type"] == "Technology adoption"
     assert "Sourceless leadership." not in by
     reasons = sorted(e.reason for e in table.exclusions)
-    assert reasons == [
-        "no source",
-        "unknown signal type",
-        "unknown signal type",
-        "unknown signal type",
-    ]
-    assert table.stats["dropped"] == 4
+    assert reasons == ["no source", "unknown signal type"]
+    assert table.stats["dropped"] == 2
 
 
 def test_every_emitted_type_and_grade_is_valid(acc: dict[str, Any]) -> None:
@@ -591,8 +588,13 @@ def test_classify_text(text: str, kind: str | None) -> None:
         ("funding_ma", "Firm hosts a picnic", None),
         ("regulatory", "", "Regulatory event"),
         ("news_event", "FDA warning letter received", "Regulatory event"),
-        ("other", "nothing relevant", None),
-        ("tech_detection", "", None),
+        ("other", "nothing relevant", "Other"),
+        ("other", "Head of Data spoke at the vendor summit", "Executive speaking"),
+        ("other", "New biologics campus investment announced", "Funding / financial"),
+        ("other", "Fabric implemented as the analytics platform", "Technology adoption"),
+        ("tech_detection", "", "Technology adoption"),
+        ("exec_speaking", "", "Executive speaking"),
+        ("vendor_customer_story", "", "Technology adoption"),
     ],
 )
 def test_map_signal_type(word: str, title: str, kind: str | None) -> None:

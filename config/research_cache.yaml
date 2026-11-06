@@ -30,3 +30,13 @@ model_replies:
   ttl_days: 7
 # the Redis index (REDIS_URL) only accelerates lookups; Postgres rows are the record
 redis_ttl_s: 604800
+# REPLAY_KEY_VERSION (ADR-0129): the version of the replay keys, i.e. the ledger CallKey args_hash
+# (provider, operation, arguments incl. the pull_plan.yaml search template and the canonical URL)
+# and the model reply_key (task kind, tier and effort, token limit, prompt text). Stored on every
+# run (run_input.replay_key_version; absent = 1). A resume of a run with an older version warns
+# that the calls whose keys changed may be paid again. Bump it whenever
+# tests/system/test_replay_keys.py fails, and regenerate tests/golden/replay_keys.json.
+#   1: every run before 2026-11-03
+#   2: fix prompt C (second_pass_posting, abm_pass1/pass2/people_extract prompt text and payload
+#      fences; the effort suffix on extraction kinds)
+replay_key_version: 2

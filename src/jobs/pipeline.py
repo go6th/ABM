@@ -29,7 +29,7 @@ from jobs.counts import compute_counts
 from jobs.dedupe import dedupe_counted, group_key
 from jobs.errors import InvariantViolation, JobsError
 from jobs.extractor import Call, ExtractorBudget, classify_with_extractor
-from jobs.gap import gap_remainder, progress
+from jobs.gap import gap_remainder, is_remainder, progress
 from jobs.heuristic import classify_heuristic
 from jobs.match import match_platforms
 from jobs.models import (
@@ -79,6 +79,8 @@ class RowEvidence:
     expected_calls: int
     cap_hit: bool
     not_attempted_reason: str | None = None
+    # why ``cap_hit`` is set when no cap was involved (a tracker reason code; None: cap_reached)
+    partial_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -204,6 +206,7 @@ class JobsPipeline:
         reported: dict[str, int | None] = {}
         searched = 0
         partial = False
+        no_careers_site = False
         searches: list[tuple[str, str]] = []
         for lane in self.cfg.lanes:
             if lane.id in lanes_off:
@@ -227,6 +230,7 @@ class JobsPipeline:
         ):
             searched += 1
             if isinstance(batch, SourceUnavailable):
+                no_careers_site |= batch.reason == "careers_host_not_verified"
                 if batch.call_ref:
                     refs.append(batch.call_ref)
                     w.failed.append(batch.call_ref)
@@ -241,7 +245,13 @@ class JobsPipeline:
         reason = None
         if not refs:
             all_off = all(lane.id in lanes_off for lane in self.cfg.lanes)
-            reason = "lane_not_in_scope" if all_off else "not_available_yet"
+            reason = (
+                "lane_not_in_scope"
+                if all_off
+                else "careers_site_not_found"
+                if no_careers_site
+                else "not_available_yet"
+            )
         evidence = RowEvidence(ROW_BOARD, tuple(refs), max(searched, 1), partial, reason)
         return postings, evidence, not_searched, reported
 
@@ -259,7 +269,11 @@ class JobsPipeline:
             )
         w.calls.extend(batch.call_refs)
         evidence = RowEvidence(
-            ROW_PULL, (*batch.call_refs, *batch.failed_refs), 1, not batch.complete
+            ROW_PULL,
+            (*batch.call_refs, *batch.failed_refs),
+            1,
+            not batch.complete,
+            partial_reason=None if batch.complete else "feed_incomplete",
         )
         return batch, evidence
 
@@ -399,6 +413,7 @@ class JobsPipeline:
                 call_refs=(*pull_ev.call_refs, *batch.call_refs, *batch.failed_refs),
                 expected_calls=2,
                 cap_hit=True,
+                partial_reason="feed_incomplete",
             )
         identities: set[str] = set()
         for p in batch.postings:
@@ -432,9 +447,16 @@ class JobsPipeline:
                 posting.url, max_chars=self.cfg.caps["max_description_chars"]
             )
         except SourceUnavailable as error:
-            if error.call_ref:
-                w.failed.append(error.call_ref)
-                w.escalation_refs.append(error.call_ref)
+            if not error.call_ref:
+                # no read was made (the run's budget or call cap refused it, or it timed out
+                # before a ledger entry): the read is not spent, so the posting stays in the gap
+                # remainder and the row Partial, never a silent Done (review 2026-11-05)
+                w.page_reads_left += 1
+                w.escalated.discard(posting.posting_key)
+                w.escalation_cap_hit = True
+                return posting.model_copy(update={**missing, "escalation": "cap"}), text
+            w.failed.append(error.call_ref)
+            w.escalation_refs.append(error.call_ref)
             return posting.model_copy(update=missing), text
         w.calls.append(page.call_ref)
         w.escalation_refs.append(page.call_ref)
@@ -457,14 +479,60 @@ class JobsPipeline:
         matches = match_platforms(posting.title, text, lexicon, self.cfg.case_sensitive_platforms)
         matched = bool(matches.description or matches.title_only)
         unread = not self._is_read(posting.text_complete, text, False)
-        excerpt = self.cfg.read_excerpts and len(text) < self.cfg.caps["minimum_text_length"]
+        # with the caps off (``read_excerpts``) a feed text that is an excerpt, or whose
+        # completeness the provider contract does not state, is read too: a cut-off description
+        # cannot name what the requirements say further down, and no match means no read, so
+        # the posting stayed unread (staging 2026-11-04: 121 of 144 postings never read)
+        excerpt = self.cfg.read_excerpts and (
+            len(text) < self.cfg.caps["minimum_text_length"] or posting.text_complete is not True
+        )
         wanted = (matched or excerpt) and bool(posting.url)
         if wanted and not hostile and unread and posting.escalation == "none":
+            feed_posting, feed_text, feed_named = posting, text, set(matches.description)
             posting, text = await self._escalate(posting, text, w)
             hostile = bool(text) and self.is_hostile(text)
             matches = match_platforms(
                 posting.title, text, lexicon, self.cfg.case_sensitive_platforms
             )
+            shell = (
+                not feed_named & set(matches.description)
+                if feed_named
+                # a feed text that named nothing: a page shorter than it is not the posting's
+                # text either (staging 2026-11-06: 122 "position filled" pages of about 500
+                # characters replaced 7 to 12 thousand character feed descriptions)
+                else len(text) < len(feed_text)
+            )
+            if posting.escalation == "read" and not hostile and shell:
+                # the page is not the posting's text (a careers shell, a listing, a consent
+                # page, a "position filled" page), so the read failed and the feed text stays,
+                # with its match
+                posting, text = (
+                    feed_posting.model_copy(
+                        update={"full_text_missing": True, "escalation": "failed"}
+                    ),
+                    feed_text,
+                )
+                hostile = False
+                matches = match_platforms(
+                    posting.title, text, lexicon, self.cfg.case_sensitive_platforms
+                )
+            if (
+                posting.escalation == "failed"
+                and text == feed_text
+                and feed_posting.text_complete is not False
+                and not self.is_hostile(feed_text)
+                and self._is_read(True, feed_text, False)
+            ):
+                # the page read gave nothing usable and the feed's description is the only copy
+                # of the posting left (a closed posting's page says "position filled"): it is
+                # read from the feed text, unless the provider marked that text an excerpt.
+                # Until 2026-11-06 it stayed an unread lead, and the Jobs file, which lists read
+                # postings only, was empty although the 22 matched postings were in hand
+                # (staging, Olympus, run a08b5b47)
+                posting = posting.model_copy(
+                    update={"text_complete": True, "full_text_missing": False}
+                )
+                hostile = False
         read = self._is_read(posting.text_complete, text, hostile)
         sentences = (
             extract_platform_sentences(
@@ -616,7 +684,8 @@ class JobsPipeline:
             refs = merged.call_refs.get(group_key(item), ())
             stored = stored_for(item)
             if stored is not None:
-                return self._carry(stored, item, as_of, refs, active), None
+                carried_now = self._carry(stored, item, as_of, refs, active)
+                return await self._revive(carried_now, carried_texts, lexicon, budget, w)
             base, text = self._base(item, as_of, refs, flag)
             if base.window_bucket == "out_of_window":
                 # excluded and counted only: never read, escalated, classified or claimed
@@ -639,6 +708,10 @@ class JobsPipeline:
             for key, p in carried.items()
             if key not in seen
         ]
+        for i, p in enumerate(kept):
+            kept[i], text = await self._revive(p, carried_texts, lexicon, budget, w)
+            if text is not None:
+                texts[p.posting_key] = text
         postings.extend(kept)
         self.last_texts = texts  # carried postings keep their stored text reference
         pulled = (*(r.raw_ref for r in raw), *(p.raw_ref for p in kept))
@@ -672,6 +745,35 @@ class JobsPipeline:
             _Used(0, 0, self.cfg.caps["max_page_reads"], self.cfg.caps["max_extractor_calls"]),
             0,
         )
+
+    async def _revive(
+        self,
+        posting: Posting,
+        carried_texts: Mapping[str, str] | None,
+        lexicon: dict[str, tuple[str, ...]],
+        budget: ExtractorBudget,
+        w: _Run,
+    ) -> tuple[Posting, str | None]:
+        """A carried posting as carried (text None), or, when a run before 2026-11-06 left it a
+        matched, unread lead after its one page read failed, read from its stored feed text now
+        (``_process``: no page read, the extractor classifies it). Those postings were never
+        listed: a second research carried them unread, so its Jobs file was empty again
+        (staging, Olympus run 739d6e34)."""
+        text = (carried_texts or {}).get(posting.posting_key)
+        if not (
+            text
+            and (posting.platforms or posting.title_platforms)
+            and not posting.read
+            and not posting.hostile
+            and posting.escalation == "failed"
+            and posting.text_complete is not False
+            and posting.window_bucket != "out_of_window"
+            and not self.is_hostile(text)
+            and self._is_read(True, text, False)
+        ):
+            return posting, None
+        revived = posting.model_copy(update={"text_complete": True, "full_text_missing": False})
+        return await self._isolated(revived, text, lexicon, budget, w)
 
     async def _isolated(
         self,
@@ -819,11 +921,13 @@ class JobsPipeline:
             counts = compute_counts(frame.pulled, postings, list(self.cfg.lexicon), not_searched)
         except InvariantViolation as exc:
             error = str(exc)
-        analysed = [p for p in postings if p.window_bucket != "out_of_window" and p.matched]
-        shortfall = any(
-            not p.hostile and (not p.read or (p.platforms and p.posting_class == "unclassified"))
-            for p in analysed
-        )
+        # a shortfall is work a later pass or run could still do (``is_remainder``: a read the
+        # page-read cap skipped, a class the extractor cap or an isolated error left open). A
+        # posting whose one page read was spent and failed (a closed posting, a careers shell, a
+        # provider error) is final in the gap pass; counting it here made the row Partial on
+        # every run however often it was paid for again (staging run 8ed9911a, 2026-11-05). Every
+        # posting, not only the matched ones: an isolated error drops the posting's match
+        shortfall = any(is_remainder(p) for p in postings)
         read_refs = tuple(dict.fromkeys((*evidence[1].call_refs, *read_prior, *w.escalation_refs)))
         read_ev = RowEvidence(
             ROW_READ,
@@ -831,6 +935,15 @@ class JobsPipeline:
             1,
             shortfall or error is not None or not frame.pull_complete,
             None if read_refs else "source_unavailable",
+            (
+                "counts_inconsistent"
+                if error is not None
+                else "feed_incomplete"
+                if not frame.pull_complete
+                else "postings_not_read"
+                if shortfall
+                else None
+            ),
         )
         claims: list[ProposedSourced] = []
         skipped, no_text = kept_skipped
@@ -947,6 +1060,7 @@ def result_to_json(result: PipelineResult) -> dict[str, object]:
                 "expected_calls": e.expected_calls,
                 "cap_hit": e.cap_hit,
                 "not_attempted_reason": e.not_attempted_reason,
+                "partial_reason": e.partial_reason,
             }
             for e in result.evidence
         ],
@@ -990,6 +1104,7 @@ def result_from_json(data: dict[str, object]) -> PipelineResult:
                 e["expected_calls"],
                 e["cap_hit"],
                 e["not_attempted_reason"],
+                e.get("partial_reason"),
             )
             for e in d["evidence"]
         ),

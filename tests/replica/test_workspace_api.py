@@ -55,7 +55,9 @@ async def test_workspace_after_a_refresh_shows_what_changed_and_live_counts(
     assert ws["subline"] == "Refreshed 2 days ago · Weekly schedule · Web: not used for answers"
     assert {row["grade"] for row in ws["changes"]["rows"]} <= {"confirmed", "probable"}
     assert ws["counts"] == {
-        "signals": 9,
+        # the 9 signal events plus the research's 12 news and leadership findings (owner
+        # decision 2026-11-06: the Signals screen shows what the research found too)
+        "signals": 21,
         "people": 41,
         "jobs": 27,
         "tech": 15,  # 14 detections and one tech fact the research found
@@ -68,6 +70,15 @@ async def test_workspace_after_a_refresh_shows_what_changed_and_live_counts(
         # the Platform picture counts only a builder-made delivery (the demo seed's files are
         # stand-ins, so its sheets stay the live ones)
         "facts": 0,
+        # the files inside uploaded zips (document_members, 0102): the seed uploads none
+        "files": 0,
+        # the live sheets an imported workspace fills (phase 5): the seed's one narrative
+        # section is a finding; it stores no teams, connections, calls or notes
+        "teams": 0,
+        "connections": 0,
+        "findings": 1,
+        "calls": 0,
+        "notes": 0,
     }
     assert [f["name"] for f in ws["files"]] == [
         "Account summary",
@@ -151,7 +162,9 @@ async def test_ask_streams_a_cited_answer_and_keeps_it(world: dict[str, Any]) ->
     assert answer["answered"] and answer["sources"] and answer["used"]["web"] == "not_used"
     assert answer["offer"]["account_domain"] == "cigna.example"
     got = (await _call(plane, "GET", f"/v1/chat/threads/{thread['thread_id']}")).json()
-    assert got["turns"][0]["answer"] == answer and got["title"] == "Who owns ServiceNow at Cigna?"
+    # the stored copy adds the prompt size the reopened thread's meter shows (context_tokens)
+    stored = {k: v for k, v in got["turns"][0]["answer"].items() if k != "context_tokens"}
+    assert stored == answer and got["title"] == "Who owns ServiceNow at Cigna?"
     again = dict(
         _frames(
             (
@@ -229,6 +242,51 @@ async def test_people_sheet_counts_filters_and_sorts_on_the_server(world: dict[s
     assert {r["cells"]["priority"] for r in a["rows"]} == {"A"}
     desc = (await _call(plane, "GET", f"{base}?filter=priority_a&sort=title&dir=desc")).json()
     assert [r["cells"]["title"] for r in desc["rows"]] == titles[::-1]
+
+
+async def test_a_sheet_link_with_a_match_narrows_the_page_counts_and_exports(
+    world: dict[str, Any],
+) -> None:
+    """An Ask citation's link (``?match_col=area&match=technology``): the page echoes the match,
+    its rows, total and chips are within it, and the Excel and CSV downloads hold the same rows."""
+    from openpyxl import load_workbook
+
+    plane = _plane(world["a"], "priya-test", world["payloads"])
+    base = "/v1/accounts/highmark.example/sheets/people"
+    match = "match_col=area&match=technology"
+    page = (await _call(plane, "GET", f"{base}?{match}")).json()
+    assert page["match"] == {"col": "area", "label": "Area", "value": "technology"}
+    assert page["total"] == len(page["rows"]) >= 17
+    assert all("technology" in r["cells"]["area"].lower() for r in page["rows"])
+    chips = {f["key"]: f["count"] for f in page["filters"]}
+    assert chips["all"] == page["total"] and chips["commercial"] == 0
+    assert (await _call(plane, "GET", base)).json()["match"] is None
+    sheet = load_workbook(io.BytesIO((await _call(plane, "GET", f"{base}/xlsx?{match}")).content))[
+        "Sheet 1"
+    ]
+    assert sheet.max_row - 1 == page["total"]
+    csv_rows = (await _call(plane, "GET", f"{base}/csv?{match}")).text.strip().splitlines()
+    assert len(csv_rows) - 1 == page["total"]
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "match_col=grade&match=Confirmed",  # a column that is not matchable
+        "match_col=location&match=x",  # not a column of People
+        "match_col=area",  # a column without a value
+        "match=technology",  # a value without a column
+        "match_col=Area;drop&match=x",
+        f"match_col=area&match={'x' * 201}",
+    ],
+)
+async def test_a_sheet_refuses_a_match_outside_its_allow_list(
+    world: dict[str, Any], query: str
+) -> None:
+    plane = _plane(world["a"], "priya-test", world["payloads"])
+    for path in ("", "/csv", "/xlsx"):
+        r = await _call(plane, "GET", f"/v1/accounts/highmark.example/sheets/people{path}?{query}")
+        assert r.status_code == 422, (path, query)
 
 
 @pytest.mark.parametrize("query", ["sort=title;drop", "filter=nope", "dir=up", "sort=link"])

@@ -56,6 +56,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 
 from account_intelligence.connectors.errors import RetryableProviderError
+from account_intelligence.connectors.governance import SlotUnavailable
 from account_intelligence.connectors.spend_guard import TokenGuardReached
 from account_intelligence.platform.ports import NotConfigured as PlatformNotConfigured
 from account_intelligence.workflow.ports import BuildIncomplete
@@ -69,7 +70,6 @@ from agents.extraction import ExtractionResult, extract, groups, value_key
 from agents.guards import (
     ACCOUNT_KEYED_NEEDS,
     OFF_TARGET_EXEMPT_ROWS,
-    STATED_GAPS,
     consent_decision,
     coverage_verdict,
     facts_digest,
@@ -121,8 +121,8 @@ from agents.pull.agent import (
 from agents.schemas import ExtractionInput, PayloadView, SenseCheckInput, StoredFact
 from agents.sense_check.agent import sense_check
 from crosscut.fanout import fan_out, fan_out_all
+from llm.data_class import DataClassRefused
 from llm.errors import (
-    AdapterNotConfigured,
     AuthFailed,
     ContentRefused,
     ContextTooLong,
@@ -286,9 +286,10 @@ MODEL_FAILURES: tuple[tuple[type[BaseException], str], ...] = (
     (ProviderCreditsExhausted, "model_credits_exhausted"),
     (AuthFailed, "model_auth_failed"),
     (ModelUnavailable, "model_unavailable"),
-    (AdapterNotConfigured, "model_not_configured"),
     (PlatformNotConfigured, "model_not_configured"),
     (ContentRefused, "model_refused"),
+    # the data-class guard refused the call before it was made (ADR-0133, data_class_guard)
+    (DataClassRefused, "model_data_class_refused"),
 )
 
 
@@ -832,6 +833,7 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
                         found.append(item)
                     met += res.people
                     drops.update(res.drops)
+                    drops.update({f"repaired_{k}": v for k, v in res.repairs.items()})
                 # held as the node's ungraded findings until saved, so a failure in another
                 # need still salvages them (see _interpret)
                 candidates.extend(found)
@@ -989,8 +991,12 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
                 out = await deps.pipelines.run_jobs(ctx, state.get("careers_url"))
             except TokenGuardReached:
                 raise
-            except RetryableProviderError:
-                raise  # the node RetryPolicy owns retries (W6); swallowing it killed the pipeline
+            except (RetryableProviderError, SlotUnavailable):
+                # the node RetryPolicy owns retries (W6); swallowing it killed the pipeline. A
+                # slot the governor did not grant is queueing: the runner ends the slice and the
+                # next one re-runs this node (staging 2026-11-05: one 30 s wait for a scrape slot
+                # threw away 140 read postings)
+                raise
             except Exception as error:  # noqa: BLE001 - a model failure ends the run partial
                 if model_failure_code(error) is not None:
                     raise
@@ -1024,7 +1030,7 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
                 out = await deps.pipelines.write_detections(ctx)
             except TokenGuardReached:
                 raise
-            except RetryableProviderError:
+            except (RetryableProviderError, SlotUnavailable):
                 raise
             except Exception as error:  # noqa: BLE001 - a store or feed error never ends the run
                 if model_failure_code(error) is not None:
@@ -1051,7 +1057,7 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
                 stack_out = await deps.pipelines.write_stack(ctx)
             except TokenGuardReached:
                 raise
-            except RetryableProviderError:
+            except (RetryableProviderError, SlotUnavailable):
                 raise
             except Exception as error:  # noqa: BLE001 - a store or lookup error never ends the run
                 if model_failure_code(error) is not None:
@@ -1081,7 +1087,7 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
                     out = await deps.pipelines.run_people(ctx)
                 except TokenGuardReached:
                     raise
-                except RetryableProviderError:
+                except (RetryableProviderError, SlotUnavailable):
                     raise
                 except Exception as error:  # noqa: BLE001 - a model failure ends the run partial
                     if model_failure_code(error) is not None:
@@ -1233,6 +1239,7 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
         awaiting: list[dict[str, str]] = []
         cap = await deps.credit.cap_state(ctx)
         in_scope = _in_scope(state, cfg)
+        left_over = 0
         for p in res.proposals:
             if p.row_key not in in_scope:
                 continue  # a follow-up outside the job's scope is not pulled (or paid for)
@@ -1240,7 +1247,12 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
             estimate, known = await deps.credit.price(need)
             route, _ = spend_route(cap, need, estimate, known, deps.free_operations, ctx.attended)
             item = {"row_key": p.row_key, "query": p.query, "need": need}
-            if second or route == "record":
+            if second:
+                # the last round records what is left and pulls nothing: nobody declined it and
+                # no credit limit stopped it, so the row keeps what its own step found (staging
+                # 2026-11-05: six rows with data read "not approved within the credit limit")
+                left_over += 1
+            elif route == "record":
                 await deps.tracker.mark_partial(ctx, p.row_key, "pull_not_approved")
             elif route == "run":
                 to_run.append(item)
@@ -1252,6 +1264,7 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
             "awaiting": awaiting,
             "counters": {
                 "sense_findings": len(res.findings),
+                "sense_left_over": left_over,
                 **{f"sense_drop_{k}": v for k, v in res.drops.items()},
             },
         }
@@ -1407,7 +1420,9 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
         try:
             # client files only: the Internal Only file is never a client file (two outputs)
             for file_id in client:
-                assert_client_clean(await deps.builder.texts(ctx, file_id))
+                # the name scan is regex work over every member of the file: off the event loop
+                # (it blocked the loop for up to 0.9 s a run, ADR-0130)
+                await asyncio.to_thread(assert_client_clean, await deps.builder.texts(ctx, file_id))
         except GuardViolation as leak:
             return _fail(leak.code)
         out: dict[str, Any] = {"client_files": list(client), "internal_files": list(internal)}
@@ -1504,24 +1519,25 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
 
     async def deliver(state: AbmState) -> dict[str, Any]:
         """Step 8 (code): release the client files the gate passed; never outreach. A file the
-        gate held back is named to the delivery, which records it; the run stays partial."""
+        gate held back is named to the delivery, which records it.
+
+        It reports facts and never decides the run's terminal status (ADR-0128): the files it
+        withheld (the gate's ``FILES_WITHHELD``) and a failed pipeline (``PIPELINE_FAILURES``
+        counters) reach ``AbmGraphFactory.target`` as the reason code of a PARTIAL end, and
+        whether the rows allow COMPLETED is the tracker's verdict alone, evaluated once in
+        ``runs.lifecycle.finish``. Until 2026-11-03 this step also judged the rows and voted
+        completed or partial, a second rule that could disagree with the tracker."""
         ctx = context(state)
         withheld = list(state.get("withheld_files") or [])
-        await deps.delivery.release(ctx, state.get("client_files") or [], withheld=withheld)
-        rows = await deps.tracker.rows(ctx)
-        # a stated gap the client chose (internal history not switched on) is not a missing step:
-        # the tracker's completion policy allows it the same way
-        # (config/tracker_v1.yaml high_reasons_allowed_for_completed)
         counters = state.get("counters") or {}
-        # a pipeline that failed for good (its rows read Partial or Not done with a failed
-        # source) is a gap of the run even when a row happens to read Done or None
-        broken = any(counters.get(k) for k in PIPELINE_FAILURES)
-        complete = (
-            not withheld
-            and not broken
-            and all(r.status in ("done", "none") or r.reason in STATED_GAPS for r in rows.values())
+        found = {
+            "claims_graded": len(await deps.grading.facts(ctx)),
+            "postings": int(counters.get("jobs_postings", 0)),
+        }
+        await deps.delivery.release(
+            ctx, state.get("client_files") or [], withheld=withheld, found=found
         )
-        return {"outcome": "completed" if complete else "partial"}
+        return {}
 
     async def finish(state: AbmState) -> dict[str, Any]:
         """The single settlement point of every run."""

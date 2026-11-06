@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -97,6 +98,15 @@ class CompanyCfg(_M):
     free_mail_domains: tuple[str, ...]
     ambiguity_margin: float = Field(gt=0, lt=1)
     min_score: float = Field(gt=0)
+    # an upload binds to an account (or proceeds on the account it was uploaded to) only when the
+    # best candidate scores at least this (PR5); the default is the `resolved` floor, so a
+    # resolved company passes
+    bind_min_confidence: float = Field(default=2.0, gt=0)
+    # an upload sent to an account waits as needs_account when the file names ANOTHER company
+    # (mismatched); with hold_unmatched it also waits when the file names none or several (the
+    # strict rule: most workspace zips name none, so it is off by default; PR5, 2026-11-04)
+    hold_unmatched_for_account: bool = False
+    hold_mismatched_for_account: bool = True
 
 
 class ExtractionCfg(_M):
@@ -165,3 +175,10 @@ def load_config(path: Path | None = None) -> InputModesConfig:
     """Load and validate the file."""
     data = yaml.safe_load((path or CONFIG_DIR / "research_input_modes.yaml").read_text())
     return InputModesConfig.model_validate(data)
+
+
+@lru_cache(maxsize=1)
+def load_expanders() -> dict[str, Any]:
+    """``config/expanders.yaml`` (aliases, place aliases, radii), read once for the documents
+    package (``documents.expanders`` and ``documents.places`` share it)."""
+    return dict(yaml.safe_load((CONFIG_DIR / "expanders.yaml").read_text()))

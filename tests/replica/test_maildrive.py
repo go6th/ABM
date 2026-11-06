@@ -181,7 +181,8 @@ async def test_sync_never_matches_a_colleagues_accounts(
     from datetime import UTC, datetime
     from uuid import uuid4
 
-    from account_intelligence.db.session import set_system, set_user_scope, tenant_txn
+    from account_intelligence.db.session import set_user_scope, tenant_txn
+    from account_intelligence.db.system_scope import set_system
     from connectors_client import maildrive
     from connectors_client import oauth as consent
     from connectors_client.ports import TokenSet

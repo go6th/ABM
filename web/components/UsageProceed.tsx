@@ -1,11 +1,14 @@
 "use client";
 // "This refresh will use about 2.5M tokens (about $11.00). Proceed?" with Proceed and Cancel
 // (owner decision 2026-10-21, while the research caps are off): nothing starts until Proceed.
+// What the research cannot do yet (people consent missing) is listed above Proceed with where to
+// fix it, so nobody pays for a research that leaves those rows empty (staging 2026-11-05).
 // Proceed then asks a second time, "Are you sure?" (owner's rule 2026-11-05, after an upload
 // started a paid run unasked): onProceed runs only after both, and the server refuses a start
 // that does not carry both confirmations (``runs.start_guard``).
+import Link from "next/link";
 import { useState } from "react";
-import type { UsageEstimate } from "@/lib/gen/api.gen";
+import type { ResearchGap, UsageEstimate } from "@/lib/gen/api.gen";
 import { dollars, tokenCount, usageBasis } from "@/lib/usage";
 
 /** The two confirmations every research start sends; spread into the request body only from
@@ -40,9 +43,11 @@ export function SecondConfirm({ cost, doing = "starts research on the web", busy
   );
 }
 
-export function UsageProceed({ usage, what, doing, busy, message, note, onProceed, onCancel }: {
+export function UsageProceed({ usage, what, doing, busy, message, note, gaps, onProceed, onCancel }: {
   /** The expected use; null when it could not be estimated (both questions are still asked). */
   usage: UsageEstimate | null;
+  /** What this research cannot do yet, each with where to fix it. */
+  gaps?: ResearchGap[];
   /** "This refresh", "Researching Acme", ... */
   what: string;
   /** What the second question says a yes starts (``SecondConfirm``). */
@@ -80,6 +85,16 @@ export function UsageProceed({ usage, what, doing, busy, message, note, onProcee
         <p className="sm-text">{what} spends real money. The cost could not be estimated. Proceed?</p>
       )}
       {note}
+      {gaps && gaps.length > 0 ? (
+        <ul className="stack-4" aria-label="Before you start">
+          {gaps.map((g) => (
+            <li key={g.code} className="sm-text">
+              {g.text}
+              {g.fix_path ? <> <Link href={g.fix_path}>Fix it first</Link></> : null}
+            </li>
+          ))}
+        </ul>
+      ) : null}
       {message ? <p className="sm-text" role="alert">{message}</p> : null}
       <div className="row-12">
         <button type="button" className="btn primary" disabled={busy} onClick={() => setSure(true)}>Proceed</button>

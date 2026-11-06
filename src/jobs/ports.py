@@ -95,6 +95,7 @@ class CoverageEvidencePort(Protocol):
         expected_calls: int,
         cap_hit: bool,
         not_attempted_reason: str | None,
+        partial_reason: str | None = None,
     ) -> None:
         """Hand row evidence to the tracker."""
         ...

@@ -95,7 +95,15 @@ async def test_a_resume_reserves_for_the_steps_it_has_left_never_one_credit(
     account = _account_of(run)
     _past(world["a"], account, "full", [29, 1])  # a cheap run, then a resume that reserved 1
     out = await _call(
-        plane, "POST", "/v1/research/resume", json={"run_id": str(run), "request_id": str(uuid4())}
+        plane,
+        "POST",
+        "/v1/research/resume",
+        json={
+            "run_id": str(run),
+            "request_id": str(uuid4()),
+            "confirm": True,
+            "confirm_again": True,
+        },
     )
     assert out.status_code == 201, out.text
     (reserved,) = _db(

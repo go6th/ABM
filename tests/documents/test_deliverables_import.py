@@ -122,7 +122,7 @@ async def _sheet(tenant: UUID, account: UUID, key: str) -> list[dict[str, Any]]:
         async with tenant_txn(tenant) as s:
             rows = await s.execute(
                 text(f"SELECT * FROM ({sheets.SHEETS[key].base}) s"),  # noqa: S608 allow-listed
-                {"a": account, "u": USER, "now": datetime.now(UTC)},
+                {"a": account, "u": USER, "now": datetime.now(UTC), "t": tenant},
             )
             return [dict(r) for r in rows.mappings().all()]
 

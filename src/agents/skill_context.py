@@ -86,14 +86,23 @@ ASK_SECTIONS: tuple[tuple[str, str | None], ...] = (
     ("references/session-environment.md", "4. Standing user rules injected on claude.ai"),
     ("references/session-environment.md", "5. Answering questions against an existing workspace"),
 )
+# Ask-only answering rules (2026-11-03): open questions answer with insights, and the standing
+# reading rules of the owner's cleaned memory. A platform file beside the package (the package is
+# installed unchanged, config/skill/source.yaml); research runs never read it, so their prompts
+# and the replies cached under them stay as they were.
+ASK_RULES_DIR = CONFIG_DIR / "skill"
+ASK_PLATFORM_SECTIONS: tuple[tuple[str, str | None], ...] = (
+    ("ask-answers.md", "Answering open questions in Ask"),
+    ("ask-answers.md", "Standing reading rules"),
+)
 ASK_DIRECTIVE = (
     "The owner's research skill applies to every answer about an account; follow it. Where the"
     " companion's standing rules and the checklist disagree (for example on the platform lanes),"
     " the checklist wins. In this workspace, computing from the files means the `describe_table`"
     " and `query_table` tools when they are offered, or counting over a whole file that is"
     " provided; never count from passages. The answer rules above (citations, the full table)"
-    " still apply; the skill's pull, build and delivery steps describe research runs, not"
-    " answers."
+    " still apply, except that an open question answers with insights (the Ask answers file);"
+    " the skill's pull, build and delivery steps describe research runs, not answers."
 )
 
 
@@ -115,19 +124,29 @@ def tool_names() -> tuple[str, ...]:
     return tuple(sorted(names, key=len, reverse=True))
 
 
+@lru_cache(maxsize=256)
+def _tool_pattern(extra: tuple[str, ...]) -> re.Pattern[str] | None:
+    """Every tool name (the configured ones, then ``extra``) as ONE compiled pattern, in the
+    order they are tried (longest first from ``tool_names``): compiled once per name set, where
+    each call used to compile and run one pattern per name over the whole text (the prompts of
+    every model call pass here; it showed on the event loop, 2026-11-04)."""
+    names = [n.strip() for n in (*tool_names(), *extra) if n.strip()]
+    if not names:
+        return None
+    return re.compile(r"(?<!\w)(?:" + "|".join(re.escape(n) for n in names) + r")(?!\w)", re.I)
+
+
+_REPEATED = re.compile(
+    rf"\b{re.escape(REPLACEMENT)}\b(?:\s*(?:,|and)\s*\b{re.escape(REPLACEMENT)}\b)+", re.I
+)
+
+
 def strip_tool_names(text: str, extra: tuple[str, ...] = ()) -> str:
     """The text with every data or enrichment tool name replaced by "6th agents"."""
-    for name in (*tool_names(), *extra):
-        if name.strip():
-            text = re.sub(
-                r"(?<!\w)" + re.escape(name.strip()) + r"(?!\w)", REPLACEMENT, text, flags=re.I
-            )
-    return re.sub(
-        rf"\b{re.escape(REPLACEMENT)}\b(?:\s*(?:,|and)\s*\b{re.escape(REPLACEMENT)}\b)+",
-        REPLACEMENT,
-        text,
-        flags=re.I,
-    )
+    pattern = _tool_pattern(tuple(extra))
+    if pattern is not None:
+        text = pattern.sub(REPLACEMENT, text)
+    return _REPEATED.sub(REPLACEMENT, text)
 
 
 def scrub_client_terms(text: str) -> str:
@@ -178,11 +197,15 @@ def skill_context(task_kind: str, archive: Path | None = None) -> str:
 
 @lru_cache(maxsize=4)
 def ask_skill_context(archive: Path | None = None) -> str:
-    """The skill text every Ask answer follows (``ASK_SECTIONS``), tool names and guarded names
-    stripped like every other skill reference. Fails closed: a missing file or section raises,
+    """The skill text every Ask answer follows (``ASK_SECTIONS``, then the platform's own Ask
+    rules, ``ASK_PLATFORM_SECTIONS``), tool names and guarded names stripped like every other
+    skill reference. Fails closed: a missing file or section raises,
     and so does a text too long to send whole."""
-    text = f"{ASK_DIRECTIVE}\n\n" + _assemble(
-        archive or ARCHIVE_DIR, ASK_SECTIONS, "ask", strict=True
+    text = (
+        f"{ASK_DIRECTIVE}\n\n"
+        + _assemble(archive or ARCHIVE_DIR, ASK_SECTIONS, "ask", strict=True)
+        + "\n\n"
+        + _assemble(ASK_RULES_DIR, ASK_PLATFORM_SECTIONS, "ask", strict=True)
     )
     if len(text) > MAX_CHARS:
         raise ValueError(f"Ask skill context is {len(text)} characters; refusing to truncate it")

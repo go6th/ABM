@@ -39,6 +39,43 @@ async def test_plan_seed_matches_the_configuration() -> None:
     }
 
 
+async def test_a_model_fallback_is_a_usage_event_with_both_models_and_its_cost() -> None:
+    """ADR-0119 (migration 0100): a research step served by the Claude default after the chosen
+    model failed its schema is billed as a ``model_fallback`` usage event carrying both model ids
+    and what it cost, once per request (a replayed settlement adds nothing)."""
+    import json
+
+    t = new_tenant("mt-fallback")
+    detail = {
+        "step": "abm_pass1_extract",
+        "from": "m-chosen",
+        "to": "m-claude",
+        "reason": "schema_invalid",
+        "discarded_usd": "0.03",
+        "extra_usd": "0.0412",
+    }
+    subject = "run-1:abm_pass1_extract:ab12"
+    async with tenant_txn(t) as s:
+        assert await events.record(s, "model_fallback", subject, NOW, detail=detail)
+        assert not await events.record(s, "model_fallback", subject, NOW, detail=detail)
+    rows = _db("SELECT kind, units, detail FROM usage_events WHERE tenant_id = %s", t)
+    assert [(k, u, d) for k, u, d in rows] == [("model_fallback", 1, detail)]
+    # the detail is an object or nothing; any other kind is still refused
+    with pytest.raises(psycopg.errors.CheckViolation):
+        _db(
+            "INSERT INTO usage_events (tenant_id, kind, subject_id, idempotency_key, period, at,"
+            " detail) VALUES (%s, 'model_fallback', 'x', 'k-arr', '2026-03', now(), %s::jsonb)",
+            t,
+            json.dumps([1]),
+        )
+    with pytest.raises(psycopg.errors.CheckViolation):
+        _db(
+            "INSERT INTO usage_events (tenant_id, kind, subject_id, idempotency_key, period, at)"
+            " VALUES (%s, 'free_form', 'x', 'k-free', '2026-03', now())",
+            t,
+        )
+
+
 async def test_usage_events_are_idempotent_and_settlement_emits_once() -> None:
     from account_intelligence.runs import lifecycle
 
@@ -169,7 +206,7 @@ async def test_reconcile_catches_planted_drift(plane: Plane, browser: Browser) -
     started = await browser.call(
         "POST",
         "/v1/runs",
-        json={"domain": "drift.example"},
+        json={"domain": "drift.example", "confirm": True, "confirm_again": True},
         headers={"Idempotency-Key": uuid4().hex},
     )
     assert started.status_code == 202, started.text
@@ -179,7 +216,7 @@ async def test_reconcile_catches_planted_drift(plane: Plane, browser: Browser) -
         await browser.call(
             "POST",
             "/v1/runs",
-            json={"domain": "drift.example"},
+            json={"domain": "drift.example", "confirm": True, "confirm_again": True},
             headers={"Idempotency-Key": replay_key},
         )
     async with tenant_txn(t) as s:

@@ -112,6 +112,14 @@ PROSE_WORDS = (
     "implications",
     "means for",
     "strategy",
+    # an evidence question keeps the passage tools beside the tables: "which SI does the most
+    # work, based on your findings" is answered by profile lines ("Client: UCB"), not a column
+    # count (UCB 2026-11-04: tables alone missed the direct evidence search had found)
+    "based on",
+    "findings",
+    "evidence",
+    "does the most",
+    "do the most",
 )
 CLASSIFIER_SCHEMA: dict[str, Any] = {
     "type": "object",

@@ -11,6 +11,8 @@
 * ``POST /tasks/access-expiry``: warns idle users and ends the access of those past their client's
   idle days (``replica.access``).
 * ``POST /tasks/isolation-check``: the nightly isolation check (``replica.isolation``).
+* ``POST /tasks/documents-abandon``: the daily job that ends uploads never finished
+  (``documents.service.mark_abandoned``).
 
 Private workspaces (migration 0063): every task starts as a system job, which is all a tick
 needs (it reads identifiers across one client's users). A task about one run, document or
@@ -34,7 +36,8 @@ from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import text
 
-from account_intelligence.db.session import set_system, tenant_txn
+from account_intelligence.db.session import tenant_txn
+from account_intelligence.db.system_scope import set_system
 from account_intelligence.runs import lifecycle
 from account_intelligence.workflow.runner import execute_slice
 from obs.logging import logger
@@ -77,6 +80,25 @@ async def _act_as_owner_of(kind: str, tenant_id: UUID, item_id: UUID) -> None:
 # 120 s default timeout, with retries): on the event loop it froze /healthz and Cloud Run shut the
 # worker down mid-slice (staging 2026-10-28, twice). It runs in a thread now, with a bound.
 TOKEN_CHECK_TIMEOUT_S = 20.0
+
+
+def _db_unavailable(error: Exception) -> HTTPException:
+    """The 503 a tick answers when the database cannot be reached, logged once at WARNING with
+    the error class. A stopped Cloud SQL instance turned every scheduled tick into a traceback
+    at ERROR, several a minute, for as long as it stayed stopped (staging 2026-11-04); the tick
+    has nothing to do without the database and the scheduler simply tries again."""
+    log.warning("tasks.db_unavailable", extra={"error_class": type(error).__name__})
+    return HTTPException(503, "database unavailable")
+
+
+async def _tenant_ids(untenanted_session: Any) -> list[UUID]:
+    """Every client's id for a tick that visits each client, or the 503 of ``_db_unavailable``."""
+    try:
+        async with untenanted_session() as plain:
+            rows = await plain.execute(text("SELECT tenant_id FROM operator_tenant_overview()"))
+            return [UUID(str(r.tenant_id)) for r in rows]
+    except Exception as error:  # noqa: BLE001 - any failure to reach the database
+        raise _db_unavailable(error) from error
 
 
 async def _authorise(request: Request, authorization: str | None) -> Any:
@@ -283,7 +305,8 @@ async def maildrive_sync(
     from datetime import UTC, datetime, timedelta
 
     from account_intelligence.api.tenant_plane import plane_of
-    from account_intelligence.db.session import tenant_txn, untenanted_session
+    from account_intelligence.db.session import tenant_txn
+    from account_intelligence.db.system_scope import untenanted_session
     from connectors_client import lifecycle
 
     now = datetime.now(UTC)
@@ -359,7 +382,7 @@ async def access_expiry(
     from datetime import UTC, datetime
 
     from account_intelligence.api.tenant_plane import plane_of
-    from account_intelligence.db.session import untenanted_session
+    from account_intelligence.db.system_scope import untenanted_session
     from account_intelligence.replica import access
     from connectors_client import lifecycle
 
@@ -398,7 +421,10 @@ async def sweep(
     from account_intelligence.api.main import sweep_pass
 
     set_system()  # a system job: it sees every user's orphans (this request's context only)
-    await sweep_pass(request.app)
+    try:
+        await sweep_pass(request.app)
+    except Exception as error:  # noqa: BLE001 - see _tenant_ids
+        raise _db_unavailable(error) from error
     return {"swept": True}
 
 
@@ -411,15 +437,11 @@ async def audit_verify(
     await _authorise(request, authorization)
     from datetime import UTC, datetime
 
-    from account_intelligence.db.session import untenanted_session
+    from account_intelligence.db.system_scope import untenanted_session
     from audit import chain
 
     now = datetime.now(UTC)
-    async with untenanted_session() as plain:
-        tenants = [
-            UUID(str(r.tenant_id))
-            for r in await plain.execute(text("SELECT tenant_id FROM operator_tenant_overview()"))
-        ]
+    tenants = await _tenant_ids(untenanted_session)
     broken = 0
     # LOOP(audit verify tenants): cap=every client once per pass; exit=last client
     for tenant in tenants:
@@ -448,7 +470,7 @@ async def notify_relay(
     from datetime import UTC, datetime
 
     from account_intelligence.api.tenant_plane import plane_of
-    from account_intelligence.db.session import untenanted_session
+    from account_intelligence.db.system_scope import untenanted_session
     from spend.config import load_v2_config
     from spend.notify import MailNotificationSender, relay
     from tenancy.ports import UnconfiguredMailer
@@ -463,11 +485,7 @@ async def notify_relay(
     ]
     attempts = int(load_v2_config().notify_max_attempts)
     now = datetime.now(UTC)
-    async with untenanted_session() as plain:
-        tenants = [
-            UUID(str(r.tenant_id))
-            for r in await plain.execute(text("SELECT tenant_id FROM operator_tenant_overview()"))
-        ]
+    tenants = await _tenant_ids(untenanted_session)
     delivered = failed = gave_up = 0
     set_system()  # admin emails of each client are read in system scope (this request only)
     # LOOP(notification relay clients): cap=every client once per pass; exit=last client
@@ -511,17 +529,13 @@ async def metrics_tick(
     import time
     from datetime import UTC, datetime
 
-    from account_intelligence.db.session import untenanted_session
+    from account_intelligence.db.system_scope import untenanted_session
     from obs import stuck
     from obs.setup import drops, record
 
     record("heartbeat", time.time(), {"service": os.environ.get("SERVICE_ROLE") or "api"})
     now = datetime.now(UTC)
-    async with untenanted_session() as plain:
-        tenants = [
-            UUID(str(r.tenant_id))
-            for r in await plain.execute(text("SELECT tenant_id FROM operator_tenant_overview()"))
-        ]
+    tenants = await _tenant_ids(untenanted_session)
     counts: dict[tuple[str, str], int] = {}
     set_system()  # every user's runs are counted (this request's context only)
     # LOOP(metrics stuck count clients): cap=every client once per pass; exit=last client
@@ -556,6 +570,24 @@ async def metrics_tick(
 _DROPS_SENT: dict[str, int] = {}  # this instance's drops already counted on the metric
 
 
+@router.post("/documents-abandon")
+async def documents_abandon(
+    request: Request, authorization: str | None = Header(default=None)
+) -> dict[str, Any]:
+    """The daily abandoned-upload job (Cloud Scheduler, 02:20): documents still awaiting their
+    bytes 24 hours after they began are marked ``abandoned`` and their quarantine object is
+    deleted."""
+    await _authorise(request, authorization)
+    from datetime import UTC, datetime
+
+    from account_intelligence.db.system_scope import untenanted_session
+    from documents.service import mark_abandoned
+
+    docs = getattr(request.app.state.container, "documents", None)
+    marked = await mark_abandoned(untenanted_session, datetime.now(UTC), service=docs)
+    return {"abandoned": marked}
+
+
 @router.post("/isolation-check")
 async def isolation_check(
     request: Request, authorization: str | None = Header(default=None)
@@ -565,7 +597,7 @@ async def isolation_check(
     await _authorise(request, authorization)
     from datetime import UTC, datetime
 
-    from account_intelligence.db.session import untenanted_session
+    from account_intelligence.db.system_scope import untenanted_session
     from account_intelligence.replica import isolation
 
     done = await isolation.run_check(request.app, untenanted_session, tenant_txn, datetime.now(UTC))

@@ -81,7 +81,15 @@ def test_in_the_cloud_the_command_binds_the_cloud_sql_engine_first(
         seen.append(sessions)
         return _report(runs_checked=1)
 
+    roles: list[tuple[object, str]] = []
+
+    async def role(target: object, service_role: str) -> str:
+        roles.append((target, service_role))
+        return "ok"
+
     monkeypatch.setattr(adapters, "cloud_sql_engine", engine)
+    # the engine is a marker: the startup role check (ADR-0123) is stubbed and must see the job role
+    monkeypatch.setattr(adapters, "check_db_role", role)
     monkeypatch.setattr(session, "bind_engine", lambda e: seen.append(e))
     monkeypatch.setattr(nightly, "spend_invariants", check)
     cloud = SimpleNamespace(
@@ -91,11 +99,13 @@ def test_in_the_cloud_the_command_binds_the_cloud_sql_engine_first(
         db_name="ai",
         db_pool_size=5,
         db_max_overflow=5,
+        service_role="job",
     )
     from account_intelligence.worker.__main__ import _check
 
     assert _check("spend-invariants", cloud) == 0
     assert calls == [("p:r:i", 5, 5)] and seen[0] is marker and closed == [True]
+    assert roles == [(marker, "job")]  # the job checked its database role before binding
 
 
 def test_the_command_takes_no_arguments() -> None:

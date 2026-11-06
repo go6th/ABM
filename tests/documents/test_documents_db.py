@@ -93,6 +93,7 @@ async def test_file_upload_runs_through_scan_parse_and_index(
     ("name", "data", "reason"),
     [
         ("virus.txt", fixtures.eicar_txt(), "infected"),
+        # stock ClamAV passes macros: the structure guard in front of it refuses them everywhere
         ("macro.docx", fixtures.macro_docx(), "infected"),
         ("report.pdf", fixtures.exe_as_pdf(), "wrong_type"),
         ("notes.docx", fixtures.meeting_pdf(), "wrong_type"),
@@ -148,14 +149,15 @@ async def test_oversized_wrong_type_and_audio_are_refused_before_upload(
     assert bad_token.value.code == "upload_closed"
 
 
-async def test_an_unavailable_scanner_rejects_without_parsing(
+async def test_an_unavailable_scanner_fails_the_scan_without_parsing(
     tenant_a: UUID, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     called = _never_parse(monkeypatch)
     svc = service(tmp_path, scanner=UnavailableScanner())
     done = await upload(svc, tenant_a, "notes.txt", b"plain notes\n")
     doc = UUID(done["document_id"])
-    assert await svc.process(tenant_a, doc) == "rejected"
+    assert await svc.process(tenant_a, doc) == "scan_failed"  # not rejected, not clean
+    assert doc_row(doc)["status"] == "scan_failed"
     assert doc_row(doc)["reject_reason"] == "scan_unavailable" and called == []
     # kept in quarantine for a later retry, never promoted
     assert (tmp_path / f"quarantine/tenants/{tenant_a}/{doc}/raw").exists()
@@ -169,7 +171,7 @@ async def test_company_is_detected_and_ambiguity_is_never_guessed(
     two = await upload(svc, tenant_a, "compare.txt", fixtures.two_companies_txt())
     for d in (clear, two):
         assert (
-            await svc.process(tenant_a, UUID(d["document_id"])) == "parsed"
+            await svc.process(tenant_a, UUID(d["document_id"])) == "needs_account"
         )  # unbound: not indexed
     detected = doc_row(clear["document_id"])["detected_company"]
     assert detected["status"] == "resolved"
@@ -283,7 +285,7 @@ async def test_documents_are_invisible_to_another_tenant(
     assert await svc.list(tenant_b, None) == []
     async with tenant_txn(tenant_b) as s:
         assert await repo.passages(s, doc) == []
-    assert doc_row(doc)["status"] == "parsed"
+    assert doc_row(doc)["status"] == "needs_account"
 
 
 async def test_page_limit_stops_the_parse_with_its_reason(tenant_a: UUID, tmp_path: Path) -> None:

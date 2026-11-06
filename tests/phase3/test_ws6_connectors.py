@@ -24,6 +24,7 @@ from connectors_client import drive, ports, scopes
 from connectors_client.ports import DriveMeta
 from tests.conftest import ADMIN_DSN
 from tests.fakes.connectors import FOLDER, TOKEN_CANARY, FakeCrm, FakeDrive, FakeOAuth
+from tests.fakes.flags import enable_flags
 from tests.phase3.conftest import (
     Browser,
     Plane,
@@ -194,6 +195,7 @@ async def _setup(
     oauth_scopes: tuple[str, ...] | None = None,
 ) -> tuple[UUID, FakeOAuth, Any]:
     t = new_tenant("ws6")
+    enable_flags(ADMIN_DSN, [t])  # the connector routes are gated (api/flags.py)
     slug = f"acme-{uid()}"
     add_oidc_connection(t, plane, slug)
     add_member(t, f"{slug}:root", "admin")

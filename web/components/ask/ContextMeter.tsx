@@ -4,7 +4,7 @@
 // the whole conversation. Nothing is shown until the conversation has an answer.
 import { useEffect, useId, useRef, useState } from "react";
 import { api } from "@/lib/api";
-import { contextTokens, sumUsage, type TurnUsage } from "@/lib/chat-usage";
+import { contextTokens, readTokens, sumUsage, type TurnUsage } from "@/lib/chat-usage";
 import type { ChatModel, ChatModels } from "@/lib/gen/api.gen";
 import { dollars, tokenCount } from "@/lib/usage";
 
@@ -44,11 +44,15 @@ export function ContextMeter({ usages, modelId }: {
   if (!latest) return null;
 
   const total = sumUsage(usages);
-  const used = contextTokens(latest);
+  // the window share is the last round's prompt; a turn that did not report it (stored before
+  // 2026-11-04) shows the tokens it read, never a share computed from every round added up
+  const fill = contextTokens(latest);
+  const read = readTokens(latest);
+  const used = fill ?? read;
   const id = latest.model ?? modelId;
   const model = models?.find((m) => m.id === id) ?? null;
   const size = model?.context_window ?? null;
-  const share = size ? Math.min(1, used / size) : null;
+  const share = size && fill !== null ? Math.min(1, fill / size) : null;
   const percent = share === null ? null : Math.round(share * 100);
   const label = percent === null ? `${tokenCount(used)} tokens` : `${percent}% of the context used`;
   const cached = total.cacheRead;
@@ -85,14 +89,14 @@ export function ContextMeter({ usages, modelId }: {
             {percent === null ? null : <span className="mut"> · {percent}%</span>}
           </p>
           <dl className="usage-rows">
-            <div><dt>Latest answer</dt><dd>{tokenCount(used)} in · {tokenCount(latest.output)} out</dd></div>
+            <div><dt>Latest answer</dt><dd>{tokenCount(read)} read · {tokenCount(latest.output)} out</dd></div>
             <div><dt>This conversation</dt><dd>{tokenCount(total.input + cached + total.cacheWrite)} in · {tokenCount(total.output)} out</dd></div>
             <div><dt>Served from cache</dt><dd>{tokenCount(cached)} tokens</dd></div>
             <div><dt>Cost so far</dt><dd>{dollars(total.costUsd)}</dd></div>
             <div><dt>Model</dt><dd>{model?.display_name ?? (latest.model && latest.model !== "workspace-local" ? latest.model : "Workspace answers")}</dd></div>
           </dl>
           <p className="mut xs-text">
-            The context is everything the model read for the latest answer, cached input included. Its window is the most the model can read at once.
+            The context is the prompt of the latest answer&apos;s last step, cached input included; its window is the most the model can read at once. An answer that looks things up reads in several steps, so the tokens it read can be more than its context.
           </p>
         </div>
       ) : null}

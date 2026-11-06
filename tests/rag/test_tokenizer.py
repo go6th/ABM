@@ -17,11 +17,10 @@ CFG = load_config()
 def test_the_shared_tokenizer_strips_punctuation_and_keeps_dates_whole() -> None:
     """The index side and the query side call the same function: punctuation never sticks to a
     word, a slash separates, and dates and versions stay one token."""
-    from account_intelligence.rag import reflection, retrieval
+    from account_intelligence.rag import retrieval
     from account_intelligence.rag.tokenizer import tokenize
 
-    assert retrieval.tokenize is tokenize  # retrieval imports the shared one…
-    assert reflection.tokenize is tokenize  # …and reflection re-exports retrieval's
+    assert retrieval.tokenize is tokenize  # retrieval imports the shared one
     assert tokenize('"(Salesforce," said Veeva/Salesforce on 2026-03-01: v2.1 shipped.') == (
         "salesforce",
         "said",

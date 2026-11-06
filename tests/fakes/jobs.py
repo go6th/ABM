@@ -138,6 +138,7 @@ class Recorder:
     stored: dict[str, Any] = field(default_factory=dict)
     texts: dict[str, str] = field(default_factory=dict)
     evidence: list[tuple[str, tuple[str, ...], int, bool, str | None]] = field(default_factory=list)
+    partial_reasons: dict[str, str | None] = field(default_factory=dict)
     claims: list[Any] = field(default_factory=list)
     saves: int = 0
     passes: dict[int, Any] = field(default_factory=dict)
@@ -184,10 +185,12 @@ class Recorder:
         expected_calls: int,
         cap_hit: bool,
         not_attempted_reason: str | None,
+        partial_reason: str | None = None,
     ) -> None:
         self.evidence.append(
             (row_key, tuple(call_refs), expected_calls, cap_hit, not_attempted_reason)
         )
+        self.partial_reasons[row_key] = partial_reason
 
     async def submit_claims(self, claims: Sequence[Any]) -> None:
         self.claims.extend(claims)

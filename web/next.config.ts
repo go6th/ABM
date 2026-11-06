@@ -9,9 +9,6 @@ const config: NextConfig = {
   // A second dev server (the parity suite) builds into its own directory so it does not take
   // the lock of a developer's running `next dev`.
   distDir: process.env.NEXT_DIST_DIR ?? ".next",
-  // *.dev.tsx files are pages only in development (the /__design gallery); a production build
-  // has no such routes and none of their sample content.
-  pageExtensions: process.env.NODE_ENV === "production" ? ["tsx", "ts"] : ["dev.tsx", "tsx", "ts"],
   reactStrictMode: true,
   poweredByHeader: false,
   // No source maps reach the browser in production (explicit: the default could change).

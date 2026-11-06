@@ -6,12 +6,15 @@
 import Link from "next/link";
 import type { SheetTabRef } from "@/lib/gen/api.gen";
 
-/** A tab's address: the main sheet is the table's own page, every other sheet is ``?tab=<key>``. */
-export function tabHref(base: string, tab: SheetTabRef): string {
-  return tab.main ? base : `${base}?${new URLSearchParams({ tab: tab.key }).toString()}`;
+/** A tab's address: the main sheet is the table's own page, every other sheet is ``?tab=<key>``.
+ * ``keep``: parameters every tab carries (the match an Ask citation opened), so going back to the
+ * main sheet keeps the matched rows. */
+export function tabHref(base: string, tab: SheetTabRef, keep: Record<string, string> = {}): string {
+  const q = new URLSearchParams({ ...(tab.main ? {} : { tab: tab.key }), ...keep }).toString();
+  return q ? `${base}?${q}` : base;
 }
 
-export function SheetTabs({ tabs, base, current }: { tabs: SheetTabRef[] | null | undefined; base: string; current: string | null }) {
+export function SheetTabs({ tabs, base, current, keep }: { tabs: SheetTabRef[] | null | undefined; base: string; current: string | null; keep?: Record<string, string> }) {
   // an older response has no tabs; a tab without a key or label cannot be opened
   const list = (tabs ?? []).filter((t) => t && t.key && t.label);
   if (list.length < 2) return null;
@@ -20,7 +23,7 @@ export function SheetTabs({ tabs, base, current }: { tabs: SheetTabRef[] | null 
       {list.map((t) => {
         const on = current === null ? Boolean(t.main) : current === t.key;
         return (
-          <Link key={t.key} href={tabHref(base, t)} aria-current={on ? "page" : undefined} prefetch={false} scroll={false}>
+          <Link key={t.key} href={tabHref(base, t, keep)} aria-current={on ? "page" : undefined} prefetch={false} scroll={false}>
             {t.label}
           </Link>
         );

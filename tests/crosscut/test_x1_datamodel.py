@@ -17,7 +17,6 @@ import psycopg
 import pytest
 import yaml
 
-from account_intelligence.config import CONFIG_DIR
 from account_intelligence.db.session import tenant_txn
 from crosscut import conformance
 from datamodel import careers, counts, export_verify, pins
@@ -39,7 +38,7 @@ def _catalog() -> conformance.Catalog:
 
 @pytest.mark.requires_postgres
 def test_the_data_model_matches_its_executable_spec() -> None:
-    spec = yaml.safe_load((CONFIG_DIR / "data_model_spec.yaml").read_text())
+    spec = yaml.safe_load((ROOT / "docs" / "registers" / "data_model_spec.yaml").read_text())
     cat = _catalog()
     with psycopg.connect(ADMIN_DSN) as c:
         nullable = {
@@ -129,7 +128,7 @@ async def test_a_run_stays_pinned_when_config_changes_mid_run(
     r = await browser.call(
         "POST",
         "/v1/runs",
-        json={"domain": "pinned.example"},
+        json={"domain": "pinned.example", "confirm": True, "confirm_again": True},
         headers={"Idempotency-Key": uuid4().hex},
     )
     assert r.status_code == 202, r.text

@@ -22,16 +22,15 @@ from collections.abc import Mapping, Sequence
 from functools import lru_cache
 from typing import Any
 
-import yaml
-
-from account_intelligence.config import CONFIG_DIR
 from documents import places
 
 
 @lru_cache(maxsize=1)
 def config() -> dict[str, Any]:
     """``config/expanders.yaml``, loaded once."""
-    return dict(yaml.safe_load((CONFIG_DIR / "expanders.yaml").read_text()))
+    from documents.config import load_expanders
+
+    return dict(load_expanders())
 
 
 def default_radius() -> float:

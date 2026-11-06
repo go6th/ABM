@@ -115,6 +115,9 @@ async def run_job(tenant_id: UUID, run_id: UUID) -> JobResult:
         engine, connector = await cloud_sql_engine(
             settings.cloud_sql_instance, settings.db_iam_user, settings.db_name
         )
+        from account_intelligence.db.session import assert_service_db_role
+
+        await assert_service_db_role(engine, settings.service_role)
         bind_engine(engine)
     try:
         async with tenant_txn(tenant_id) as s:

@@ -33,6 +33,7 @@ from account_intelligence.replica import archive_tools as ARCH
 from account_intelligence.replica import render as RENDER
 from account_intelligence.replica import result_tables as RESULTS
 from account_intelligence.replica import web_tools as WEB
+from account_intelligence.replica.open_question import OpenQuestion
 from documents import run_python as RP
 from documents import sources as S
 from documents import tables as T
@@ -176,9 +177,11 @@ class TableTools:
 class AccessTools:
     """All six harness tools of one Ask turn, with exposure by route (see the module
     docstring). The table calls and their statistics stay in :class:`TableTools`. ``run_python``
-    (``documents.run_python``) joins the offer on the tabular and mixed routes only when the
-    tenant's ``run_python`` flag is on, and runs the turn's results so far as the code's
-    ``data``."""
+    (``documents.run_python``) joins the offer on every route when the tenant's ``run_python``
+    flag is on (2026-11-03: a prose route computes over its search and page reads too), and runs
+    the turn's results so far as the code's ``data``. ``shape`` is the open question the turn
+    answers (``replica.open_question``): its final answer is checked for insights instead of a
+    table, and carries no headline numbers."""
 
     def __init__(
         self,
@@ -190,8 +193,10 @@ class AccessTools:
         require_data: bool = False,
         archive: ARCH.ArchiveTools | None = None,
         web: WEB.WebTools | None = None,
+        shape: OpenQuestion | None = None,
     ) -> None:
         self.txn = txn
+        self.shape = shape
         # the web lookups (replica.web_tools), offered on every route when the provider is set
         self.web = web
         # the research pages (replica.archive_tools), offered on the prose and mixed routes
@@ -224,7 +229,7 @@ class AccessTools:
     def offered(self, route: str) -> tuple[dict[str, Any], ...]:
         """The tool definitions this route's model is offered."""
         names = list(ROUTE_TOOLS.get(route, ROUTE_TOOLS["prose"]))
-        if self.run_python and route in ("tabular", "mixed"):
+        if self.run_python:
             names.append("run_python")
         if self.archive is not None and route in ("prose", "mixed"):
             names.extend(ARCH.NAMES)
@@ -294,7 +299,12 @@ class AccessTools:
     def _render(self, payload: dict[str, Any]) -> Any:
         """A render_answer call: shape-checked (replica.render), then terminal — the tool loop
         ends and the call's input becomes the answer."""
-        error = RENDER.check_shape(payload) or self._check_answer(payload)
+        original = payload
+        error = RENDER.check_shape(payload, self.shape) or self._check_answer(payload)
+        if error is None and self.shape is not None and payload.get("stats"):
+            # an open question's answer is its insights: the headline numbers are dropped (the
+            # facts table the code builds carries every figure the insights rest on)
+            payload = {**payload, "stats": []}
         answer = payload
         if error is None:
             answer, error = RESULTS.expand(payload, self.table_tools.stored)
@@ -306,7 +316,7 @@ class AccessTools:
         return {
             "ok": True,
             "terminal": True,
-            **({"answer": answer} if answer is not payload else {}),
+            **({"answer": answer} if answer is not original else {}),
         }
 
     def _check_answer(self, payload: dict[str, Any]) -> tuple[str, str] | None:

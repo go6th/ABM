@@ -21,14 +21,16 @@ or a value has the wrong type (errors name the variable, never the value).
 | Variable | Purpose | Secret | Required in | Forbidden in | Used by |
 |---|---|---|---|---|---|
 | `APP_ENV` | Runtime profile; selects adapters and profile rules. | no | - | - | api, worker |
-| `SERVICE_ROLE` | Which entry point this container serves (set by the deployment). | no | - | - | api, worker |
+| `SERVICE_ROLE` | Which routes this process serves (api/planes.py): api = /v1 and /operator, worker = /tasks, job and migrate = probes only, all = everything (dev and test only; a staging or production web process refuses to start with it). Set by the deployment. | no | - | - | api, worker |
 | `LOG_LEVEL` | Minimum level of the structured JSON logs. | no | - | - | api, worker |
 | `PORT` | HTTP port the API listens on (Cloud Run injects it). | no | - | - | api, worker |
 | `K_SERVICE` | Set by Cloud Run on services: a dev or test profile is refused when present. | no | - | - | api, worker |
 | `CLOUD_RUN_JOB` | Set by Cloud Run on jobs: a dev or test profile is refused when present. | no | - | - | job, migrate |
 | `CONFIG_DIR` | Directory of the versioned YAML config (image default). | no | - | - | api, worker |
 | `DATABASE_URL` | Async SQLAlchemy URL of the NOBYPASSRLS runtime role (local profiles only). | **secret** | dev, test | - | api, worker |
-| `CHECKPOINT_DATABASE_URL` | psycopg URL for the run checkpointer, direct to the writer (no pooler). | **secret** | dev, staging, production | - | api, worker |
+| `CHECKPOINT_DATABASE_URL` | psycopg URL for the run checkpointer, direct to the writer (no pooler). Local profiles; staging and production sign in with IAM on CLOUD_SQL_PRIVATE_IP (ADR-0125). | **secret** | dev | - | api, worker |
+| `CLOUD_SQL_PRIVATE_IP` | Private IP of the Cloud SQL instance: the checkpointer signs in there with the IAM user and a short-lived token (ADR-0125); worker and jobs only. | no | - | - | worker |
+| `CLOUD_SQL_CA_FILE` | Server CA of the Cloud SQL instance (PEM path): the checkpointer then verifies the server (sslmode=verify-ca); unset: encrypted, unverified (sslmode=require). | no | - | - | worker |
 | `DB_POOL_SIZE` | Engine connections kept per process (the stack sets 5; the connection budget is max instances x (DB_POOL_SIZE + DB_MAX_OVERFLOW), see the registry comment). | no | - | - | api, worker |
 | `DB_MAX_OVERFLOW` | Extra engine connections per process above DB_POOL_SIZE (the stack sets 5). | no | - | - | api, worker |
 | `CLOUD_SQL_INSTANCE` | Cloud SQL connection name (project:region:instance). | no | staging, production | - | api, worker |
@@ -37,6 +39,8 @@ or a value has the wrong type (errors name the variable, never the value).
 | `MIGRATOR_DATABASE_URL` | Owner-role URL used only by the migration step. | **secret** | - | - | migrate |
 | `APP_RW_PASSWORD` | Password the migrations set on the app_rw runtime role (migration step only). | **secret** | - | - | migrate |
 | `APP_RW_IAM_USERS` | Comma-separated Cloud SQL IAM database users that migration 0071 makes members of app_rw (nothing else); unset: no grant. | no | - | - | migrate |
+| `APP_API_IAM_USERS` | Comma-separated Cloud SQL IAM database users that every migrate run moves from app_rw to app_api (migration 0101, ADR-0123); unset: no change. | no | - | - | migrate |
+| `APP_WORKER_IAM_USERS` | Comma-separated Cloud SQL IAM database users (the worker and the jobs) that every migrate run moves from app_rw to app_worker (migration 0101); unset: no change. | no | - | - | migrate |
 | `JWKS_URL` | JWKS endpoint that signs tenant API bearer tokens. | no | staging, production | - | api, worker |
 | `JWT_AUDIENCE` | Expected audience of tenant bearer tokens. | no | staging, production | - | api, worker |
 | `JWT_ISSUER` | Expected issuer of tenant bearer tokens. | no | staging, production | - | api, worker |
@@ -67,8 +71,11 @@ or a value has the wrong type (errors name the variable, never the value).
 | `TASKS_SERVICE_ACCOUNT` | Service account Cloud Tasks signs OIDC tokens as. | no | staging, production | - | api, worker |
 | `TASKS_AUDIENCE` | Audience the worker expects on task tokens. | no | staging, production | - | api, worker |
 | `BLOB_MOUNT_DIR` | Read-only mount of the payload bucket on the worker (/mnt/blobs); the parser sandbox reads documents there instead of a whole-file copy in memory. Required for the worker in the cloud. | no | - | - | worker |
+| `QUARANTINE_BUCKET` | GCS bucket where uploads wait for their scan (one-day delete rule, set by Terraform). Unset: quarantine is a prefix of the payload bucket. | no | - | - | api, worker |
+| `QUARANTINE_DIR` | Separate local directory for quarantined uploads (a local bucket). Unset in the compose files: the development object store serves one root. | no | - | - | api, worker |
 | `PAYLOAD_BUCKET` | GCS bucket for raw payloads and exports (per-tenant prefixes). | no | staging, production | - | api, worker |
 | `REDIS_URL` | Redis URL (redis:// locally, rediss:// for Memorystore with TLS): the shared rate limiters (sign-in and providers) and the research cache index. Unset: in-process rate buckets and Postgres-only cache lookups. | no | staging, production | - | api, worker |
+| `REDIS_PINNED_HOST` | The Memorystore private IP that REDIS_URL must name in staging and production (Terraform's module.cache.host; ADR-0125): a REDIS_URL elsewhere is refused. | no | staging, production | - | api, worker |
 | `DEV_ASSUME_PROVIDER_BALANCE` | Local stack only: treat every provider balance as funded (unattended runs). | no | - | staging, production | worker |
 | `DEV_AUTO_APPROVE_CAPS` | Local stack only: approve run caps as tenant policy without a person. | no | - | staging, production | worker |
 | `NEXT_DIST_DIR` | Web build: Next.js output directory override (parity builds). | no | - | - | web |
@@ -77,15 +84,16 @@ or a value has the wrong type (errors name the variable, never the value).
 | `RUN_SWEEPER` | Worker: end runs whose worker died (lease expired for ORPHAN_AFTER_S) PARTIAL worker_lost at startup and every SWEEP_INTERVAL_S; off disables the sweeper. | no | - | - | worker |
 | `ORPHAN_AFTER_S` | Seconds a run lease must be expired before the sweeper ends the run. | no | - | - | api, worker |
 | `SWEEP_INTERVAL_S` | Seconds between orphan sweeps in the worker. | no | - | - | api, worker |
+| `RESEARCH_CAPS` | Research caps (dev_limits.research_uncapped). Unset or on: every cap applies. off: lifts the dollar cap, agent budgets, repeat-call limit, slice ceiling, credit pool and per-user research limit; a staging or production process logs research.caps_off at startup. Cloud profiles deploy on. | no | - | - | api, worker |
+| `TOKEN_GUARD` | on: keep the 3x-estimate token pause even while RESEARCH_CAPS=off (with the caps on the guard applies either way). Cloud profiles deploy on. | no | - | - | api, worker |
 | `RESEARCH_CACHE` | Reuse finished provider calls and model replies across runs of one tenant (config/research_cache.yaml). off: every run pays for every call. | no | - | - | api, worker |
-| `DOCUMENT_SCANNER` | Malware scan of uploaded documents before parsing: signature (built-in test and structure signatures, local profiles only) or clamd (CLAMD_HOST). In staging and production anything but clamd fails closed: every upload is rejected unscanned. | no | - | - | api, worker |
+| `DOCUMENT_SCANNER` | Malware scan of uploaded documents before parsing: clamd (CLAMD_HOST), in every environment. With no clamd host or an unreachable daemon every upload fails closed: it is never marked clean. Local compose runs the same ClamAV container as staging. | no | - | - | api, worker |
 | `CLAMD_HOST` | Host of the clamd daemon that scans uploads. | no | - | - | api, worker |
 | `CLAMD_PORT` | TCP port of the clamd daemon. | no | - | - | api, worker |
 | `AUDIO_TRANSCRIPTION` | Speech to text with speaker labels for uploaded audio. Only off exists until a vendor is chosen: audio uploads are rejected with a clear message. | no | - | - | api, worker |
 | `PUBLIC_BASE_URL` | Public HTTPS origin of the web app (OIDC redirects, links). | no | staging, production | - | api, worker |
 | `LLM_ACCESS` | How the model provider is reached (decision D-19). | no | - | - | api, worker |
 | `VERTEX_REGION` | Vertex AI region when LLM_ACCESS=vertex_ai. | no | - | - | api, worker |
-| `MODEL_ROUTER` | Route model calls through the recorded router (legacy switch). | no | - | - | api, worker |
 | `ANTHROPIC_SECRET` | Secret Manager secret id holding the model API key. | no | - | - | api, worker |
 | `MOONSHOT_BASE_URL` | Kimi K3 API base URL (https): Moonshot AI, or https://ollama.com/v1 (Ollama). | no | - | - | api, worker |
 | `MOONSHOT_API_DIALECT` | Which Kimi K3 API MOONSHOT_BASE_URL serves: moonshot, or ollama (Ollama Cloud). | no | - | - | api, worker |
@@ -186,3 +194,4 @@ or a value has the wrong type (errors name the variable, never the value).
 | `OBJECT_STORE_ACCESS_KEY` | S3-compatible store replaced by Cloud Storage; never read. |
 | `OBJECT_STORE_SECRET_KEY` | S3-compatible store replaced by Cloud Storage; never read. |
 | `OBJECT_STORE_REGION` | S3-compatible store replaced by Cloud Storage; never read. |
+| `MODEL_ROUTER` | The dormant model router was removed (ADR-0113); never read. |

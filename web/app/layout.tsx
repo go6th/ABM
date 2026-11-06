@@ -5,6 +5,7 @@ import "@/ui/components.css";
 import "@/ui/shell.css";
 import "@/ui/auth.css";
 import "@/ui/ask.css";
+import "@/ui/ask-insights.css";
 
 // The proxy creates a request-scoped CSP nonce. Dynamic rendering lets Next attach that nonce
 // to its client scripts instead of serving prerendered HTML with unusable nonce-less scripts.

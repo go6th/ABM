@@ -1,8 +1,11 @@
 """Run a document parser in the sandbox subprocess (``documents.sandbox_child``) and read its units.
 
 The child gets an empty environment (only ``CONFIG_DIR``, so an installed image finds its config),
-Python's isolated mode, resource limits and an audit hook that refuses network, processes and
-writes; the parent enforces a wall-clock timeout and caps the text it accepts. A large document is
+Python's isolated mode, the document as a read-only descriptor on fd 0 (never its path), resource
+limits, a kernel filter and an audit hook that refuse network, processes, writes and reads outside
+the code and config; the parent enforces a wall-clock timeout, caps the text it accepts, rejects
+any non-zero exit and records which protections the child applied (``applied``, and the log
+event ``documents.sandbox_applied`` once per distinct set; ADR-0124). A large document is
 planned into parts (``plan_in_sandbox``) and each part is parsed by its own child with the same
 limits (``parse_in_sandbox(part=...)``). A child that dies, times out or prints something that is
 not a unit fails the parse with ``SandboxFailed`` (the error class only; document text never reaches
@@ -21,8 +24,11 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from account_intelligence.config import CONFIG_DIR
+from obs.logging import logger
 
 _LINE_LIMIT = 64 * 1024 * 1024
+_logger = logger(__name__)
+_SEEN: set[str] = set()
 
 
 class SandboxFailed(RuntimeError):
@@ -68,26 +74,47 @@ def _unit(line: bytes) -> ParsedUnit:
     )
 
 
+def _record(found: Any, applied: dict[str, str] | None) -> None:
+    """Keep what the child reports it applied; log each distinct set once per process."""
+    if not isinstance(found, dict):
+        raise SandboxFailed("bad_output")
+    report = {str(k): str(v) for k, v in found.items()}
+    if applied is not None:
+        applied.update(report)
+    state = ",".join(f"{k}={v}" for k, v in sorted(report.items()))[:200]
+    if state not in _SEEN:
+        _SEEN.add(state)
+        _logger.info(
+            "documents.sandbox_applied",
+            extra={"state": state, "degraded": report.get("seccomp") != "on"},
+        )
+
+
 async def _child(
     path: str, kind: str, name: str, memory_mb: int, cpu_s: int, part: dict[str, Any]
 ) -> asyncio.subprocess.Process:
-    return await asyncio.create_subprocess_exec(
-        sys.executable,
-        "-I",
-        "-m",
-        "documents.sandbox_child",
-        path,
-        kind,
-        name[:200],
-        str(memory_mb),
-        str(cpu_s),
-        json.dumps(part),
-        stdin=asyncio.subprocess.DEVNULL,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        env={"PYTHONHASHSEED": "0", "LANG": "C.UTF-8", "CONFIG_DIR": str(CONFIG_DIR)},
-        limit=_LINE_LIMIT,
-    )
+    # the document goes in as a read-only descriptor: the child is never told where it lives
+    document = open(path, "rb")  # noqa: SIM115 - closed below once the child holds its copy
+    try:
+        return await asyncio.create_subprocess_exec(
+            sys.executable,
+            "-I",
+            "-m",
+            "documents.sandbox_child",
+            "-",
+            kind,
+            name[:200],
+            str(memory_mb),
+            str(cpu_s),
+            json.dumps(part),
+            stdin=document,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env={"PYTHONHASHSEED": "0", "LANG": "C.UTF-8", "CONFIG_DIR": str(CONFIG_DIR)},
+            limit=_LINE_LIMIT,
+        )
+    finally:
+        document.close()
 
 
 async def plan_in_sandbox(
@@ -100,6 +127,7 @@ async def plan_in_sandbox(
     cpu_s: int,
     part_bytes: int,
     pages_per_part: int,
+    applied: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     """The document's parts (``documents.parts``), planned in the sandbox: it reads the file."""
     plan = {"plan": {"part_bytes": part_bytes, "pages_per_part": pages_per_part}}
@@ -118,9 +146,11 @@ async def plan_in_sandbox(
         detail = err[:200].decode("ascii", "replace").strip()
         raise SandboxFailed(f"plan_failed:{detail or proc.returncode}"[:80])
     try:
-        parts = json.loads(out)["parts"]
+        planned = json.loads(out)
+        parts = planned["parts"]
     except (json.JSONDecodeError, KeyError, TypeError):
         raise SandboxFailed("bad_output") from None
+    _record(planned.get("sandbox"), applied)
     if not isinstance(parts, list) or not parts:
         raise SandboxFailed("bad_output")
     return [dict(p) for p in parts]
@@ -136,6 +166,7 @@ async def parse_in_sandbox(
     cpu_s: int,
     max_text_bytes: int,
     part: dict[str, Any] | None = None,
+    applied: dict[str, str] | None = None,
 ) -> AsyncIterator[ParsedUnit]:
     """Units of the document at ``path``, or of one part of it (see the module docstring)."""
     proc = await _child(path, kind, name, memory_mb, cpu_s, part or {})
@@ -158,6 +189,12 @@ async def parse_in_sandbox(
                 raise SandboxFailed("unit_too_large") from None
             if not line:
                 break
+            if line.startswith(b'{"sandbox"'):  # the child's own record, not a unit
+                try:
+                    _record(json.loads(line)["sandbox"], applied)
+                except (json.JSONDecodeError, KeyError, TypeError):
+                    raise SandboxFailed("bad_output") from None
+                continue
             try:
                 unit = _unit(line)
             except (json.JSONDecodeError, TypeError, ValueError):

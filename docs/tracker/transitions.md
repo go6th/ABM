@@ -20,11 +20,14 @@ Actor rules apply before any cell (T7): a stage must own the row, the verifier o
 | --- | --- |
 | `budget_cap` | Stopped at the spending limit confirmed for this research |
 | `cap_reached` | Execution cap reached |
+| `careers_site_not_found` | No careers site was found for this company |
 | `claims_dropped` | Claims dropped by verification |
 | `consent_required` | People data consent is needed |
+| `counts_inconsistent` | Posting counts did not add up |
 | `credits_exhausted` | Data provider allowance used up |
 | `deadline` | Deadline reached |
 | `dependency_failed` | A step this row depends on did not finish |
+| `feed_incomplete` | The job feed did not return every posting |
 | `fewer_than_expected` | Fewer results than expected |
 | `hostile_source_dropped` | Hostile source dropped |
 | `lane_not_in_scope` | Lane not in scope for this run |
@@ -36,6 +39,7 @@ Actor rules apply before any cell (T7): a stage must own the row, the verifier o
 | `not_searched_file_only` | Not searched (file-only mode) |
 | `out_of_scope` | Out of scope |
 | `page_cap` | Page cap reached |
+| `postings_not_read` | Some matching postings were not read yet |
 | `pull_not_approved` | A recommended search was not approved |
 | `result_count_unknown` | Result count not reported by the source |
 | `source_failed` | Source failed during execution |

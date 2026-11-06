@@ -70,6 +70,13 @@ def withheld_blocks(run_id: str, blocks: tuple[str, ...]) -> None:
         _logger.info("exports.withheld", extra={"count": len(blocks), "error_code": piece})
 
 
+def releases_scrubbed(count: int) -> None:
+    """Log how many archived copies the workspace zip kept with refused words scrubbed to the
+    record marker (none: nothing logged). A count only, never the words."""
+    if count:
+        _logger.info("exports.releases_scrubbed", extra={"count": count})
+
+
 def leaks_withheld(count: int, parts: tuple[str, ...] = ()) -> None:
     """Log how many rendered texts a client-output rule replaced by the withheld note in a
     delivered set, by part of a file and rule when known. Counts and rule names only: the

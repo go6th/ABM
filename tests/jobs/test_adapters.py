@@ -13,6 +13,7 @@ import pytest
 from account_intelligence.connectors.base import Operation, ProviderCode
 from account_intelligence.connectors.models import FeedArgs, JobOpeningRecord, Provenance
 from jobs import adapters
+from jobs.ports import SourceUnavailable
 
 pytestmark = pytest.mark.asyncio
 
@@ -194,3 +195,16 @@ async def test_the_posting_texts_are_written_side_by_side_and_keep_their_keys() 
     assert time.monotonic() - started < 0.2  # 23 writes of 0.02 s one at a time: 0.46 s
     assert [p.posting_key for p in out.postings] == [f"k{i}" for i in range(24)]
     assert out.postings[0].text_ref == "ref/t0" and out.postings[3].text_ref is None
+
+
+async def test_an_unverified_careers_page_is_not_reported_as_no_careers_site() -> None:
+    """Review 2026-11-05: the research chose a careers page it could not verify; that is an
+    internal miss and must keep blocking, not read as "the company has no careers site"."""
+    unverified = adapters.ConnectorPostingSource(_Deps(), None, careers_page_unverified=True)
+    with pytest.raises(SourceUnavailable) as caught:
+        await unverified.search_board("salesforce", "Salesforce")
+    assert caught.value.reason == "careers_host_unresolved"
+    none = adapters.ConnectorPostingSource(_Deps(), None)
+    with pytest.raises(SourceUnavailable) as caught:
+        await none.search_board("salesforce", "Salesforce")
+    assert caught.value.reason == "careers_host_not_verified"

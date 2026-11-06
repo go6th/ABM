@@ -34,6 +34,7 @@ import pytest
 import yaml
 
 from tests.conftest import ADMIN_DSN, APP_DSN
+from tests.fakes.flags import enable_flags
 from tests.isolation.matrix.plant import CANARY_PREFIX, Table, plant, probe, tenant_tables
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -83,6 +84,9 @@ def _build_world() -> World:
             w.tenants[who] = admin.execute(
                 "INSERT INTO tenants (name) VALUES (%s) RETURNING id", (f"matrix-{who}-synthetic",)
             ).fetchone()[0]
+    # the gated routes (api/flags.py) must reach their handlers in the probes, not the flag's 404
+    enable_flags(ADMIN_DSN, w.tenants.values(), everyone=True)
+    with psycopg.connect(ADMIN_DSN, autocommit=True) as admin:
         for table in tenant_tables(admin):
             w.tables[table.name] = table
             over = (MATRIX["tables"].get(table.name) or {}).get("plant")

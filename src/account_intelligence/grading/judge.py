@@ -74,7 +74,8 @@ def model_profile(task: str, models_path: Path | None = None) -> str:
 
 @lru_cache(maxsize=64)
 def _model_profile(task: str, path: Path, stamp: tuple[int, int]) -> str:
-    raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    loader = getattr(yaml, "CSafeLoader", yaml.SafeLoader)  # the safe loader, in C
+    raw = yaml.load(path.read_text(encoding="utf-8"), Loader=loader)  # noqa: S506
     arm = raw["arms"][raw["active_arm"]]
     return str(raw["profiles"][arm["routes"][task]]["model"])
 

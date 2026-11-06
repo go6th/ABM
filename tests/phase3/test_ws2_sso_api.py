@@ -379,7 +379,7 @@ async def test_admin_actions_need_a_fresh_step_up(plane: Plane, browser: Browser
 async def test_settings_and_cap_decisions_need_a_fresh_step_up(
     plane: Plane, browser: Browser
 ) -> None:
-    """L9: changing settings (data policy, branding, model keys) needs the same fresh step-up as
+    """L9: changing settings (data policy, branding) needs the same fresh step-up as
     managing users; so do the cap decisions until Phase 6 removes them."""
     from account_intelligence.api.policy import ROUTE_POLICIES
     from identity.roles import needs_step_up
@@ -388,8 +388,6 @@ async def test_settings_and_cap_decisions_need_a_fresh_step_up(
         ("PUT", "/v1/settings"),
         ("PUT", "/v1/settings/branding"),
         ("POST", "/v1/settings/branding/logo"),
-        ("PUT", "/v1/chat/provider-key"),
-        ("DELETE", "/v1/chat/provider-key"),
         ("PUT", "/v1/documents/policy"),
         ("POST", "/v1/runs/{run_id}/cap/approve"),
         ("POST", "/v1/runs/{run_id}/cap/reject"),

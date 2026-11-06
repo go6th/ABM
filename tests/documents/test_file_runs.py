@@ -8,7 +8,7 @@ SYNTHETIC data only."""
 from __future__ import annotations
 
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -29,10 +29,14 @@ def build(harness: Harness, scenario: str = "happy") -> Stack:
     return stack
 
 
-async def put_document(who: Client, name: str, data: bytes, account: str | None = None) -> str:
+async def put_document(
+    who: Client, name: str, data: bytes, account: str | None = None, audience: str | None = None
+) -> str:
     body: dict[str, Any] = {"name": name, "size_bytes": len(data)}
     if account:
         body["account_id"] = account
+    if audience:
+        body["audience"] = audience
     started = await who.browser.call("POST", "/v1/documents/uploads", json=body)
     assert started.status_code == 201, started.text
     up = started.json()
@@ -68,7 +72,12 @@ async def start_file_run(stack: Stack, who: Client, docs: list[str], **file: Any
     return await who.browser.call(
         "POST",
         "/v1/runs",
-        json={"input_mode": "file", "file": {"document_ids": docs, **file}},
+        json={
+            "input_mode": "file",
+            "file": {"document_ids": docs, **file},
+            "confirm": True,
+            "confirm_again": True,
+        },
         headers={"Idempotency-Key": uuid4().hex},
     )
 
@@ -82,7 +91,7 @@ async def indexed_documents(stack: Stack, who: Client) -> tuple[list[str], str]:
     ]
     await process(stack)
     status = (await who.browser.call("GET", f"/v1/documents/{docs[1]}/status")).json()
-    assert status["stage"] == "parsed" and status["needs_company"] is True
+    assert status["stage"] == "needs_account" and status["needs_company"] is True
     assert status["company"]["company"]["domain"] == "northwind.example"
     confirmed = await who.browser.call(
         "POST",
@@ -148,6 +157,49 @@ async def test_file_mode_run_completes_with_internal_facts_and_citations(harness
     assert gate == [("pass",)]
     # no client file is built in file-only mode: nothing private can reach one
     assert admin("SELECT count(*) FROM deliverables WHERE run_id = %s", run) == [(0,)]
+    await stack.close(a)
+
+
+async def test_an_upload_bound_to_an_account_is_analysed_by_the_model_by_itself(
+    harness: Harness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Owner's rule 2026-11-03: a model reads every upload and the account page shows what it
+    found. An indexed document bound to an account starts its own file-mode run (keyed by the
+    document, so a re-index replays it), which extracts facts, writes the summary sections and
+    completes; the account page then has key findings and a one-minute version. An owner-only
+    upload starts nothing."""
+    from account_intelligence.app.auto_analysis import idempotency_key
+
+    monkeypatch.setenv("RESEARCH_AUTOMATIC_STARTS", "on")
+    stack = build(harness)
+    a = await stack.client("docs-auto")
+    _, account = await indexed_documents(stack, a)
+    doc = await put_document(a, "plan.docx", fixtures.notes_docx(), account=account)
+    private = await put_document(
+        a, "board.pdf", fixtures.meeting_pdf(), account=account, audience="owner_only"
+    )
+    await process(stack)
+    found = admin(
+        "SELECT id, status, run_input FROM account_runs WHERE idempotency_key = %s",
+        idempotency_key(UUID(doc)),
+    )
+    assert len(found) == 1, found
+    run = str(found[0][0])
+    assert found[0][2]["input_mode"] == "file" and found[0][2]["started_by"] == "upload"
+    assert found[0][2]["document_ids"] == [doc]
+    assert admin(
+        "SELECT count(*) FROM account_runs WHERE idempotency_key = %s",
+        idempotency_key(UUID(private)),
+    ) == [(0,)]
+    await stack.drain(a, run)
+    assert run_row(run)["status"] == "COMPLETED", run_row(run)
+    assert admin("SELECT count(*) FROM facts WHERE run_id = %s", run)[0][0] > 0
+    kinds = {k for (k,) in admin("SELECT kind FROM report_sections WHERE run_id = %s", run)}
+    assert "narrative" in kinds and "hypothesis" in kinds
+    ws = (await a.browser.call("GET", "/v1/accounts/northwind.example/workspace")).json()
+    assert ws["narrative"] is not None and ws["narrative"]["sentences"]
+    assert ws["findings"] and all(f["text"] for f in ws["findings"])
+    assert ws["counts"]["findings"] >= 2
     await stack.close(a)
 
 
@@ -366,7 +418,10 @@ async def test_input_modes_are_validated_and_company_mode_is_unchanged(harness: 
 
     async def post(body: dict[str, Any]) -> Any:
         return await a.browser.call(
-            "POST", "/v1/runs", json=body, headers={"Idempotency-Key": uuid4().hex}
+            "POST",
+            "/v1/runs",
+            json={**body, "confirm": True, "confirm_again": True},
+            headers={"Idempotency-Key": uuid4().hex},
         )
 
     mixed = await post(

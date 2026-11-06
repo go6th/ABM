@@ -90,9 +90,15 @@ MAIL_COLUMNS = ("Title", "Kind", "From", "Date", "Summary", "Relevance", "Link")
 
 SIGNAL_TYPES = (
     "Leadership change", "Platform hiring spike", "Build-role hiring", "M&A / divestiture",
-    "Regulatory event", "Funding / financial", "Program or migration",
+    "Regulatory event", "Funding / financial", "Program or migration", "Executive speaking",
+    "Technology adoption", "Other",
 )  # fmt: skip
-CLASSES = ("Build role", "Admin and owner role", "Working tool", "User role")
+# a posting that names only a ranking platform outside the six lanes (Power BI, Snowflake, SAS)
+# is listed with this class: the lanes' Build / Admin / Working tool / User rule does not apply
+OUTSIDE_LANES_CLASS = "Outside the lanes, not classified"
+CLASSES = (
+    "Build role", "Admin and owner role", "Working tool", "User role", OUTSIDE_LANES_CLASS,
+)  # fmt: skip
 FACT_GRADES = ("Confirmed", "Probable", "Lead")
 PRIORITIES = ("A", "B", "C")
 LEADERSHIP_STATUSES = ("Current", "Departed", "Moved to divested business", "Unverified")

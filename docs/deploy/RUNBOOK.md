@@ -162,6 +162,56 @@ an operator machine (set its password first in the console; keep it in your pass
 database, bucket or KMS key is a stop: deletion protection will refuse it anyway), then
 `terraform apply ENV.tfplan`. Staging first, production after staging checks pass.
 
+### 2.1a Quarantine bucket (2026-11-04)
+
+Ingestion hardening PR4 part A. Uploads get their own bucket, `ai-staging-quarantine` (and
+`ai-prod-quarantine`), instead of the `quarantine/` prefix of the documents bucket. Nothing is
+applied yet; the owner runs it.
+
+What Terraform adds (`infra/modules/gcs`, wired in `infra/stack/main.tf`):
+
+* bucket `${name}-quarantine`: uniform bucket-level access, public access prevention enforced,
+  versioning off, the same CMEK key and labels as the documents bucket (plus `purpose=upload-quarantine`),
+  CORS for the web origin (PUT, POST, GET; headers Content-Type, Content-Range, x-goog-resumable,
+  x-goog-hash, Range), lifecycle: delete after 1 day (and abort incomplete multipart uploads after 1 day);
+* IAM on that bucket only: api service account `objectUser` through the `quarantine_create` binding, plus `objectViewer` (open a
+  resumable session, read object metadata for the size and CRC32C check, delete the object when `complete`
+  finds a mismatch), worker service account `objectUser`
+  (read, delete). The worker already has `objectUser` on the documents bucket, so it can copy into it;
+  no new right there;
+* env var `QUARANTINE_BUCKET` on the api and worker Cloud Run services; output `buckets.quarantine`;
+* the 7-day `quarantine/` prefix rule on the documents bucket stays for objects written before this.
+
+Run (staging first; production only after the staging checks pass):
+
+```bash
+cd infra/envs/staging
+export GOOGLE_BILLING_PROJECT=abmgenerator USER_PROJECT_OVERRIDE=true
+# full plan first: read every change; expect only: the new bucket, its CORS/lifecycle, 3 IAM members
+# per service account, and an env var change on ai-staging-api and ai-staging-worker (new revisions)
+/snap/bin/terraform plan -out=quarantine.tfplan
+# or, targeted to exactly this change:
+/snap/bin/terraform plan -out=quarantine.tfplan \
+  -target=module.stack.module.gcs.google_storage_bucket.quarantine \
+  -target=module.stack.module.gcs.google_storage_bucket_iam_member.quarantine_create \
+  -target=module.stack.module.gcs.google_storage_bucket_iam_member.quarantine_view \
+  -target=module.stack.module.gcs.google_storage_bucket_iam_member.quarantine_process \
+  -target=module.stack.module.cloud_run
+/snap/bin/terraform apply quarantine.tfplan
+# PR4 part B also adds the Cloud Scheduler job ai-staging-documents-abandon (daily 02:20 UTC, POST
+# /tasks/documents-abandon on the worker): add -target=module.stack.module.scheduler to the plan
+```
+
+(The environment root wraps the stack as `module.stack`.) Terraform ignores image and traffic, so applying does
+not roll an image back. The code that reads `QUARANTINE_BUCKET` ships in part B; until then the new
+variable is unused and uploads still use the documents bucket.
+
+Checks after apply: `gcloud storage buckets describe gs://ai-staging-quarantine --format="yaml(lifecycle_config,cors_config,uniform_bucket_level_access,iamConfiguration,default_kms_key)"`
+(expect age 1 delete rule, the web origin in CORS, public access prevention enforced, versioning off);
+`gcloud run services describe ai-staging-api --region us-central1 --format="value(spec.template.spec.containers[0].env)"`
+contains `QUARANTINE_BUCKET`. Local: `docker compose up clamav` runs the same ClamAV family the staging
+worker's sidecar uses (compose sets `DOCUMENT_SCANNER=clamd`, `CLAMD_HOST=clamav`).
+
 ### 2.2 Application release (the normal path)
 
 Merge to `main`: CI runs every gate; `deploy-staging` (after the environment's reviewers approve)
@@ -299,9 +349,10 @@ Run on staging after every release, and on production after its release.
 ## 7. Phase 5 pieces that apply on deploy
 
 Created by Terraform now, switched on later:
-- Paused Scheduler ticks `sweep`, `retention`, `alert-digest`, `audit-verify`: when FIX_PROMPT
-  Phase 5 ships the route, confirm the path in `infra/stack/main.tf` and set `paused = false`.
-  Retention must stay paused until the owner confirms the deletion policy.
+- Scheduler ticks `sweep` and `audit-verify` run (their routes exist). The paused `retention`
+  and `alert-digest` ticks were removed (ADR-0132): their routes were never built. Data
+  retention is therefore NOT enforced by any scheduled job; a retention route and its tick come
+  back together once the owner confirms the deletion policy.
 - Audit archive bucket `ai-ENV-audit-archive` (7-year retention, unlocked): set
   `archive_lock = true` only on the owner's decision; locking cannot be undone and the bucket
   cannot be deleted for 7 years.

@@ -105,6 +105,47 @@ class CoverageRepo:
             )
         return True
 
+    async def import_rows(
+        self, run_id: UUID, tenant_id: UUID, rows: Sequence[Mapping[str, Any]]
+    ) -> int:
+        """The tracker of an uploaded Account Summary (workspace import phase 3, 2026-11-03):
+        each row's status, reason, proof note, needs and what remains written onto the seeded
+        row of the file-import run (``seed`` first). A row's proof is the file's "what was
+        done" text as a note: no call references, since the platform made none. Returns the
+        rows updated. Items: ``row_key``, ``status`` (Status), ``reason_code``
+        (ReasonCode or None), ``done`` (the proof note), ``needs``, ``what_remains``."""
+        written = 0
+        for row in rows:
+            status = Status(str(row["status"]))
+            reason = row.get("reason_code")
+            if status in (Status.NOT_DONE, Status.BLOCKED) and reason is None:
+                reason = ReasonCode.NOT_AVAILABLE_YET
+            note = " ".join(str(row.get("done") or "").split())[:500]
+            proof = Proof(notes=(note,) if note else ())
+            res = await self.session.execute(
+                text(
+                    "UPDATE coverage_rows SET status = :status, reason_code = :reason,"
+                    " proof = CAST(:proof AS jsonb), proof_hash = :hash, proof_calls = 0,"
+                    " version = version + 1, detail = :detail, needs = :needs,"
+                    " what_remains = :remains, last_checked_at = now()"
+                    " WHERE tenant_id = :tenant_id AND run_id = :run_id AND row_key = :row_key"
+                ),
+                {
+                    "tenant_id": tenant_id,
+                    "status": status.value,
+                    "reason": ReasonCode(reason).value if reason is not None else None,
+                    "proof": proof.model_dump_json(),
+                    "hash": proof.proof_hash,
+                    "detail": note or None,
+                    "needs": (str(row.get("needs") or "")[:500] or None),
+                    "remains": (str(row.get("what_remains") or "")[:1000] or None),
+                    "run_id": run_id,
+                    "row_key": str(row["row_key"]),
+                },
+            )
+            written += int(bool(res.rowcount))  # type: ignore[attr-defined]
+        return written
+
     async def get_row(self, run_id: UUID, row_key: str) -> StoredRow:
         """One row; ``UnknownRow`` when the run has no such row."""
         row = (

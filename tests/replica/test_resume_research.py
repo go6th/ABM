@@ -84,7 +84,8 @@ def _run(tenant: UUID, user: str, status: str, *, idle_minutes: int = 0) -> tupl
 
 
 async def test_a_stalled_run_is_marked_once_and_its_owner_told(world: dict[str, Any]) -> None:
-    from account_intelligence.db.session import SessionLocal, set_system, tenant_txn
+    from account_intelligence.db.session import SessionLocal, tenant_txn
+    from account_intelligence.db.system_scope import set_system
     from account_intelligence.runs.sweeper import mark_stalled
 
     user = f"stall-{uuid4().hex[:6]}"
@@ -109,7 +110,10 @@ async def test_resume_continues_a_stopped_run_and_says_what_is_done(world: dict[
     before = (await _call(plane, "GET", "/v1/me/limits")).json()["researches"]["used"]
     key = str(uuid4())
     out = await _call(
-        plane, "POST", "/v1/research/resume", json={"run_id": str(run), "request_id": key}
+        plane,
+        "POST",
+        "/v1/research/resume",
+        json={"run_id": str(run), "request_id": key, "confirm": True, "confirm_again": True},
     )
     assert out.status_code == 201, out.text
     body = out.json()
@@ -118,7 +122,10 @@ async def test_resume_continues_a_stopped_run_and_says_what_is_done(world: dict[
     assert _db("SELECT resume_from FROM research_jobs WHERE id = %s", body["job_id"]) == [(run,)]
     # a retried click is the same resume; neither uses one of the user's researches
     again = await _call(
-        plane, "POST", "/v1/research/resume", json={"run_id": str(run), "request_id": key}
+        plane,
+        "POST",
+        "/v1/research/resume",
+        json={"run_id": str(run), "request_id": key, "confirm": True, "confirm_again": True},
     )
     assert again.json()["job_id"] == body["job_id"]
     assert (await _call(plane, "GET", "/v1/me/limits")).json()["researches"]["used"] == before
@@ -129,12 +136,28 @@ async def test_a_stalled_run_is_ended_partial_and_resumed(world: dict[str, Any])
     plane = _plane(world["a"], user, world["payloads"])
     run, _ = _run(world["a"], user, "RUNNING", idle_minutes=60)
     busy = await _call(
-        plane, "POST", "/v1/research/resume", json={"run_id": str(run), "request_id": str(uuid4())}
+        plane,
+        "POST",
+        "/v1/research/resume",
+        json={
+            "run_id": str(run),
+            "request_id": str(uuid4()),
+            "confirm": True,
+            "confirm_again": True,
+        },
     )
     assert busy.status_code == 409 and busy.json()["type"].endswith("still_running")
     _db("UPDATE account_runs SET stalled_at = now() WHERE id = %s", run)
     out = await _call(
-        plane, "POST", "/v1/research/resume", json={"run_id": str(run), "request_id": str(uuid4())}
+        plane,
+        "POST",
+        "/v1/research/resume",
+        json={
+            "run_id": str(run),
+            "request_id": str(uuid4()),
+            "confirm": True,
+            "confirm_again": True,
+        },
     )
     assert out.status_code == 201, out.text
     (status,) = _db("SELECT status, finished_reason FROM account_runs WHERE id = %s", run)
@@ -146,7 +169,15 @@ async def test_a_finished_run_or_another_users_run_cannot_be_resumed(world: dict
     plane = _plane(world["a"], user, world["payloads"])
     done, _ = _run(world["a"], user, "COMPLETED")
     whole = await _call(
-        plane, "POST", "/v1/research/resume", json={"run_id": str(done), "request_id": str(uuid4())}
+        plane,
+        "POST",
+        "/v1/research/resume",
+        json={
+            "run_id": str(done),
+            "request_id": str(uuid4()),
+            "confirm": True,
+            "confirm_again": True,
+        },
     )
     assert whole.status_code == 409
     theirs, _ = _run(world["a"], f"other-{uuid4().hex[:6]}", "PARTIAL")
@@ -154,7 +185,12 @@ async def test_a_finished_run_or_another_users_run_cannot_be_resumed(world: dict
         plane,
         "POST",
         "/v1/research/resume",
-        json={"run_id": str(theirs), "request_id": str(uuid4())},
+        json={
+            "run_id": str(theirs),
+            "request_id": str(uuid4()),
+            "confirm": True,
+            "confirm_again": True,
+        },
     )
     assert hidden.status_code == 404  # private workspaces: another user's run is not there
 
@@ -166,7 +202,7 @@ async def test_a_job_left_running_after_its_run_ended_is_closed_and_not_shown(
     kept saying "Refreshing from the web" and hid Resume research. The workspace no longer shows
     such a job and the sweep settles it once (credits released)."""
     from account_intelligence.api.main import _close_ended_jobs
-    from account_intelligence.db.session import set_system
+    from account_intelligence.db.system_scope import set_system
 
     user = "priya-test"
     run, domain = _run(world["a"], user, "PARTIAL")
@@ -327,7 +363,8 @@ async def test_the_quality_checks_reasons_are_said_in_words() -> None:
 async def test_the_account_card_names_the_quality_checks_that_held_the_files(
     world: dict[str, Any],
 ) -> None:
-    from account_intelligence.db.session import set_system, tenant_txn
+    from account_intelligence.db.session import tenant_txn
+    from account_intelligence.db.system_scope import set_system
     from account_intelligence.replica.workspace import stopped_run
 
     user = f"gate-{uuid4().hex[:6]}"
@@ -356,7 +393,8 @@ async def test_withheld_files_are_named_with_their_reason_and_left_out_of_the_li
 ) -> None:
     """A file-level defect holds back that file: the card names it and why, the other files are
     said to be ready, and the listing (so the download) leaves the held file out."""
-    from account_intelligence.db.session import set_system, tenant_txn
+    from account_intelligence.db.session import tenant_txn
+    from account_intelligence.db.system_scope import set_system
     from account_intelligence.replica.workspace import deliverables, stop_text, stopped_run
 
     user = f"hold-{uuid4().hex[:6]}"
@@ -420,7 +458,15 @@ async def test_a_resume_keeps_the_research_goal(world: dict[str, Any]) -> None:
     stopped = _job(world["a"], run, user, "done")
     _db("UPDATE research_jobs SET goal = 'their HR systems' WHERE id = %s", stopped)
     out = await _call(
-        plane, "POST", "/v1/research/resume", json={"run_id": str(run), "request_id": str(uuid4())}
+        plane,
+        "POST",
+        "/v1/research/resume",
+        json={
+            "run_id": str(run),
+            "request_id": str(uuid4()),
+            "confirm": True,
+            "confirm_again": True,
+        },
     )
     assert out.status_code == 201, out.text
     job_id = out.json()["job_id"]
@@ -430,3 +476,41 @@ async def test_a_resume_keeps_the_research_goal(world: dict[str, Any]) -> None:
     result = await HermeticEngine().run(job)
     (run_input,) = _db("SELECT run_input FROM account_runs WHERE id = %s", result.run_id)[0]
     assert run_input["goal"] == "their HR systems"
+
+
+async def test_a_resume_of_a_run_with_older_replay_keys_says_what_it_may_cost(
+    world: dict[str, Any],
+) -> None:
+    """ADR-0129: a run keyed by an older replay-key version (none recorded = 1) may pay again for
+    what it already paid: the card carries the upper bound (its model replies and provider calls,
+    rounded up to the cent); a run with current keys carries none."""
+    from account_intelligence.connectors.cache import replay_key_version
+    from account_intelligence.db.session import tenant_txn
+    from account_intelligence.db.system_scope import set_system
+    from account_intelligence.replica.workspace import stopped_run
+
+    user = f"replay-{uuid4().hex[:6]}"
+    run, _ = _run(world["a"], user, "PARTIAL")
+    (account,) = _db("SELECT account_id FROM account_runs WHERE id = %s", run)[0]
+    _db("UPDATE account_runs SET spent_usd = 1.234 WHERE id = %s", run)
+    _db(
+        "INSERT INTO model_reply_log (tenant_id, run_id, cache_key, task_kind, tier, model,"
+        " served_from, cost_usd, reply_text, reply_model) VALUES (%s, %s, 'k', 'abm_distill',"
+        " 'planner', 'm', 'model', 0.5, 'text', 'm')",
+        world["a"],
+        run,
+    )
+    set_system()
+    async with tenant_txn(world["a"]) as s:
+        card = await stopped_run(s, account)
+    assert replay_key_version() > 1
+    assert card is not None and card["replay_extra_usd"] == 1.74
+    _db(
+        "UPDATE account_runs SET run_input = run_input || jsonb_build_object("
+        "'replay_key_version', %s::int) WHERE id = %s",
+        replay_key_version(),
+        run,
+    )
+    async with tenant_txn(world["a"]) as s:
+        card = await stopped_run(s, account)
+    assert card is not None and card["replay_extra_usd"] is None

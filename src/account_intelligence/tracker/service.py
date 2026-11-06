@@ -166,6 +166,7 @@ class TrackerService:
         expected_calls: int | None = None,
         cap_hit: bool = False,
         detail: str | None = None,
+        partial_reason: ReasonCode | None = None,
     ) -> RecordResult:
         """Derive and record a row's status from ledger evidence (T1, T2, T7, T8, T9)."""
         row_cfg = self.checklist.get_checklist().row(row_key)
@@ -185,7 +186,7 @@ class TrackerService:
             if row_cfg is not None and row_cfg.lane:
                 scope = await self.run_input.is_lane_in_scope(tenant_id, run_id, row_cfg.lane)
             outcome = derive_outcome(
-                expected, records, cap_hit, scope, not_attempted_reason, self.config
+                expected, records, cap_hit, scope, not_attempted_reason, self.config, partial_reason
             )
             proof = Proof.from_calls(records)
             result = transition_row(

@@ -1,10 +1,9 @@
-"""Production adapters of the agent ports (Postgres under RLS, the model router).
+"""Production adapters of the agent ports (Postgres under RLS).
 
 * ``PgManifestStore``, ``PgConsentStore`` and ``PgSenseChecks`` use ``tenant_txn``: one transaction
   per call, tenant context from the trusted run context, insert-only tables (migration 0041).
-* ``RouterModel`` binds ``AgentModel`` to ``llm.port.Router`` (routing by task kind, validation,
-  call records): split mode is the router's tier choice (G11).
-* ``run_mode_columns``, ``build_parent`` and ``pull_option`` are the SQL the run API needs inside
+  The model port is ``agents.production.wiring.RunDepsModel`` (``RunDeps.resolve_model``).
+* ``run_mode_columns`` and ``build_parent`` are the SQL the run API needs inside
   its own transaction (one write path for the mode columns).
 * Every port without a production binding yet raises ``NotConfigured`` (``not_configured``).
 
@@ -18,7 +17,7 @@ import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, NoReturn, TypeVar
+from typing import Any, NoReturn
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -29,9 +28,6 @@ from account_intelligence.db.session import tenant_txn
 from agents.manifest import PullManifest
 from agents.modes import RunPlan
 from agents.ports import ConsentRecord, NotConfigured, RunContext, SenseCheckRecord
-from llm.models import Scope
-
-M = TypeVar("M", bound=BaseModel)
 
 
 class PgManifestStore:
@@ -194,35 +190,6 @@ class PgSenseChecks:
             return await load_entity_lock(s, run_id=ctx.run_id)
 
 
-@dataclass(frozen=True)
-class RouterModel:
-    """``AgentModel`` on the model router (``llm.port.Router``)."""
-
-    router: Any
-
-    async def call(
-        self,
-        task_kind: str,
-        prompt_text: str,
-        prompt_hash: str,
-        payload: Mapping[str, Any],
-        output: type[M],
-        ctx: RunContext,
-    ) -> tuple[M, int]:
-        """One routed call; tokens are the call record's input plus output tokens."""
-        routed = await self.router.call(
-            task_kind,
-            prompt_text,
-            prompt_hash,
-            payload,
-            output,
-            Scope(tenant_id=ctx.tenant_id, run_id=ctx.run_id),
-        )
-        usage = routed.record.usage
-        result: M = routed.output
-        return result, int(usage.input_tokens + usage.output_tokens)
-
-
 def not_configured(what: str) -> NoReturn:
     """Fail closed for a port with no production binding yet."""
     raise NotConfigured(f"agent port {what} has no production adapter")
@@ -271,26 +238,3 @@ async def build_parent(s: AsyncSession, run_id: UUID) -> ParentRun | None:
     if row is None:
         return None
     return ParentRun(row.id, row.run_mode, row.domain, row.skill_config_version, row.has_manifest)
-
-
-async def pull_option(s: AsyncSession, account_key: str) -> dict[str, Any] | None:
-    """The newest usable pull for "Phase 2 only": run id, date and coverage counts."""
-    row = (
-        await s.execute(
-            text(
-                "SELECT run_id, created_at, manifest FROM pull_manifests WHERE account_key = :a"
-                " ORDER BY created_at DESC LIMIT 1"
-            ),
-            {"a": account_key},
-        )
-    ).first()
-    if row is None:
-        return None
-    rows = row.manifest["rows"]
-    stored = sum(1 for r in rows if r["status"] == "stored")
-    return {
-        "pull_run_id": str(row.run_id),
-        "pulled_at": row.created_at.isoformat(),
-        "rows_stored": stored,
-        "rows_blocked": len(rows) - stored,
-    }

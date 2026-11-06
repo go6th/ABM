@@ -130,6 +130,7 @@ export function ResearchCompany({ estimate, idPrefix = "rc", onStarted }: {
       ) : asking ? (
         <UsageProceed
           usage={estimate.usage}
+          gaps={estimate.gaps}
           what={`Researching ${name.trim()}`}
           busy={busy}
           message={message}

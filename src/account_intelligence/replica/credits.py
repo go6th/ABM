@@ -203,7 +203,7 @@ async def estimate(session: Any, account_id: UUID | None, kind: str) -> Rate:
 # marks the rows outside its scope "not planned"). Held here too because the credits module sits
 # below the workspace page in the import layers (runs -> credits); a test keeps the two equal.
 PLANNED = (
-    "NOT EXISTS (SELECT 1 FROM account_runs x WHERE x.id = c.run_id"
+    "NOT EXISTS (SELECT 1 FROM account_runs x WHERE x.tenant_id = c.tenant_id AND x.id = c.run_id"
     " AND jsonb_typeof(x.run_input->'scope_rows') = 'array'"
     " AND NOT jsonb_exists(x.run_input->'scope_rows', c.row_key))"
 )
@@ -420,9 +420,10 @@ async def settle(
     return used
 
 
-async def promote_waiting(session: Any, now: datetime) -> list[UUID]:
+async def promote_waiting(session: Any, now: datetime, limit: int | None = None) -> list[UUID]:
     """Reserve credits for jobs that were waiting, oldest first, while the pool covers them
-    (called when credits free up and when a new period starts). Returns the jobs now queued."""
+    (called when credits free up and when a new period starts), at most ``limit`` of them (the
+    schedule tick's ceiling; None: no ceiling). Returns the jobs now queued."""
     await client_settings(session)
     await session.execute(text("SELECT 1 FROM client_settings FOR UPDATE"))
     queued: list[UUID] = []
@@ -435,6 +436,8 @@ async def promote_waiting(session: Any, now: datetime) -> list[UUID]:
         )
     ).all()
     for job in waiting:
+        if limit is not None and len(queued) >= limit:
+            break
         left = (await pool(session, now))["left"]
         if job.credits_estimated > left:
             break

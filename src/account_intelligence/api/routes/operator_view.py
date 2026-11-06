@@ -19,6 +19,7 @@ from account_intelligence.api import contract as C
 from account_intelligence.api.operator import OperatorIdentity, require_operator
 from account_intelligence.api.policy import operator_route, register
 from account_intelligence.db.session import tenant_txn
+from people.config import internal_people_sql
 from tenancy import settings
 
 router = APIRouter(prefix="/operator/v1/view", tags=["support"])
@@ -97,7 +98,7 @@ async def workspace(
                     "   AND r.status IN ('COMPLETED', 'PARTIAL')) AS researched,"
                     " (SELECT count(*) FROM people p WHERE p.account_id = a.id AND NOT p.excluded"
                     "   AND p.merged_into IS NULL AND p.erased_at IS NULL"
-                    "   AND NOT coalesce(p.internal_only, false)) AS people,"
+                    f"   AND {internal_people_sql()}) AS people,"
                     " (SELECT count(*) FROM signal_events g WHERE g.account_id = a.id) AS signals,"
                     " (SELECT count(*) FROM sources o WHERE o.account_id = a.id) AS sources"
                     " FROM accounts a WHERE a.deleted_at IS NULL"

@@ -341,8 +341,10 @@ def engine_state(app_env: str) -> str:
     choice = engine_choice(app_env)
     package = SKILL_PACKAGE.is_file()
     if choice == "graph":
-        missing = "installed, executor not built" if package else "not installed"
-        return f"abm_graph (skill package {missing})"
+        # the ABM agent graph runs every job's research here; only the separate skill executor
+        # (``SkillEngine``, RESEARCH_ENGINE=skill) is not built
+        package_state = "installed" if package else "not installed"
+        return f"abm_graph (skill package {package_state}; the ABM agent graph runs the research)"
     if choice == "skill":
         return "skill (not built: no research runs until the executor exists)"
     return "hermetic (no outside call)"
@@ -441,5 +443,9 @@ async def run_or_enqueue(tenant_id: UUID, job_id: UUID) -> None:
                 "job_not_enqueued",
                 extra={"job_id": str(job_id), "error_class": type(error).__name__},
             )
+    elif os.environ.get("APP_ENV", "dev") in ("staging", "production"):
+        # a cloud api never runs research in-process (ADR-0109): it serves no /tasks route and
+        # holds no run lease loop; the job stays queued and runs.recovery hands it to the worker
+        log.error("job_not_enqueued", extra={"job_id": str(job_id), "reason": "no_task_queue"})
     elif _engine is not None:
         await run_job(tenant_id, job_id, _engine)

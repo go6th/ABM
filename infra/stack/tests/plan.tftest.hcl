@@ -79,6 +79,10 @@ run "staging_plan" {
     error_message = "the audit archive bucket exists (applies on deploy)"
   }
   assert {
+    condition     = output.buckets.quarantine == "ai-staging-quarantine"
+    error_message = "the upload quarantine bucket is its own bucket"
+  }
+  assert {
     condition     = toset(keys(output.service_accounts)) == toset(["api", "worker", "job", "web", "migrate", "tasks", "scheduler", "deployer"])
     error_message = "one service account per workload"
   }

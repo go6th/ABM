@@ -1,0 +1,805 @@
+diff --git a/docs/plans/ingestion-hardening-pr6.md b/docs/plans/ingestion-hardening-pr6.md
+new file mode 100644
+index 0000000..5527b40
+--- /dev/null
++++ b/docs/plans/ingestion-hardening-pr6.md
+@@ -0,0 +1,41 @@
++# Ingestion hardening PR6: cost and run control (2026-11-04)
++
++**Description.** The upload analysis (step 5) now goes through the existing token guard instead of
++running unguarded: `auto_analysis.start` stores `expected_tokens` (the input plus output tokens of
++`documents/estimate.py`) on the run, the file-mode graph (`src/documents/graph.py`) gained the same
++`token_gate` pause the research graph has (`extract` and `summarise` pause there when the run's
++tokens reach `token_guard_multiple` x the estimate; the user's Proceed is `POST /v1/runs/{id}/approve`,
++Stop ends the run partial `token_guard_stopped`). No ~1,000-token checkpoint was built (decision Q6).
++Analysis runs at most once per document (run key `auto-file:<document id>`, pinned by test, also
++across a re-import and `backfill_imports`, which never starts it). The `documents` row records
++`embedding_tokens` (added per embedding batch in the call-log transaction) and the analysis run's
++`analysis_input_tokens` / `analysis_output_tokens` (set, not added, when the run settles, in
++`lifecycle.settle_once`) with `analysis_run_id` (set by `start`). The per-tenant model usage view
++`llm_spend_daily` (the one `scripts/cost_report.py` reads) gains embedding batches as surface
++`file_embedding`, task kind `embed_passages`, cost as logged (0 for the local embedder); analysis
++tokens were already there as surface `research`. Migration `0108_document_tokens`
++(down_revision "0106": re-chain after 0107 on merge). No new model calls.
++
++## Behaviour to know
++
++* The guard is off while the research caps are off (`RESEARCH_CAPS=off` / `DEV_UNCAPPED=1`) unless
++  `TOKEN_GUARD=on` (owner decision 2026-10-24, `spend_guard.check_tokens`). Staging currently runs
++  with the caps off, so the analysis will not pause there until `TOKEN_GUARD=on` is set.
++* The estimate counts extraction only; the summary call is not in it (the 3x slack covers it).
++* `analysis_*_tokens` are written only for the document whose `analysis_run_id` is the run (the
++  upload's own analysis); a file-mode run the user starts by hand does not write them.
++
++## Staging verification
++
++1. Deploy with `TOKEN_GUARD=on` on the worker for the test (otherwise the guard is off).
++2. Upload a small workbook bound to an account; after it is indexed:
++   `SELECT embedding_tokens, analysis_run_id FROM documents WHERE id = ...` shows tokens > 0 and the run id.
++3. Open the account's run; its `run_input->>'expected_tokens'` equals the estimate shown on upload.
++4. Upload a large file (estimate small relative to its real use is not needed: lower
++   `token_guard_multiple` in `config/spend.yaml` to 1 for the check): the run shows "Waiting for approval";
++   Proceed continues it, and `run_input->>'token_guard_ok'` is set.
++5. After the run settles: `analysis_input_tokens` and `analysis_output_tokens` equal the run's
++   `model_reply_log` sums (served_from = 'model').
++6. `SELECT surface, task_kind, sum(input_tokens) FROM llm_spend_daily WHERE tenant_id = ... GROUP BY 1, 2`
++   lists `research` and `file_embedding / embed_passages`.
++7. Re-run `POST /v1/documents/{id}/...` import or the sweep: still exactly one `auto-file:<id>` run.
+diff --git a/migrations/0108_document_tokens.down.sql b/migrations/0108_document_tokens.down.sql
+new file mode 100644
+index 0000000..9348ab2
+--- /dev/null
++++ b/migrations/0108_document_tokens.down.sql
+@@ -0,0 +1,55 @@
++-- Undo migration 0108: the view goes back to 0079 (without the embedding lines); the columns go.
++CREATE OR REPLACE VIEW llm_spend_daily WITH (security_invoker = true) AS
++SELECT c.tenant_id,
++       c.day,
++       c.surface,
++       c.task_kind,
++       c.model,
++       c.batch,
++       COUNT(*) AS calls,
++       SUM(c.input_tokens) AS input_tokens,
++       SUM(c.output_tokens) AS output_tokens,
++       SUM(c.cache_read_tokens) AS cache_read_tokens,
++       SUM(c.cache_write_tokens) AS cache_write_tokens,
++       SUM(c.cost_usd) AS cost_usd,
++       CASE WHEN SUM(c.input_tokens + c.cache_read_tokens + c.cache_write_tokens) > 0
++            THEN ROUND(SUM(c.cache_read_tokens)::numeric
++                       / SUM(c.input_tokens + c.cache_read_tokens + c.cache_write_tokens), 4)
++       END AS cache_read_share
++  FROM (
++        SELECT l.tenant_id,
++               (l.created_at AT TIME ZONE 'UTC')::date AS day,
++               'research'::text AS surface,
++               l.task_kind,
++               l.model,
++               l.batch,
++               l.input_tokens::bigint AS input_tokens,
++               l.output_tokens::bigint AS output_tokens,
++               l.cache_read_tokens::bigint AS cache_read_tokens,
++               l.cache_write_tokens::bigint AS cache_write_tokens,
++               COALESCE(l.cost_usd, 0)::numeric AS cost_usd
++          FROM model_reply_log l
++         WHERE l.served_from = 'model'
++        UNION ALL
++        SELECT t.tenant_id,
++               (t.created_at AT TIME ZONE 'UTC')::date,
++               t.surface,
++               t.surface,
++               COALESCE(t.billed_model_id, t.model_id),
++               false,
++               t.input_tokens::bigint,
++               t.output_tokens::bigint,
++               t.cache_read_tokens::bigint,
++               t.cache_write_tokens::bigint,
++               t.cost_usd::numeric
++          FROM chat_turns t
++         WHERE t.status <> 'reserved'
++       ) c
++ GROUP BY c.tenant_id, c.day, c.surface, c.task_kind, c.model, c.batch;
++GRANT SELECT ON llm_spend_daily TO app_rw;
++
++ALTER TABLE documents DROP CONSTRAINT IF EXISTS ck_documents_tokens;
++ALTER TABLE documents DROP COLUMN IF EXISTS analysis_run_id;
++ALTER TABLE documents DROP COLUMN IF EXISTS analysis_output_tokens;
++ALTER TABLE documents DROP COLUMN IF EXISTS analysis_input_tokens;
++ALTER TABLE documents DROP COLUMN IF EXISTS embedding_tokens;
+diff --git a/migrations/0108_document_tokens.sql b/migrations/0108_document_tokens.sql
+new file mode 100644
+index 0000000..6823ff6
+--- /dev/null
++++ b/migrations/0108_document_tokens.sql
+@@ -0,0 +1,76 @@
++-- Ingestion hardening PR6: the tokens a document used, on its row, and the embedding tokens in the
++-- per-tenant model usage view the admin side reads (llm_spend_daily, migration 0079).
++-- Every change is additive: defaulted columns, one nullable column, and extra rows in the view.
++
++ALTER TABLE documents ADD COLUMN embedding_tokens bigint NOT NULL DEFAULT 0;
++ALTER TABLE documents ADD COLUMN analysis_input_tokens bigint NOT NULL DEFAULT 0;
++ALTER TABLE documents ADD COLUMN analysis_output_tokens bigint NOT NULL DEFAULT 0;
++ALTER TABLE documents ADD COLUMN analysis_run_id uuid;
++ALTER TABLE documents ADD CONSTRAINT ck_documents_tokens
++   CHECK (embedding_tokens >= 0 AND analysis_input_tokens >= 0 AND analysis_output_tokens >= 0);
++
++-- Same view as 0079 plus a fourth source: the embedding batches of the file model call log
++-- (task 'embed_passages'), surface 'file_embedding'. The local embedder costs nothing, so the line
++-- carries tokens and the cost the call log recorded (0 for the local embedder).
++CREATE OR REPLACE VIEW llm_spend_daily WITH (security_invoker = true) AS
++SELECT c.tenant_id,
++       c.day,
++       c.surface,
++       c.task_kind,
++       c.model,
++       c.batch,
++       COUNT(*) AS calls,
++       SUM(c.input_tokens) AS input_tokens,
++       SUM(c.output_tokens) AS output_tokens,
++       SUM(c.cache_read_tokens) AS cache_read_tokens,
++       SUM(c.cache_write_tokens) AS cache_write_tokens,
++       SUM(c.cost_usd) AS cost_usd,
++       CASE WHEN SUM(c.input_tokens + c.cache_read_tokens + c.cache_write_tokens) > 0
++            THEN ROUND(SUM(c.cache_read_tokens)::numeric
++                       / SUM(c.input_tokens + c.cache_read_tokens + c.cache_write_tokens), 4)
++       END AS cache_read_share
++  FROM (
++        SELECT l.tenant_id,
++               (l.created_at AT TIME ZONE 'UTC')::date AS day,
++               'research'::text AS surface,
++               l.task_kind,
++               l.model,
++               l.batch,
++               l.input_tokens::bigint AS input_tokens,
++               l.output_tokens::bigint AS output_tokens,
++               l.cache_read_tokens::bigint AS cache_read_tokens,
++               l.cache_write_tokens::bigint AS cache_write_tokens,
++               COALESCE(l.cost_usd, 0)::numeric AS cost_usd
++          FROM model_reply_log l
++         WHERE l.served_from = 'model'
++        UNION ALL
++        SELECT t.tenant_id,
++               (t.created_at AT TIME ZONE 'UTC')::date,
++               t.surface,
++               t.surface,
++               COALESCE(t.billed_model_id, t.model_id),
++               false,
++               t.input_tokens::bigint,
++               t.output_tokens::bigint,
++               t.cache_read_tokens::bigint,
++               t.cache_write_tokens::bigint,
++               t.cost_usd::numeric
++          FROM chat_turns t
++         WHERE t.status <> 'reserved'
++        UNION ALL
++        SELECT e.tenant_id,
++               (e.created_at AT TIME ZONE 'UTC')::date,
++               'file_embedding'::text,
++               e.task,
++               e.model,
++               false,
++               e.input_tokens::bigint,
++               e.output_tokens::bigint,
++               0::bigint,
++               0::bigint,
++               COALESCE(e.cost_usd, 0)::numeric
++          FROM research_file_model_calls e
++         WHERE e.task = 'embed_passages' AND e.served_from = 'model'
++       ) c
++ GROUP BY c.tenant_id, c.day, c.surface, c.task_kind, c.model, c.batch;
++GRANT SELECT ON llm_spend_daily TO app_rw;
+diff --git a/migrations/versions/0108_document_tokens.py b/migrations/versions/0108_document_tokens.py
+new file mode 100644
+index 0000000..5775340
+--- /dev/null
++++ b/migrations/versions/0108_document_tokens.py
+@@ -0,0 +1,27 @@
++"""Tokens on the documents row and embedding lines in the model usage view (2026-11-04, ingestion
++hardening PR6).
++
++Revision ID: 0108
++Revises: 0106
++"""
++
++from pathlib import Path
++
++from alembic import op
++
++revision = "0108"
++down_revision = "0106"
++branch_labels = None
++depends_on = None
++
++
++def upgrade() -> None:
++    """Add the four document columns; the usage view gains the embedding batches."""
++    sql = Path(__file__).resolve().parents[1] / "0108_document_tokens.sql"
++    op.execute(sql.read_text())
++
++
++def downgrade() -> None:
++    """Drop the columns; the view goes back to 0079."""
++    sql = Path(__file__).resolve().parents[1] / "0108_document_tokens.down.sql"
++    op.execute(sql.read_text())
+diff --git a/src/account_intelligence/app/auto_analysis.py b/src/account_intelligence/app/auto_analysis.py
+index e8d811d..9a458ea 100644
+--- a/src/account_intelligence/app/auto_analysis.py
++++ b/src/account_intelligence/app/auto_analysis.py
+@@ -56,6 +56,22 @@ async def _tracker(container: Any, session: Any) -> Any:
+     )
+ 
+ 
++async def _expected_tokens(s: Any, document_id: UUID) -> int | None:
++    """What the file-mode run of the document would use (input plus output tokens of
++    ``documents.estimate``); None when there is no estimate (the guard then never pauses it)."""
++    from documents.estimate import estimate
++
++    try:
++        shown = await estimate(s, [document_id], False, 0.0)
++    except Exception as error:  # noqa: BLE001 - the analysis starts without a guard instead
++        _log.warning(
++            "documents.analysis_estimate_failed",
++            extra={"document_id": str(document_id), "error_class": type(error).__name__},
++        )
++        return None
++    return int(shown["input_tokens"]) + int(shown["output_tokens"]) or None
++
++
+ async def start(container: Any, tenant_id: UUID, document_id: UUID) -> UUID | None:
+     """Create and enqueue the document's file-mode run (see the module docstring); the run id,
+     or None when nothing was started. Every log line of it carries the tenant and document."""
+@@ -97,6 +113,11 @@ async def _start(container: Any, tenant_id: UUID, document_id: UUID) -> UUID | N
+                 "lanes_off": sorted(set(lanes) - set(current.settings.platform_lanes)),
+                 "pursuing_client": current.settings.pursuing_client or None,
+             }
++            # the pre-run token estimate of a file-mode run (``documents.estimate``): the run
++            # pauses and asks at the token guard's multiple of it (``spend_guard.check_tokens``)
++            expected = await _expected_tokens(s, document_id)
++            if expected:
++                run_input["expected_tokens"] = expected
+             try:
+                 created = await lifecycle.create_run(
+                     s,
+@@ -144,6 +165,8 @@ async def _start(container: Any, tenant_id: UUID, document_id: UUID) -> UUID | N
+                 await settings.pin_run(s, created.run_id, current.version)
+                 await repo.link_run(s, created.run_id, account_id, [document_id])
+                 await usage.record(s, "run_started", created.run_id, now)
++            # the run is this document's own analysis: its settled tokens land on the row
++            await repo.mark_analysis_run(s, tenant_id, document_id, created.run_id)
+     if not created.replayed:
+         await container.scheduler.enqueue_slice(tenant_id, created.run_id, 0)
+         _log.info(
+diff --git a/src/account_intelligence/runs/lifecycle.py b/src/account_intelligence/runs/lifecycle.py
+index ac09738..84085e7 100644
+--- a/src/account_intelligence/runs/lifecycle.py
++++ b/src/account_intelligence/runs/lifecycle.py
+@@ -877,6 +877,37 @@ async def _tenant(session: AsyncSession, run_id: UUID) -> UUID:
+     return tenant
+ 
+ 
++async def _note_document_tokens(session: AsyncSession, run_id: UUID, tenant_id: UUID) -> None:
++    """Write the settled run's model input and output tokens onto the document whose own
++    analysis it is (``documents.analysis_run_id``, set when the upload analysis starts). The
++    totals are set, not added, so a redelivered settlement writes the same figures. The larger of
++    the router's ledger (``llm_calls``) and the reply log (``model_reply_log``) is used, as the
++    token meter reads them (``spend_guard.RUN_TOKENS``). A run that is no document's analysis
++    changes no row."""
++    ledger = (
++        await session.execute(
++            text(
++                "SELECT coalesce(sum(input_tokens), 0) AS i, coalesce(sum(output_tokens), 0) AS o"
++                " FROM llm_calls WHERE run_id = :r"
++            ),
++            {"r": run_id},
++        )
++    ).one()
++    replies = (
++        await session.execute(
++            text(
++                "SELECT coalesce(sum(input_tokens), 0) AS i, coalesce(sum(output_tokens), 0) AS o"
++                " FROM model_reply_log WHERE run_id = :r AND served_from = 'model'"
++            ),
++            {"r": run_id},
++        )
++    ).one()
++    used = ledger if ledger.i + ledger.o >= replies.i + replies.o else replies
++    from documents.repo import set_analysis_tokens
++
++    await set_analysis_tokens(session, tenant_id, run_id, int(used.i), int(used.o))
++
++
+ async def settle_once(
+     session: AsyncSession, run_id: UUID, *, refund_all: bool = False
+ ) -> Settlement:
+@@ -900,6 +931,7 @@ async def settle_once(
+         raise RunNotFound(str(run_id))
+     if RunStatus(run.status) not in TERMINAL:
+         raise LifecycleError("only a terminal run is settled")
++    await _note_document_tokens(session, run_id, run.tenant_id)
+     now: datetime = (await session.execute(text("SELECT now()"))).scalar_one()
+     platform_fault = refund_all or RunStatus(run.status) is RunStatus.FAILED
+     # real spend: the paid data calls (spent_usd) and the model calls of this run: the router's
+diff --git a/src/documents/graph.py b/src/documents/graph.py
+index 54dde57..4ebf2f6 100644
+--- a/src/documents/graph.py
++++ b/src/documents/graph.py
+@@ -4,6 +4,9 @@
+ 
+     setup -> extract -> tracker -> summarise -> internal_file -> gate -> deliver -> finish
+ 
++(``extract`` and ``summarise`` may pause at ``token_gate``, the token guard of the research graph,
++and resume at the node they paused.)
++
+ * ``setup``: the run's documents must all be indexed and bound to the run's account.
+ * ``extract``: facts from the run's passages (``documents.extract``: rows by code, prose by the
+   model behind the untrusted-content boundary), recorded through the grading write path as
+@@ -40,8 +43,10 @@ from typing import Annotated, Any, TypedDict, cast
+ from uuid import UUID
+ 
+ from langgraph.graph import END, START, StateGraph
++from langgraph.types import interrupt
+ from sqlalchemy import text
+ 
++from account_intelligence.connectors.spend_guard import TokenGuardReached
+ from account_intelligence.workflow.state import merge_maps, sum_counters
+ from account_intelligence.workflow.transitions import RunStatus
+ from documents import extract as ex
+@@ -64,6 +69,11 @@ class FileState(TypedDict, total=False):
+     error_code: str | None
+     model_error: str | None
+     settled: bool
++    # the token guard (the research graph's pattern): the model node it paused, the node to re-run
++    # once the user continued, and how many times the user was asked
++    token_pause_node: str | None
++    token_resume_node: str | None
++    token_pauses: int
+     counters: Annotated[dict[str, int], sum_counters]
+     exits: Annotated[dict[str, str], merge_maps]
+ 
+@@ -308,15 +318,65 @@ def build_file_graph(deps: Any, documents: Any, cfg: InputModesConfig | None = N
+         outcome = state.get("outcome", "running")
+         return {"settled": True, "outcome": "completed" if outcome == "running" else outcome}
+ 
++    def token_guarded(name: str, fn: Any) -> Any:
++        """A model node whose token guard pauses it at ``token_gate`` (which re-runs it once the
++        user continued; its model replies replay and its facts are idempotent)."""
++
++        async def guarded(state: FileState) -> dict[str, Any]:
++            try:
++                out: dict[str, Any] = await fn(state)
++                return out
++            except TokenGuardReached:
++                return {"token_pause_node": name}
++
++        guarded.__name__ = fn.__name__
++        return guarded
++
++    async def token_gate(state: FileState) -> dict[str, Any]:
++        """Pause and ask once the run's tokens reached ``token_guard_multiple`` times its estimate
++        (``connectors.spend_guard``, the same guard as every research run). Continuing raises the
++        guard by that multiple again and re-runs the paused node; stopping ends the run PARTIAL
++        ``token_guard_stopped`` with what it found."""
++        from account_intelligence.connectors import spend_guard
++
++        decision = interrupt(
++            {"awaiting": "cap", "reason": "tokens", "node": state.get("token_pause_node")}
++        )
++        pauses = state.get("token_pauses", 0) + 1
++        if not decision:
++            return {
++                "outcome": "failed",
++                "error_code": "token_guard_stopped",
++                "token_pause_node": None,
++                "token_pauses": pauses,
++            }
++        tenant, run, _ = ids(state)
++        async with deps.txn(tenant) as s:
++            await spend_guard.accept_tokens(s, run)
++        return {
++            "token_pause_node": None,
++            "token_resume_node": state.get("token_pause_node"),
++            "token_pauses": pauses,
++        }
++
++    def after_token_gate(state: FileState) -> str:
++        if state.get("outcome") == "failed":
++            return "finish"
++        return str(state.get("token_resume_node") or "finish")
++
++    def paused_or(target: str) -> Any:
++        return lambda s: "token_gate" if s.get("token_pause_node") else target
++
+     def ok_or_finish(target: str) -> Any:
+         return lambda s: "finish" if s.get("outcome") in ("failed", "partial") else target
+ 
+     g: StateGraph[FileState] = StateGraph(FileState)
+     for name, fn in (
+         ("setup", setup),
+-        ("extract", extract),
++        ("extract", token_guarded("extract", extract)),
+         ("tracker", tracker),
+-        ("summarise", summarise),
++        ("summarise", token_guarded("summarise", summarise)),
++        ("token_gate", token_gate),
+         ("internal_file", internal_file),
+         ("gate", gate),
+         ("deliver", deliver),
+@@ -325,9 +385,11 @@ def build_file_graph(deps: Any, documents: Any, cfg: InputModesConfig | None = N
+         g.add_node(name, cast(Any, fn))
+     g.add_edge(START, "setup")
+     g.add_conditional_edges("setup", ok_or_finish("extract"))
+-    g.add_edge("extract", "tracker")
++    g.add_conditional_edges("extract", paused_or("tracker"))
+     g.add_edge("tracker", "summarise")
+-    g.add_edge("summarise", "internal_file")
++    g.add_conditional_edges("summarise", paused_or("internal_file"))
++    g.add_conditional_edges("token_gate", after_token_gate)
++    g.add_edge("internal_file", "gate")
+     g.add_edge("internal_file", "gate")
+     g.add_conditional_edges("gate", ok_or_finish("deliver"))
+     g.add_edge("deliver", "finish")
+diff --git a/src/documents/repo.py b/src/documents/repo.py
+index fb1babe..2231d9a 100644
+--- a/src/documents/repo.py
++++ b/src/documents/repo.py
+@@ -1106,6 +1106,47 @@ async def log_embedding_call(
+     )
+ 
+ 
++async def add_embedding_tokens(
++    s: AsyncSession, tenant_id: UUID, document_id: UUID, tokens: int
++) -> None:
++    """Add one embedding batch's tokens to the document's running total (called in the same
++    transaction as ``log_embedding_call``, so the total equals the call-log rows)."""
++    await s.execute(
++        text(
++            "UPDATE documents SET embedding_tokens = embedding_tokens + :n"
++            " WHERE tenant_id = :t AND id = :d"
++        ),
++        {"n": tokens, "t": tenant_id, "d": document_id},
++    )
++
++
++async def mark_analysis_run(
++    s: AsyncSession, tenant_id: UUID, document_id: UUID, run_id: UUID
++) -> None:
++    """Record the run of the document's own analysis (step 5); the first one stays."""
++    await s.execute(
++        text(
++            "UPDATE documents SET analysis_run_id = coalesce(analysis_run_id, :r)"
++            " WHERE tenant_id = :t AND id = :d"
++        ),
++        {"r": run_id, "t": tenant_id, "d": document_id},
++    )
++
++
++async def set_analysis_tokens(
++    s: AsyncSession, tenant_id: UUID, run_id: UUID, input_tokens: int, output_tokens: int
++) -> None:
++    """Set (not add) the model tokens of a settled analysis run on the document it analysed
++    (``runs.lifecycle.settle_once``); a run that is no document's analysis changes no row."""
++    await s.execute(
++        text(
++            "UPDATE documents SET analysis_input_tokens = :i, analysis_output_tokens = :o"
++            " WHERE tenant_id = :t AND analysis_run_id = :r"
++        ),
++        {"i": input_tokens, "o": output_tokens, "t": tenant_id, "r": run_id},
++    )
++
++
+ async def mark_imported(s: AsyncSession, document_id: UUID, at: datetime) -> None:
+     """Record that the document's rows were read for the deliverable workbooks
+     (``documents.deliverables``), rows found or not; the sweep's backfill skips it from then on."""
+diff --git a/src/documents/service.py b/src/documents/service.py
+index 51077d6..862acc1 100644
+--- a/src/documents/service.py
++++ b/src/documents/service.py
+@@ -1101,6 +1101,8 @@ class DocumentService:
+                 input_tokens=tokens,
+                 cost=Decimal(str(round(self.embedder.cost_usd(texts), 6))),
+             )
++            # the same transaction: the document's total is the sum of its call-log rows
++            await repo.add_embedding_tokens(s, tenant_id, document_id, tokens)
+ 
+     async def _audit(self, s: AsyncSession, action: str, document_id: UUID, outcome: str) -> None:
+         from audit.events import record
+diff --git a/tests/documents/test_cost_control.py b/tests/documents/test_cost_control.py
+new file mode 100644
+index 0000000..f386d6d
+--- /dev/null
++++ b/tests/documents/test_cost_control.py
+@@ -0,0 +1,294 @@
++"""Ingestion hardening PR6: the cost control of the upload analysis (step 5) and the embedding.
++
++* a file-mode analysis run carries the token estimate of ``documents.estimate`` and pauses at the
++  existing token guard (``token_gate``, the user's Proceed on ``/v1/runs/{id}/approve``);
++* the analysis of a document starts at most once, whatever re-imports or retries follow;
++* the document row holds its embedding tokens and the settled analysis tokens;
++* the per-tenant model usage view (``llm_spend_daily``) shows both.
++"""
++
++from __future__ import annotations
++
++import math
++from datetime import UTC, datetime
++from uuid import UUID
++
++import psycopg
++import pytest
++
++from account_intelligence.app import auto_analysis
++from tests.connectors.conftest import Harness
++from tests.documents import fixtures
++from tests.documents.test_file_runs import (
++    build,
++    indexed_documents,
++    process,
++    put_document,
++)
++from tests.system.hermetic_stack import Stack, admin
++
++pytestmark = [pytest.mark.requires_postgres, pytest.mark.asyncio]
++
++
++def stack_with_reply_log(harness: Harness) -> Stack:
++    """The hermetic stack with the model reply log on (as in production: the log is what the
++    token guard, the token card and the usage view count; reuse across runs is off)."""
++    from account_intelligence.app.container import reply_cache
++
++    stack = build(harness)
++    stack.plane.app.state.container.reply_cache = reply_cache({"RESEARCH_CACHE": "off"})
++    return stack
++
++
++def _analysis_runs(document: str) -> list[tuple[object, ...]]:
++    return admin(
++        "SELECT id, status, run_input FROM account_runs WHERE idempotency_key = %s",
++        auto_analysis.idempotency_key(UUID(document)),
++    )
++
++
++def _queued(stack: Stack, run: str) -> int:
++    scheduler = stack.plane.app.state.container.scheduler
++    return sum(1 for _, r, _ in scheduler.queued if str(r) == run)
++
++
++async def _bound_document(stack: Stack, who: object, account: str) -> str:
++    doc = await put_document(who, "plan.docx", fixtures.notes_docx(), account=account)  # type: ignore[arg-type]
++    await process(stack)
++    return doc
++
++
++async def test_the_analysis_run_carries_the_estimate_and_pauses_at_the_token_guard(
++    harness: Harness, monkeypatch: pytest.MonkeyPatch
++) -> None:
++    """The run's ``expected_tokens`` is ``documents.estimate`` (input plus output); a run whose
++    model tokens pass ``token_guard_multiple`` times it stops at ``token_gate`` and waits for the
++    user, whose Proceed (``POST /v1/runs/{id}/approve``) lets it finish."""
++    monkeypatch.delenv("RESEARCH_CAPS", raising=False)
++    monkeypatch.delenv("DEV_UNCAPPED", raising=False)
++    stack = stack_with_reply_log(harness)
++    a = await stack.client("cost-guard")
++    _, account = await indexed_documents(stack, a)
++    doc = await _bound_document(stack, a, account)
++    ((run_id, _, run_input),) = _analysis_runs(doc)
++    run = str(run_id)
++    expected = run_input["expected_tokens"]  # type: ignore[index]
++    from documents.estimate import estimate
++
++    assert isinstance(expected, int) and expected > 0
++    # the same figure the screen shows before a file-mode run starts
++    from account_intelligence.db.session import tenant_txn
++
++    async with tenant_txn(a.tenant) as s:
++        shown = await estimate(s, [UUID(doc)], False, 0.0)
++    assert expected == shown["input_tokens"] + shown["output_tokens"]
++    # a tiny estimate stands in for a run that passes its multiple after its first model call
++    with psycopg.connect(ADMIN_DSN_OF(), autocommit=True) as c:
++        c.execute(
++            "UPDATE account_runs SET run_input = run_input || '{\"expected_tokens\": 1}'::jsonb"
++            " WHERE id = %s",
++            (run,),
++        )
++    scheduler = stack.plane.app.state.container.scheduler
++    worker = _worker(stack)
++    try:
++        while scheduler.queued:
++            tenant, run_id, slice_no = scheduler.queued.pop(0)
++            reply = await worker.client.post(
++                "/tasks/run-slice",
++                json={"tenant_id": str(tenant), "run_id": str(run_id), "slice": slice_no},
++            )
++            assert reply.status_code == 200, reply.text
++        status = admin("SELECT status, awaiting_kind FROM account_runs WHERE id = %s", run)
++        assert status == [("AWAITING_APPROVAL", "cap")], status
++        paused = admin("SELECT run_input->>'token_guard_ok' FROM account_runs WHERE id = %s", run)
++        assert paused == [(None,)]  # nothing accepted yet
++        proceed = await a.browser.call("POST", f"/v1/runs/{run}/approve")
++        assert proceed.status_code == 200, proceed.text
++        while scheduler.queued:
++            tenant, run_id, slice_no = scheduler.queued.pop(0)
++            reply = await worker.client.post(
++                "/tasks/run-slice",
++                json={"tenant_id": str(tenant), "run_id": str(run_id), "slice": slice_no},
++            )
++            assert reply.status_code == 200, reply.text
++            if admin("SELECT status FROM account_runs WHERE id = %s", run) == [
++                ("AWAITING_APPROVAL",)
++            ]:
++                # the guard moved three estimates past the accepted tokens; a still tiny estimate
++                # may ask again, and the user goes on
++                assert (await a.browser.call("POST", f"/v1/runs/{run}/approve")).status_code == 200
++    finally:
++        await worker.close()
++    final = admin(
++        "SELECT status, run_input->>'token_guard_ok' FROM account_runs WHERE id = %s", run
++    )
++    assert final[0][0] in ("COMPLETED", "PARTIAL"), final
++    assert int(final[0][1]) > 0  # the user's Proceed recorded the tokens used so far
++    await stack.close(a)
++
++
++def ADMIN_DSN_OF() -> str:
++    from tests.system.hermetic_stack import ADMIN_DSN
++
++    return ADMIN_DSN
++
++
++def _worker(stack: Stack) -> object:
++    from tests.phase3.conftest import Browser
++
++    return Browser(stack.plane)
++
++
++async def test_the_analysis_of_a_document_starts_once_whatever_is_retried(
++    harness: Harness,
++) -> None:
++    """``auto_analysis.start`` twice, the index task again, and an import again (the sweep's
++    backfill after ``imported_at`` was cleared) create one run and queue one first slice."""
++    from datetime import timedelta  # noqa: F401
++
++    from documents.deliverables import backfill_imports
++
++    stack = stack_with_reply_log(harness)
++    a = await stack.client("cost-once")
++    _, account = await indexed_documents(stack, a)
++    doc = await _bound_document(stack, a, account)
++    ((run_id, _, _),) = _analysis_runs(doc)
++    run = str(run_id)
++    container = stack.plane.app.state.container
++    assert _queued(stack, run) == 1
++    again = await auto_analysis.start(container, a.tenant, UUID(doc))
++    assert again is not None and str(again) == run
++    assert await auto_analysis.start(container, a.tenant, UUID(doc)) == again
++    # the whole index step once more (a retried task): it replays the analysis, never repeats it
++    row = await _document_row(container, a.tenant, UUID(doc))
++    await container.documents._analyse(a.tenant, row)
++    # a re-import: the sweep claims the document again and reads its rows
++    admin("UPDATE documents SET imported_at = NULL WHERE id = %s", doc)
++    await backfill_imports(
++        datetime.now(UTC),
++        limit=10,
++        payloads=container.documents.payloads,
++        blobs=container.documents.blobs,
++    )
++    assert len(_analysis_runs(doc)) == 1
++    assert _queued(stack, run) == 1
++    assert admin(
++        "SELECT count(*) FROM account_runs WHERE tenant_id = %s AND idempotency_key = %s",
++        a.tenant,
++        auto_analysis.idempotency_key(UUID(doc)),
++    ) == [(1,)]
++    await stack.close(a)
++
++
++async def _document_row(container: object, tenant: UUID, document: UUID) -> object:
++    from account_intelligence.db.session import tenant_txn
++    from documents import repo
++
++    async with tenant_txn(tenant) as s:
++        return await repo.get(s, document)
++
++
++async def test_embedding_is_batched_and_the_document_row_holds_the_tokens(
++    harness: Harness,
++) -> None:
++    """``_index`` embeds ``cfg.embedding.batch`` passages per call; the document's
++    ``embedding_tokens`` is the sum of its embedding call-log rows."""
++    stack = stack_with_reply_log(harness)
++    a = await stack.client("cost-embed")
++    _, account = await indexed_documents(stack, a)
++    service = stack.plane.app.state.container.documents
++    cfg = service.cfg or service.c
++    batch = 3
++    service.cfg = cfg.model_copy(
++        update={"embedding": cfg.embedding.model_copy(update={"batch": batch})}
++    )
++    sizes: list[int] = []
++    real = service.embedder.embed
++
++    async def spy(texts: list[str]) -> list[list[float]]:
++        sizes.append(len(texts))
++        return await real(texts)
++
++    service.embedder.embed = spy
++    long_text = "\n\n".join(
++        f"Northwind Traders note {n}. " + "The platform team reviews its Salesforce roadmap. " * 30
++        for n in range(12)
++    )
++    doc = await put_document(a, "long.txt", long_text.encode(), account=account)
++    await process(stack)
++    passages = admin("SELECT passages FROM documents WHERE id = %s", doc)[0][0]
++    assert passages > batch, "the fixture must span more than one batch"
++    assert sizes and max(sizes) == batch and all(n <= batch for n in sizes)
++    assert sum(sizes) == passages
++    assert len(sizes) == math.ceil(passages / batch)  # one page here: index_batch >= passages
++    calls = admin(
++        "SELECT count(*), coalesce(sum(input_tokens), 0) FROM research_file_model_calls"
++        " WHERE file_id = %s AND task = 'embed_passages'",
++        doc,
++    )
++    assert calls[0][0] == len(sizes) and calls[0][1] > 0
++    assert admin("SELECT embedding_tokens FROM documents WHERE id = %s", doc) == [(calls[0][1],)]
++    await stack.close(a)
++
++
++async def test_settled_analysis_tokens_reach_the_document_and_the_usage_view(
++    harness: Harness,
++) -> None:
++    """When the analysis run settles, its input and output tokens are set on the document and
++    the run id is recorded; the per-tenant usage view (what the admin side reads) shows the
++    analysis tokens (research surface) and the embedding tokens (file_embedding surface)."""
++    stack = stack_with_reply_log(harness)
++    a = await stack.client("cost-usage")
++    _, account = await indexed_documents(stack, a)
++    doc = await _bound_document(stack, a, account)
++    ((run_id, _, _),) = _analysis_runs(doc)
++    run = str(run_id)
++    assert admin(
++        "SELECT analysis_run_id, analysis_input_tokens FROM documents WHERE id = %s", doc
++    ) == [(run_id, 0)]  # linked at start, no tokens before it settles
++    await stack.drain(a, run)
++    assert admin("SELECT status FROM account_runs WHERE id = %s", run)[0][0] in (
++        "COMPLETED",
++        "PARTIAL",
++    )
++    ((i, o, emb),) = admin(
++        "SELECT analysis_input_tokens, analysis_output_tokens, embedding_tokens FROM documents"
++        " WHERE id = %s",
++        doc,
++    )
++    ((ri, ro),) = admin(
++        "SELECT coalesce(sum(input_tokens), 0), coalesce(sum(output_tokens), 0)"
++        " FROM model_reply_log WHERE run_id = %s AND served_from = 'model'",
++        run,
++    )
++    assert i > 0 and o > 0 and (i, o) == (ri, ro)
++    assert emb > 0
++    # a redelivered settlement sets the same totals (set, not added)
++    from account_intelligence.db.session import tenant_txn
++    from account_intelligence.runs import lifecycle
++
++    async with tenant_txn(a.tenant) as s:
++        await lifecycle._note_document_tokens(s, UUID(run), a.tenant)
++    assert admin(
++        "SELECT analysis_input_tokens, analysis_output_tokens FROM documents WHERE id = %s", doc
++    ) == [(i, o)]
++    usage = {
++        (surface, kind): (int(inp), int(out), float(cost))
++        for surface, kind, inp, out, cost in admin(
++            "SELECT surface, task_kind, sum(input_tokens), sum(output_tokens), sum(cost_usd)"
++            " FROM llm_spend_daily WHERE tenant_id = %s GROUP BY surface, task_kind",
++            a.tenant,
++        )
++    }
++    research_in = sum(v[0] for (surface, _), v in usage.items() if surface == "research")
++    research_out = sum(v[1] for (surface, _), v in usage.items() if surface == "research")
++    assert research_in >= i and research_out >= o
++    embedded = usage[("file_embedding", "embed_passages")]
++    assert embedded[0] > 0 and embedded[2] == 0.0
++    # a client sees only its own usage: the view obeys row level security
++    other = await stack.client("cost-usage-other")
++    assert admin("SELECT count(*) FROM llm_spend_daily WHERE tenant_id = %s", other.tenant) == [
++        (0,)
++    ]
++    await stack.close(a, other)

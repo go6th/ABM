@@ -478,6 +478,9 @@ async def test_the_file_built_from_the_real_people_pipeline_has_the_reference_co
         assert row[6] in ("A", "B", "C") and row[9] == "Open profile"
         assert re.fullmatch(
             r"(title search source [12] \((leadership and platform|manager)\)"
+            # a person known from a record without a pass number (the organisation provider's,
+            # listed since ADR-0025 was narrowed on 2026-11-06) reads the configured fallback
+            r"|title search|technology association search"
             r"|technology association search \([^)]+\)"
             r"|Leadership page; profile found by search|Research page; profile found by search)"
             r"(; .+)?",

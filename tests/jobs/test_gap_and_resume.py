@@ -23,7 +23,7 @@ import pytest
 from jobs.errors import JobsError
 from jobs.gap import gap_remainder
 from jobs.models import PageText, SourceBatch
-from jobs.pipeline import ROW_READ, PipelineResult, result_to_json
+from jobs.pipeline import ROW_BOARD, ROW_PULL, ROW_READ, PipelineResult, result_to_json
 from jobs.ports import SourceUnavailable
 from jobs.stage import run_jobs
 from tests.fakes.jobs import Corpus, FakeLlm, FakeRunInput, Recorder
@@ -204,7 +204,9 @@ async def test_gap_pass_without_progress_ends_no_progress_after_one_pass(corpus:
     assert result.exit_reasons["gap"] == "no_progress"
     assert set(rec.passes) == {1}  # the loop stopped after the first pass without progress
     assert first.calls.count("id:j5") == 2
-    assert next(e for e in result.evidence if e.row_key == ROW_READ).cap_hit
+    read = next(e for e in result.evidence if e.row_key == ROW_READ)
+    assert read.cap_hit and read.partial_reason == "postings_not_read"
+    assert rec.partial_reasons[ROW_READ] == "postings_not_read"
 
 
 async def test_gap_pass_respects_the_run_level_caps(corpus: Corpus) -> None:
@@ -321,3 +323,40 @@ async def test_replay_of_a_finished_stage_makes_no_call_of_any_kind(corpus: Corp
     assert (len(source.calls), len(pages.calls), len(first.calls), len(judge.calls)) == before
     assert again.replayed and again.calls_made == 0
     assert rows_hash(again) == rows_hash(done)
+
+
+async def test_no_careers_site_is_named_not_left_as_not_available_yet(corpus: Corpus) -> None:
+    """2026-11-05: the board search raises ``careers_host_not_verified`` with no call when the
+    account has no verified careers site; the row said "Not available yet" and blocked the run."""
+    pipeline, source, *_ = build(corpus)
+
+    async def no_site(lane: str, keyword: str) -> object:
+        raise SourceUnavailable("careers_host_not_verified")
+
+    source.search_board = no_site  # type: ignore[method-assign]
+    rec = Recorder()
+    await _stage(corpus, rec, pipeline)
+    board = next(e for e in rec.evidence if e[0] == ROW_BOARD)
+    assert board[1] == () and board[4] == "careers_site_not_found"
+
+
+async def test_a_page_read_refused_before_any_call_stays_open_not_done(corpus: Corpus) -> None:
+    """Review 2026-11-05: a read the run's budget or call cap refused (no ledger reference) was
+    marked spent, so the read row could end Done with matched postings never read."""
+    pipeline, _source, pages, *_ = build(corpus)
+
+    async def refused(url: str, *, max_chars: int) -> PageText:
+        raise SourceUnavailable("source_unavailable")
+
+    pages.read = refused  # type: ignore[method-assign]
+    rec = Recorder()
+    result = await _stage(corpus, rec, pipeline)
+    assert any(p.escalation == "cap" for p in result.postings)
+    assert rec.partial_reasons[ROW_READ] == "postings_not_read"
+
+
+async def test_a_cut_feed_says_so_on_the_pull_row(corpus: Corpus) -> None:
+    pipeline, *_ = build(corpus, feed_complete=False, feed_exit="max_pages")
+    rec = Recorder()
+    await _stage(corpus, rec, pipeline)
+    assert rec.partial_reasons[ROW_PULL] == "feed_incomplete"

@@ -59,7 +59,12 @@ async def _refresh(plane: Any, domain: str, request_id: str | None = None) -> An
         plane,
         "POST",
         f"/v1/accounts/{domain}/refresh",
-        json={"request_id": request_id or str(uuid4()), "scope": "jobs"},
+        json={
+            "request_id": request_id or str(uuid4()),
+            "scope": "jobs",
+            "confirm": True,
+            "confirm_again": True,
+        },
     )
 
 

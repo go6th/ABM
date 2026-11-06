@@ -1,7 +1,7 @@
 // Uploaded documents for "From a file" research: pure helpers for file checks, per-file stage
 // text, readiness and the detected company. The backend decides every status, verdict and cost;
 // these only choose words and what the screen may offer next.
-import type { DocumentStatus } from "@/lib/gen/api.gen";
+import type { DocumentMember, DocumentStatus } from "@/lib/gen/api.gen";
 import type { StatusTone } from "@/ui/primitives";
 
 // accepted extensions (the server checks the content again; this only avoids a wasted upload)
@@ -11,7 +11,7 @@ export const AUDIO = [".mp3", ".wav", ".m4a"];
 // no size or count limit here: the server checks each file against the admin's per-file limit
 // (owner decision 2026-10-14: files of any size, 20 GB by default)
 
-export type Stage = "waiting" | "uploading" | "scanning" | "parsing" | "parsed" | "indexing" | "indexed" | "failed";
+export type Stage = "waiting" | "uploading" | "scanning" | "parsing" | "parsed" | "needs_account" | "indexing" | "indexed" | "failed";
 
 export const STAGE_TEXT: Record<Stage, string> = {
   waiting: "Waiting",
@@ -19,6 +19,7 @@ export const STAGE_TEXT: Record<Stage, string> = {
   scanning: "Scanning",
   parsing: "Reading",
   parsed: "Read, waiting for the company",
+  needs_account: "Needs account",
   indexing: "Indexing",
   indexed: "Ready",
   failed: "Failed",
@@ -27,7 +28,7 @@ export const STAGE_TEXT: Record<Stage, string> = {
 export function stageTone(stage: Stage): StatusTone {
   if (stage === "indexed") return "ok";
   if (stage === "failed") return "bad";
-  if (stage === "parsed") return "warn";
+  if (stage === "parsed" || stage === "needs_account") return "warn";
   return "neutral";
 }
 
@@ -149,4 +150,51 @@ export function cleanDomain(raw: string): string {
 
 export function usd(value: number): string {
   return new Intl.NumberFormat(undefined, { style: "currency", currency: "USD", maximumFractionDigits: value < 1 ? 4 : 2 }).format(value);
+}
+
+// The files inside an uploaded zip (workspace import phase 1, 2026-11-03): each member's role in
+// the package as words, and one line saying whether it was read, skipped or failed and why.
+export const ROLE_TEXT: Record<string, string> = {
+  deliverable_summary: "Account summary",
+  deliverable_evidence: "Sources and evidence",
+  deliverable_people: "People list",
+  deliverable_jobs: "Job postings",
+  deliverable_tech: "Tech stack and teams",
+  deliverable_other: "Deliverable",
+  owner_only: "Owner-only file",
+  note: "Note",
+  restore: "Package manifest",
+  captured_page: "Captured page",
+  raw_pull: "Raw pull",
+  build: "Build file",
+  other: "File",
+};
+
+const MEMBER_STATUS_TEXT: Record<DocumentMember["status"], string> = { read: "Read", skipped: "Skipped", failed: "Failed" };
+
+export function memberLine(m: DocumentMember): string {
+  const what = m.status === "read"
+    ? [m.passages ? `${m.passages.toLocaleString()} passages` : null, m.tables ? `${m.tables} table${m.tables === 1 ? "" : "s"}` : null].filter(Boolean).join(", ")
+    : m.reason ?? "";
+  const status = MEMBER_STATUS_TEXT[m.status] ?? m.status;
+  return what ? `${status}: ${what}` : status;
+}
+
+/** The server holds an upload until its account is picked: nothing is imported or indexed yet. */
+export function isHeld(doc: Pick<DocumentStatus, "stage">): boolean {
+  return doc.stage === "needs_account";
+}
+
+/** A file read and waiting (for its company or its account) or done: the choice screen may judge it. */
+export function isSettled(stage: string): boolean {
+  return stage === "parsed" || stage === "needs_account" || stage === "indexed";
+}
+
+/** The company a held upload was detected as, in words ("Acme Corp (acme.com)"), else null. */
+export function detectedLine(doc: Pick<DocumentStatus, "company">): string | null {
+  const found = (doc.company ?? null) as Detection | null;
+  const c = found?.status === "resolved" ? found.company : null;
+  if (!c) return null;
+  const name = c.name ?? c.domain;
+  return c.domain && c.name ? `${name} (${c.domain})` : (name ?? null);
 }

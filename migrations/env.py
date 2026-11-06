@@ -73,12 +73,65 @@ def run_migrations_online() -> None:
             owners: set[str] = set()
             if not superuser:
                 _grant_owner_changes(connection, owners)
+            _hand_iam_users(connection)
+            _repair_reset_revisions(connection)
             context.run_migrations()
+            _sync_service_roles(connection)
             if not superuser:
                 for role in sorted(owners):
                     connection.exec_driver_sql(f'REVOKE "{role}" FROM CURRENT_USER')
                 connection.exec_driver_sql("REVOKE CREATE ON SCHEMA public FROM PUBLIC")
     engine.dispose()
+
+
+def _hand_iam_users(connection: Connection) -> None:
+    """The IAM database users of each service (``APP_API_IAM_USERS``, ``APP_WORKER_IAM_USERS``
+    on the migrate job; unset locally) as transaction-local settings, bound and not spliced, for
+    ``service_roles_sync()`` (migration 0101, ADR-0123)."""
+    connection.exec_driver_sql(
+        "SELECT set_config('app.api_iam_users', %(api)s, true),"
+        " set_config('app.worker_iam_users', %(worker)s, true)",
+        {
+            "api": os.environ.get("APP_API_IAM_USERS", ""),
+            "worker": os.environ.get("APP_WORKER_IAM_USERS", ""),
+        },
+    )
+
+
+def _repair_reset_revisions(connection: Connection) -> None:
+    """Undo the 2026-11-01 workspace-import revisions that the reset removed from the tree.
+
+    Staging ran ``0098_workspace_imports`` and ``0099_workspace_import_owner_policy`` before the
+    reset; the tree now numbers ``0098_schedule_tick_bounds`` and ``0099_operator_sessions`` the
+    same, so Alembic would skip both. Only on a database at ``0099`` that still holds the old
+    table and lacks ``operator_sessions``: drop the table (import metadata only, the zips stay in
+    the bucket; its foreign key would block account purges) and step back to ``0097``. The
+    functions old 0098 redefined are redefined again by 0103 in this same transaction.
+    """
+    stale = connection.exec_driver_sql(
+        "SELECT to_regclass('public.account_workspace_imports') IS NOT NULL"
+        " AND to_regclass('public.operator_sessions') IS NULL"
+        " AND to_regclass('public.alembic_version') IS NOT NULL"
+    ).scalar()
+    if not stale:
+        return
+    version = connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar()
+    if version != "0099":
+        return
+    connection.exec_driver_sql("DROP TABLE account_workspace_imports")
+    connection.exec_driver_sql("UPDATE alembic_version SET version_num = '0097'")
+
+
+def _sync_service_roles(connection: Connection) -> None:
+    """After every run, copy app_rw's grants and policies to app_api again and move the named
+    IAM users (``service_roles_sync()``, migration 0101): a later migration that grants app_rw
+    reaches app_api without a hand-written copy. Before 0101 (or after its downgrade) the
+    function does not exist and nothing happens."""
+    exists = connection.exec_driver_sql(
+        "SELECT to_regprocedure('public.service_roles_sync()') IS NOT NULL"
+    ).scalar()
+    if exists:
+        connection.exec_driver_sql("SELECT service_roles_sync()")
 
 
 OWNER_CHANGE = re.compile(r"^ALTER FUNCTION\b[^;]*?\bOWNER TO ([a-z_][a-z0-9_]*)\s*;", re.M)

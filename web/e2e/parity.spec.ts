@@ -64,7 +64,7 @@ test("the screens, the stored data and the downloads agree", async ({ page }) =>
   // does not run); the harness then drives the run to its end over the synthetic world
   const session = await (await page.request.get("/v1/sso/session")).json();
   const created = await page.request.post("/v1/runs", {
-    data: { input_mode: "company", company: { company_name: "Parity E2E", domain: DOMAIN }, domain: DOMAIN, mode: "full" },
+    data: { input_mode: "company", company: { company_name: "Parity E2E", domain: DOMAIN }, domain: DOMAIN, mode: "full", confirm: true, confirm_again: true },
     headers: { Origin: new URL(page.url()).origin, "X-CSRF-Token": session.csrf_token ?? "", "Idempotency-Key": randomUUID() },
   });
   expect(created.status(), await created.text()).toBe(202);

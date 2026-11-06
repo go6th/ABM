@@ -27,3 +27,13 @@ otherwise.
 
 The product owner confirms whether "hosted file" covers the People List deliverable; if not, the
 flag can be narrowed to the workspace zip and the shared folder.
+
+## Update 2026-11-06: narrowed (owner decision)
+
+The Olympus research found 356 people through the organisation provider and listed none of them.
+The owner chose to narrow the flag, as the Consequences above allow. The rubric setting
+`internal_only_providers.listed_in_files: true` lists internal-only people in the People List and
+in the web tables, flagged `internal`, and the workspace zip still leaves them out
+(`data/people_grid.txt`, `data/derived/people.json`). Setting it to `false` restores "counted,
+never named". Tests: `tests/people/test_lying.py::test_p12_narrowed_internal_people_are_listed_and_flagged`,
+`tests/exports/test_own_identity_terms.py`.

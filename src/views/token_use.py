@@ -1,6 +1,9 @@
 """Token use of one run for the run screen's token card: the total, the tokens of each of the eight
 steps, the priced cost of the model replies, the tokens reused from earlier research (free), and
-what a research of the same kind used before (the median of the workspace's past runs).
+what a research of the same kind used before (the median of the workspace's past runs), and
+every step that fell back from a Kimi K3 or Grok 4.5 choice to Claude with what it added to the
+bill (``fallbacks``, from the run's model record: why the bill differs from the estimate,
+ADR-0119).
 
 The total is what the token meter has always counted: input plus output tokens of the replies the
 model really served, the larger of the router's ledger (``llm_calls``) and the research graph's
@@ -97,11 +100,44 @@ BY_STEP = text(
 # times are the run time), the run's own times when no job started it
 JOB = text(
     "SELECT j.kind, j.scope, COALESCE(j.started_at, r.created_at) AS started_at,"
-    " COALESCE(j.finished_at, r.finished_at) AS finished_at"
+    " COALESCE(j.finished_at, r.finished_at) AS finished_at, r.models"
     " FROM account_runs r LEFT JOIN LATERAL (SELECT kind, scope, started_at, finished_at"
     "  FROM research_jobs WHERE run_id = r.id ORDER BY created_at LIMIT 1) j ON true"
     " WHERE r.id = :r"
 )
+
+
+def _usd(value: Any) -> float | None:
+    """A stored decimal amount as dollars (None: not recorded or not priced)."""
+    try:
+        return float(Decimal(str(value))) if value is not None else None
+    except ArithmeticError:
+        return None
+
+
+def fallbacks(models: Mapping[str, Any] | None) -> list[dict[str, Any]]:
+    """The run's model fallbacks as the token card shows them: the step, both models by their
+    display names, why, what the discarded attempts cost and what the fallback added."""
+    from llm.choice import catalogue
+
+    cat = catalogue()
+
+    def name(model_id: Any) -> str:
+        choice = cat.get(str(model_id))
+        return choice.name if choice is not None else str(model_id)
+
+    return [
+        {
+            "step": str(f.get("step") or ""),
+            "from_model": name(f.get("from")),
+            "to_model": name(f.get("to")),
+            "reason": str(f.get("reason") or ""),
+            "discarded_usd": _usd(f.get("discarded_usd")),
+            "extra_usd": _usd(f.get("extra_usd")),
+        }
+        for f in ((models or {}).get("fallbacks") or [])
+        if isinstance(f, Mapping)
+    ]
 
 
 def _iso(at: datetime | None) -> str | None:
@@ -131,4 +167,5 @@ async def token_use(s: Any, run_id: UUID) -> dict[str, Any]:
         "finished_at": _iso(job.finished_at) if job is not None else None,
         "expected_tokens": expected.tokens if expected is not None else None,
         "expected_runs": expected.runs if expected is not None else 0,
+        "fallbacks": fallbacks(job.models if job is not None else None),
     }

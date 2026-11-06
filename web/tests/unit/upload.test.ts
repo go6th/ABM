@@ -3,6 +3,7 @@
 // is asked about and continued from the committed offset, nothing is sent twice, the page can
 // reload and the same file resumes from the session kept in this browser.
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { crc32cOfBlob } from "@/lib/crc32c";
 import { committedFrom, uploadDocument } from "@/lib/upload";
 import { clearUploadSessions, pausedUploads, setUploadOwner } from "@/lib/upload-store";
 
@@ -88,7 +89,7 @@ test("a dropped chunk continues from the committed offset and nothing is sent tw
   expect(new Set(chunks).size).toBe(chunks.length); // no chunk sent twice
   expect(storage.bytes).toBe(file.size);
   expect(progress.at(-1)).toBe(file.size);
-  expect(apiMock).toHaveBeenCalledWith("POST", "/v1/documents/doc-1/complete");
+  expect(apiMock).toHaveBeenCalledWith("POST", "/v1/documents/doc-1/complete", { size_bytes: 10_000, crc32c: await crc32cOfBlob(file) });
   expect(pausedUploads()).toEqual([]);
 });
 

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { serverlessAuth } from "@/lib/serverless-auth";
 import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
 import { isSameOriginRouteRequest } from "@/lib/same-origin";
@@ -77,6 +78,9 @@ async function proxy(request: NextRequest): Promise<NextResponse> {
 
   if (apiOrigin) {
     try {
+      // Cloud Run IAM reads the web service's ID token here; Authorization stays the staff
+      // session bearer the API's operator auth checks (ADR-0127)
+      for (const [name, value] of Object.entries(await serverlessAuth(apiOrigin))) headers.set(name, value);
       const upstream = await fetch(new URL(`${apiPath}${new URL(request.url).search}`, apiOrigin), {
         method,
         headers,

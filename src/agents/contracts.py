@@ -65,6 +65,12 @@ class AgentContract:
     budgets: Budgets
     stop: tuple[str, ...]
     guards: tuple[str, ...]
+    # the agent's own effort (``effort`` in config/agents.yaml); None: the user's effort where
+    # it applies, else the task's configured one (``llm.route``)
+    effort: str | None = None
+
+
+EFFORTS = frozenset({"low", "medium", "high", "xhigh", "max"})
 
 
 def _contract(name: str, spec: Mapping[str, Any]) -> AgentContract:
@@ -81,6 +87,9 @@ def _contract(name: str, spec: Mapping[str, Any]) -> AgentContract:
     tier, task = spec.get("model_tier"), spec.get("task_kind")
     if (tier is None) != (task is None):
         raise AgentConfigInvalid(f"agent {name}: model_tier and task_kind go together")
+    effort = spec.get("effort")
+    if effort is not None and (tier is None or str(effort) not in EFFORTS):
+        raise AgentConfigInvalid(f"agent {name}: effort {effort!r} needs a model and a known level")
     step = int(spec["step"])
     if step in CODE_ONLY_STEPS and tier is not None:
         raise AgentConfigInvalid(f"agent {name}: step {step} is code only (no model)")
@@ -104,6 +113,7 @@ def _contract(name: str, spec: Mapping[str, Any]) -> AgentContract:
         budgets=budgets,
         stop=tuple(str(s) for s in spec.get("stop") or ()),
         guards=guards,
+        effort=str(effort) if effort is not None else None,
     )
 
 

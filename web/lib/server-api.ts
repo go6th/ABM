@@ -6,6 +6,7 @@
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { apiOrigin } from "@/lib/api-origin";
+import { serverlessAuth } from "@/lib/serverless-auth";
 import { operations } from "@/lib/gen/api.gen";
 import { tenantCookies } from "@/lib/tenant-cookies";
 
@@ -39,7 +40,7 @@ export async function serverGet<T>(path: string, returnTo = "/", emptyOn: number
   let reply: Response;
   try {
     reply = await fetch(`${origin}${path}`, {
-      headers: { cookie, accept: "application/json", "x-request-id": requestId },
+      headers: { ...(await serverlessAuth(origin)), cookie, accept: "application/json", "x-request-id": requestId },
       cache: "no-store",
       redirect: "error",
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),

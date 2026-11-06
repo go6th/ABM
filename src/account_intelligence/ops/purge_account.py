@@ -117,9 +117,9 @@ def default_cache(env: Mapping[str, str]) -> CacheIndexEraser | None:
     url = env.get("REDIS_URL")
     if not url:
         return None
-    import redis
+    from account_intelligence.platform.redis_url import redis_from_url
 
-    return CacheIndexEraser(redis.Redis.from_url(url))
+    return CacheIndexEraser(redis_from_url(url, env, sync=True))
 
 
 def _first_line(error: BaseException) -> str:

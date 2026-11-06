@@ -74,6 +74,38 @@ async def test_a_retryable_pipeline_error_is_retried_by_the_node_not_swallowed(
         assert counters["jobs_claims"] == 1
 
 
+@pytest.mark.parametrize("method", ["run_jobs", "write_detections", "write_stack", "run_people"])
+async def test_a_slot_the_governor_did_not_grant_ends_the_slice_not_the_pipeline(
+    make, method: str
+) -> None:  # type: ignore[no-untyped-def]
+    """Staging 2026-11-05: one 30 s wait for a scrape slot was caught as a jobs failure and threw
+    away 140 read postings. Queueing goes up to the runner, which re-runs the node next slice."""
+    from account_intelligence.connectors.governance import SlotUnavailable
+
+    h = make(worlds.rich())
+    h.grant_consent()
+    with_node_retry(h)
+    calls: list[int] = []
+    real = getattr(h.pipelines, method)
+
+    async def queued_once(*args: Any, **kw: Any) -> Any:
+        calls.append(1)
+        if len(calls) == 1:
+            raise SlotUnavailable("p_scrape", 30.0)
+        return await real(*args, **kw)
+
+    setattr(h.pipelines, method, queued_once)
+    record = await h.start("r")
+    with pytest.raises(SlotUnavailable):
+        await h.service.execute(h.tenant, record.run_id)
+    rows = h.tracker.rows_by_run.get(record.run_id, {})
+    assert not any(r.reason == "source_failed" for r in rows.values())
+    # the next slice resumes the run at the pipelines node and the pipeline runs again
+    state = await h.service.execute(h.tenant, record.run_id)
+    assert len(calls) == 2
+    assert not any(k.startswith("pipelines_") and k.endswith("_failed") for k in state["counters"])
+
+
 async def test_a_pipeline_error_that_is_not_retryable_still_fails_only_that_pipeline(
     make,
 ) -> None:  # type: ignore[no-untyped-def]
@@ -107,7 +139,9 @@ async def test_a_failed_jobs_pipeline_leaves_failed_rows_and_a_partial_run(
     assert any(pulled[k].call_refs for k in job_keys)  # the scenario: Phase 1 left evidence
     assert all(rows[k].status in ("partial", "blocked", "not_done") for k in job_keys)
     assert any(rows[k].reason == "source_failed" for k in job_keys)
-    assert state["outcome"] == "partial"
+    # the graph reports the failed pipeline as a fact and never votes (ADR-0128): the fact makes
+    # the requested end PARTIAL with its reason code
+    assert state["outcome"] == "completed"
     target, reason, refund = AbmGraphFactory().target(state)
     assert (target, reason, refund) == (RunStatus.PARTIAL, "steps_waiting", False)
 
@@ -165,7 +199,8 @@ async def test_a_tech_feed_the_pipeline_cannot_pull_either_is_a_visible_failure(
     record, state = await asyncio.wait_for(h.run("r"), 30)
     row = h.tracker.rows_by_run[record.run_id][tech_key(h)]
     assert row.status != "done" and row.reason == "source_failed"
-    assert state["counters"]["pipelines_tech_failed"] == 1 and state["outcome"] == "partial"
+    assert state["counters"]["pipelines_tech_failed"] == 1
+    assert AbmGraphFactory().target(state)[:2] == (RunStatus.PARTIAL, "steps_waiting")
 
 
 # the real tracker on Postgres ------------------------------------------------------------------
@@ -435,3 +470,16 @@ async def test_a_defect_in_deliver_is_not_retried(make) -> None:  # type: ignore
     with pytest.raises(ValueError):
         await h.run("r")
     assert len(calls) == 1
+
+
+async def test_the_graph_never_demotes_a_run_the_tracker_may_complete(make) -> None:  # type: ignore[no-untyped-def]
+    """ADR-0128: rows Blocked or Not done no longer make the graph answer "partial". The graph
+    asks for COMPLETED with no reason; whether the rows allow it is the tracker verdict's alone
+    (``runs.lifecycle.finish``), so a run the tracker may complete cannot end PARTIAL by a
+    second rule here."""
+    h = make(worlds.sparse())
+    record, state = await h.run("r")
+    rows = h.tracker.rows_by_run[record.run_id]
+    assert any(r.status == "blocked" for r in rows.values())  # the old rule said partial
+    assert h.delivery.released and state["outcome"] == "completed"
+    assert AbmGraphFactory().target(state) == (RunStatus.COMPLETED, None, False)

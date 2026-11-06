@@ -94,6 +94,15 @@ variable "research_caps" {
     error_message = "research_caps must be on or off."
   }
 }
+variable "token_guard" {
+  type        = string
+  description = "\"on\" pauses a research whose model tokens reach 3x its estimate even while research_caps is off (connectors/spend_guard.check_tokens). With the caps on the guard applies either way."
+  default     = "on"
+  validation {
+    condition     = contains(["on", "off"], var.token_guard)
+    error_message = "token_guard must be on or off."
+  }
+}
 variable "moonshot_enabled" {
   type        = bool
   description = "Offer Kimi K3: set only after the moonshot-api-key secret has a version (the services read it at start)."
@@ -224,17 +233,27 @@ locals {
     # worker_gpu is set (Cloud Run asks for at least 4 vCPU and 16 GiB next to an L4) and on the
     # vCPUs otherwise (one thread each; about 10 passages a second on 4 threads). The worker
     # scales to zero, so the larger instance costs only while a run or an indexing part is active.
-    worker = { cpu = "4", memory = "12Gi", concurrency = 4, timeout = "3600s" }
+    #
+    # concurrency 1 (was 4; ADR-0130): one request per worker instance, so one blocked event loop
+    # (YAML parse, certificate fetch, archive zip, ledger parse: four kills by liveness) stalls
+    # one slice, not four, and never starves its neighbours' heartbeats. Capacity now comes from
+    # instances (scaling.worker.max): raise it to keep the old slot count (12 slots = max 12).
+    # Back to 4 after tests/system/test_event_loop.py has been green for two releases.
+    worker = { cpu = "4", memory = "12Gi", concurrency = 1, timeout = "3600s" }
   }
+  # concurrent requests the worker can hold at its maximum: the queues below share them
+  worker_slots = var.scaling.worker.max * local.size.worker.concurrency
   # database pool per process the arithmetic assumes (Agent 4 sets the code side; handoff)
   pool = { size = 5, overflow = 5 }
 
   # Cloud Tasks: together the queues never dispatch more than the worker can hold at its maximum
-  # (max instances x concurrency 4 = runs 2 + documents 1 + jobs 1 per instance).
+  # (worker_slots = max instances x concurrency: half to runs, a quarter each to documents and
+  # jobs, at least one each; with concurrency 4 that is runs 2 + documents 1 + jobs 1 per
+  # instance, as before ADR-0130).
   queues = {
     runs = {
       max_dispatches_per_second = 5
-      max_concurrent_dispatches = var.scaling.worker.max * 2
+      max_concurrent_dispatches = max(1, floor(local.worker_slots / 2))
       # 8 attempts (owner decision 2026-10-30; was 5): a slice whose worker was killed is retried
       # at about +10, +30, +70, +150 s (the 150 s retry takes the stale lease: ledger
       # lease_stale_after_s 90 in config/providers.yaml) and then at +310, +610, +910 s, so a
@@ -248,7 +267,7 @@ locals {
     }
     documents = {
       max_dispatches_per_second = 2
-      max_concurrent_dispatches = var.scaling.worker.max
+      max_concurrent_dispatches = max(1, floor(local.worker_slots / 4))
       max_attempts              = 20 # "busy" (503) is a normal answer while a client's parts run
       # a task that woke a cold worker and failed is tried again soon, not in ten minutes: the
       # handler is idempotent (lease and parts), so a quick retry costs nothing (2026-10-15)
@@ -258,7 +277,7 @@ locals {
     }
     jobs = {
       max_dispatches_per_second = 5
-      max_concurrent_dispatches = var.scaling.worker.max
+      max_concurrent_dispatches = max(1, floor(local.worker_slots / 4))
       max_attempts              = 5
       min_backoff               = "10s"
       max_backoff               = "300s"
@@ -269,7 +288,10 @@ locals {
   # Secret id -> the workloads allowed to read it (least privilege). Values are owner inputs.
   secrets = merge(
     {
-      "checkpoint-database-url"       = ["api", "worker", "job"]
+      # no reader any more: the worker's checkpointer signs in with IAM on the private IP
+      # (ADR-0125). Kept one release so a rollback can re-grant it; delete it after the IAM
+      # checkpointer has run a research on staging.
+      "checkpoint-database-url"       = []
       "migrator-database-url"         = ["migrate"]
       "app-rw-password"               = ["migrate"]
       "anthropic-api-key"             = ["api", "worker"] # read through the Secret Manager API
@@ -291,8 +313,11 @@ locals {
   common_env = merge(
     {
       APP_ENV = local.app_env
-      # "off": no research cap (dev_limits.research_uncapped); the API and the worker both read it
+      # "off": no research cap (dev_limits.research_uncapped); the API and the worker both read it.
+      # Cloud profiles deploy "on" (fix prompt A 2026-11-03; tests/unit/test_caps_default_on.py)
       RESEARCH_CAPS = var.research_caps
+      # "on": the 3x-estimate token pause stays even if RESEARCH_CAPS is ever switched off
+      TOKEN_GUARD = var.token_guard
       # every delivered workbook is recalculated with LibreOffice Calc and every Word file is
       # rendered to PDF for the row-presence check before it is stored (exports/wiring.py); the
       # images install libreoffice-calc for this (audit of 2026-10-29: the switch had never been set)
@@ -309,8 +334,12 @@ locals {
       DB_POOL_SIZE       = tostring(local.pool.size)
       DB_MAX_OVERFLOW    = tostring(local.pool.overflow)
       PAYLOAD_BUCKET     = module.gcs.bucket
-      # TLS to Memorystore against its own CA (mounted file); VERIFY(V-REDIS-1) hostname check
-      REDIS_URL = "rediss://${module.cache.host}:${module.cache.port}/0?ssl_ca_certs=${local.redis_ca_dir}/ca.pem&ssl_check_hostname=false"
+      QUARANTINE_BUCKET  = module.gcs.quarantine_bucket
+      # TLS to Memorystore against its own CA (mounted file), the certificate matched against the
+      # instance IP (ADR-0125; VERIFY(V-REDIS-1) before applying); the code refuses a REDIS_URL
+      # whose host is not REDIS_PINNED_HOST, this same IP (platform/redis_url.py)
+      REDIS_URL         = "rediss://${module.cache.host}:${module.cache.port}/0?ssl_ca_certs=${local.redis_ca_dir}/ca.pem&ssl_check_hostname=true"
+      REDIS_PINNED_HOST = module.cache.host
       # the python-docx renderer until the Node library is ported (FIX_LOG D10)
       EXPORT_RENDERER       = "python-interim"
       PUBLIC_BASE_URL       = local.web_origin
@@ -343,7 +372,8 @@ locals {
       MAIL_FROM_NAME = var.mail.from_name
     } : {},
   )
-  db_secret = { CHECKPOINT_DATABASE_URL = "checkpoint-database-url" }
+  # the checkpointer's IAM sign-in target (ADR-0125): the processes that run slices only
+  checkpoint_env = { CLOUD_SQL_PRIVATE_IP = module.cloud_sql.private_ip }
   maildrive_secret = merge(
     var.maildrive.google_client_id != "" ? { MAILDRIVE_GOOGLE_CLIENT_SECRET = "maildrive-google-client-secret" } : {},
     var.maildrive.microsoft_client_id != "" ? { MAILDRIVE_MICROSOFT_CLIENT_SECRET = "maildrive-microsoft-client-secret" } : {},
@@ -446,7 +476,11 @@ module "gcs" {
   web_origin         = local.web_origin
   archive_writers    = { worker = local.sa.worker }
   archive_lock       = var.archive_lock
-  labels             = local.labels
+  # upload quarantine bucket (2026-11-04): the api opens upload sessions and reads metadata, the
+  # worker reads, copies out (rights on the data bucket above) and deletes
+  quarantine_creators   = { api = local.sa.api }
+  quarantine_processors = { worker = local.sa.worker }
+  labels                = local.labels
 }
 
 module "cache" {
@@ -581,7 +615,7 @@ module "cloud_run" {
         EVAL_EFFORT = "high"
       })
       # the search key: Ask's web lookups (replica.web_tools, owner decision 2026-11-02)
-      secret_env          = merge(local.db_secret, local.maildrive_secret, { P_SEARCH_API_KEY = "p-search-api-key" })
+      secret_env          = merge(local.maildrive_secret, { P_SEARCH_API_KEY = "p-search-api-key" })
       secret_files        = local.redis_ca_file
       min_instances       = var.scaling.api.min
       max_instances       = var.scaling.api.max
@@ -603,7 +637,7 @@ module "cloud_run" {
       sa_email = local.sa.worker
       port     = 8080
       ingress  = "INGRESS_TRAFFIC_INTERNAL_ONLY" # Cloud Tasks and Cloud Scheduler count as internal
-      env = merge(local.common_env, {
+      env = merge(local.common_env, local.checkpoint_env, {
         SERVICE_ROLE     = "worker"
         DB_IAM_USER      = module.cloud_sql.iam_users["worker"]
         DOCUMENT_SCANNER = "clamd"
@@ -611,7 +645,7 @@ module "cloud_run" {
         CLAMD_PORT       = "3310"
         BLOB_MOUNT_DIR   = local.blob_mount # read once the handoff lands (no full-file temp copy)
       })
-      secret_env    = merge(local.db_secret, local.providers_secret, local.maildrive_secret)
+      secret_env    = merge(local.providers_secret, local.maildrive_secret)
       secret_files  = local.redis_ca_file
       gcs_mounts    = { (local.blob_mount) = module.gcs.bucket }
       min_instances = var.scaling.worker.min
@@ -662,11 +696,17 @@ module "cloud_run" {
       audiences           = []
     }
   }
-  # web: behind the load balancer (a serverless NEG needs allUsers); api: internal ingress, and
-  # it authenticates every business request itself (the web server forwards the session cookie)
-  public_invoker = ["api", "web"]
+  # web: behind the load balancer (a serverless NEG needs allUsers). api: internal ingress AND
+  # Cloud Run IAM (ADR-0127): only the web service account may invoke it; the web server sends
+  # its metadata-server ID token for the api URL in X-Serverless-Authorization on every call
+  # (web/lib/serverless-auth.ts) and the api still authenticates every business request itself.
+  # Cloud Run's own startup and liveness probes are not subject to IAM.
+  public_invoker = ["web"]
   # worker: only the tasks identity (Cloud Tasks and Cloud Scheduler sign as it)
-  invokers = { worker = { tasks = local.sa.tasks } }
+  invokers = {
+    worker = { tasks = local.sa.tasks }
+    api    = { web = local.sa.web }
+  }
   # the CI deployer rolls images and traffic on these three services and nothing else
   developers = {
     api    = { deployer = local.sa.deployer }
@@ -691,8 +731,8 @@ module "cloud_run_jobs" {
       sa_email    = local.sa.job
       command     = ["python", "-m", "account_intelligence.worker", "spend-invariants"]
       args        = []
-      env         = merge(local.common_env, { SERVICE_ROLE = "job", DB_IAM_USER = module.cloud_sql.iam_users["job"] })
-      secret_env  = local.db_secret
+      env         = merge(local.common_env, local.checkpoint_env, { SERVICE_ROLE = "job", DB_IAM_USER = module.cloud_sql.iam_users["job"] })
+      secret_env  = {}
       timeout     = "1800s"
       max_retries = 1
       cpu         = "1"
@@ -709,6 +749,11 @@ module "cloud_run_jobs" {
         # the IAM database users to be members of app_rw and nothing else (audit L16; read once
         # the migration handoff lands; until then the runbook grants it by hand)
         APP_RW_IAM_USERS = join(",", values(module.cloud_sql.iam_users))
+        # every migrate run then moves each service's IAM user from app_rw to its own role
+        # (migration 0101, ADR-0123): the api to app_api (no tool_calls writes, no leases, no
+        # checkpoint internals), the worker and the job identity to app_worker
+        APP_API_IAM_USERS    = module.cloud_sql.iam_users["api"]
+        APP_WORKER_IAM_USERS = join(",", [module.cloud_sql.iam_users["worker"], module.cloud_sql.iam_users["job"]])
       }
       secret_env  = { MIGRATOR_DATABASE_URL = "migrator-database-url", APP_RW_PASSWORD = "app-rw-password" }
       timeout     = "1800s"
@@ -727,8 +772,8 @@ module "cloud_run_jobs" {
       sa_email    = local.sa.worker
       command     = ["python", "-m", "account_intelligence.worker", "reingest-tables"]
       args        = []
-      env         = merge(local.common_env, { SERVICE_ROLE = "job", DB_IAM_USER = module.cloud_sql.iam_users["worker"] })
-      secret_env  = local.db_secret
+      env         = merge(local.common_env, local.checkpoint_env, { SERVICE_ROLE = "job", DB_IAM_USER = module.cloud_sql.iam_users["worker"] })
+      secret_env  = {}
       timeout     = "1800s"
       max_retries = 0
       cpu         = "1"
@@ -758,18 +803,20 @@ module "scheduler" {
   jobs = {
     spend-invariants = { schedule = "17 3 * * *", job_name = module.cloud_run_jobs.names["spend-invariants"] }
   }
-  # routes that exist today run; Phase 5 routes are created paused (applies on deploy)
+  # every entry names a route that exists (api/routes/tasks.py). The paused "retention"
+  # (/tasks/retention) and "alert-digest" (/tasks/alert-digest) entries were removed on
+  # 2026-11-03 (ADR-0132): neither route was ever built, so data retention is NOT enforced by a
+  # scheduled job (the sweeper's jobs are listed in runs/sweeper.py) and no alert digest is sent.
   http_ticks = {
-    schedules-tick  = { schedule = "*/15 * * * *", path = "/tasks/schedules-tick", deadline = "300s", paused = false }
-    isolation-check = { schedule = "0 2 * * *", path = "/tasks/isolation-check", deadline = "1800s", paused = false }
-    access-expiry   = { schedule = "30 3 * * *", path = "/tasks/access-expiry", deadline = "900s", paused = false }
-    maildrive-sync  = { schedule = "5 * * * *", path = "/tasks/maildrive-sync", deadline = "900s", paused = false }
-    sweep           = { schedule = "*/5 * * * *", path = "/tasks/sweep", deadline = "300s", paused = false }
-    retention       = { schedule = "45 3 * * *", path = "/tasks/retention", deadline = "1800s", paused = true }
-    alert-digest    = { schedule = "0 7 * * *", path = "/tasks/alert-digest", deadline = "900s", paused = true }
-    audit-verify    = { schedule = "15 4 * * *", path = "/tasks/audit-verify", deadline = "1800s", paused = false }
-    notify-relay    = { schedule = "*/5 * * * *", path = "/tasks/notify-relay", deadline = "300s", paused = false }
-    metrics         = { schedule = "*/2 * * * *", path = "/tasks/metrics", deadline = "120s", paused = false }
+    schedules-tick    = { schedule = "*/15 * * * *", path = "/tasks/schedules-tick", deadline = "300s", paused = false }
+    isolation-check   = { schedule = "0 2 * * *", path = "/tasks/isolation-check", deadline = "1800s", paused = false }
+    documents-abandon = { schedule = "20 2 * * *", path = "/tasks/documents-abandon", deadline = "900s", paused = false }
+    access-expiry     = { schedule = "30 3 * * *", path = "/tasks/access-expiry", deadline = "900s", paused = false }
+    maildrive-sync    = { schedule = "5 * * * *", path = "/tasks/maildrive-sync", deadline = "900s", paused = false }
+    sweep             = { schedule = "*/5 * * * *", path = "/tasks/sweep", deadline = "300s", paused = false }
+    audit-verify      = { schedule = "15 4 * * *", path = "/tasks/audit-verify", deadline = "1800s", paused = false }
+    notify-relay      = { schedule = "*/5 * * * *", path = "/tasks/notify-relay", deadline = "300s", paused = false }
+    metrics           = { schedule = "*/2 * * * *", path = "/tasks/metrics", deadline = "120s", paused = false }
   }
   depends_on = [module.cloud_run]
 }
@@ -846,7 +893,7 @@ output "worker_url" {
   value = local.worker_url
 }
 output "buckets" {
-  value = { data = module.gcs.bucket, audit_archive = module.gcs.archive_bucket }
+  value = { data = module.gcs.bucket, audit_archive = module.gcs.archive_bucket, quarantine = module.gcs.quarantine_bucket }
 }
 output "sql_connection_name" {
   value = module.cloud_sql.connection_name

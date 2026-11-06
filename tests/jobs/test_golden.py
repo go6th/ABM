@@ -95,8 +95,11 @@ async def test_row_evidence_cites_only_calls_the_sources_made(corpus: Corpus) ->
     assert rows[ROW_BOARD][2] == oracle()["board_calls"]  # expected_calls = keywords searched
     assert len(rows[ROW_BOARD][1]) == 4 and not rows[ROW_BOARD][3]
     assert len(rows[ROW_PULL][1]) == 1 and not rows[ROW_PULL][3]
-    # matched postings remain unread (j9) or unclassified (j6, j17): the read row is partial
-    assert rows[ROW_READ][3] is True
+    # j9's one page read failed (final, J5) and j6, j17 got the heuristic's class after an
+    # unclear or disputed reading: nothing is left that another pass could do, so the read row
+    # is not partial (2026-11-05: a spent read kept the row Partial on every run)
+    assert rows[ROW_READ][3] is False
+    assert rec.partial_reasons[ROW_READ] is None
 
 
 async def test_rerun_makes_zero_paid_calls_and_writes_identical_rows(corpus: Corpus) -> None:

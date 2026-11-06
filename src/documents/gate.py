@@ -54,6 +54,7 @@ GUARANTEE(test_gate_blocks_a_run_with_a_defect_and_passes_a_clean_one)
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import html
 import io
@@ -327,26 +328,29 @@ class PreDeliveryGate:
         checker = LeakChecker(self.cfg.leak, self.embedder, private, public, nearest)
         from exports.verify import scan_package, third_party_scan
 
-        for f in files:
-            data = await self.payloads.get(str(f.object_key))
+        def scan(f: Any, data: bytes) -> tuple[str, dict[str, str]]:
+            """The file's text and its format findings (check -> item): unzipping, regex scans
+            and the row count, run in a thread off the event loop (ADR-0130)."""
+            found: dict[str, str] = {}
             body = client_text(data)
             # the dash rule's scope is authored prose (export_rules.yaml banned_dashes.scope): a
             # workbook's cells are stored job titles, names and labels printed as they are, and
             # the builder already scans the written documents with those blanked (staging
             # 2026-10-21: a 896 row job postings run failed here on source titles with a dash)
             # the builder's format rules, only on a file it did not make and verify itself
-            if not _builder_verified(f, data):
+            verified = _builder_verified(f, data)
+            if not verified:
                 if not _is_workbook(data) and _DASHES.search(body):
-                    failing["client_dashes"].append(f"{f.kind}:{len(_DASHES.findall(body))}")
+                    found["client_dashes"] = f"{f.kind}:{len(_DASHES.findall(body))}"
                 try:
                     hits = scan_package(data, ())
                 except zipfile.BadZipFile:
                     hits = ()
                 if hits:
-                    failing["client_terms"].append(f"{f.kind}:{len(hits)}")
+                    found["client_terms"] = f"{f.kind}:{len(hits)}"
             lowered = body.lower()
             named = [h for h in hosts if h in lowered]
-            if not _builder_verified(f, data):
+            if not verified:
                 # a file the builder did not make: the host check covers every member (hyperlink
                 # targets, comments, workbook names, custom properties, nested files), as the
                 # builder's own scan does, not only the visible text (F11)
@@ -362,10 +366,17 @@ class PreDeliveryGate:
                     ]
                     named = sorted(set(named))
             if named:
-                failing["third_party_domains"].append(f"{f.kind}:{len(named)}")
+                found["third_party_domains"] = f"{f.kind}:{len(named)}"
             lost = rows_lost(str(f.kind), data, body, f.manifest_json or {})
             if lost:
-                failing["rows_dropped"].append(f"{f.kind}:{lost}")
+                found["rows_dropped"] = f"{f.kind}:{lost}"
+            return body, found
+
+        for f in files:
+            data = await self.payloads.get(str(f.object_key))
+            body, found = await asyncio.to_thread(scan, f, data)
+            for check, item in found.items():
+                failing[check].append(item)
             result = await checker.check(str(f.kind), body)
             async with self.txn(tenant) as s:
                 await repo.record_leak_check(

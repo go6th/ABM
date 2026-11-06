@@ -52,7 +52,7 @@ action SHAs, same Trivy 0.75.0 gate, same WIF variable names `GCP_PROJECT_ID`, `
 - CI jobs: helm-web, lint-ci (actionlint, hadolint, shellcheck), quality (existing gates plus
   skill asset validation, migration lint, `alembic upgrade head` and `alembic check` on a scratch
   database, RLS catalog, `gen_isolation_matrix.py --check`, `gen_env_docs.py --check`,
-  `check_routing_governance.py`), infra, web, e2e, dependency-audit (pip-audit via `uv export`;
+  routing governance, removed by ADR-0113), infra, web, e2e, dependency-audit (pip-audit via `uv export`;
   `npm audit --omit=dev --audit-level=high`), secret-scan (gitleaks v8.28.0 over full history),
   images (build, inspect, Trivy, SBOM, save), hermetic. Every job states `permissions:`; every
   third-party action is pinned to a full SHA with its version (I kept the existing SHAs, which I

@@ -24,7 +24,9 @@ DENY = ("Parallel Search", SCRAPE.upper(), SIGNALS.lower(), ORG, "12 credits", "
 def reference(text: str, terms: tuple[str, ...]) -> tuple[CO.Hit, ...]:
     """Every pattern run on the text, in order: what the scan returned before the filter."""
     patterns = list(CO.load_patterns()) + [
-        re.compile(r"(?<!\w)" + re.escape(t.strip()) + r"(?!\w)", re.I) for t in terms if t.strip()
+        re.compile(r"(?<!\w)" + r"\s+".join(map(re.escape, t.split())) + r"(?!\w)", re.I)
+        for t in terms
+        if t.strip()
     ]
     return tuple(CO.Hit(p.pattern, m.start()) for p in patterns for m in p.finditer(text))
 
@@ -49,6 +51,23 @@ def test_the_filtered_scan_returns_the_hits_of_the_plain_scan(text: str) -> None
     assert CO.scan_text(text) == reference(text, ())
 
 
+@pytest.mark.parametrize(
+    ("term", "text"),
+    [
+        ("Zorblax Industries", "Head of IT Zorblax\xa0Industries 0"),
+        ("Zorblax\xa0Industries", "Head of IT Zorblax Industries 0"),
+        ("Zorblax Industries\xa00", "Head of IT Zorblax Industries 0"),
+        ("Zorblax  Industries", "Zorblax\nIndustries"),
+    ],
+)
+def test_a_term_matches_across_any_whitespace_between_its_words(term: str, text: str) -> None:
+    """A restricted name stored with a no-break or double space still matches the same name a
+    writer printed with a plain space (and the other way round), so it is found and scrubbed."""
+    assert CO.scan_text(text, (term,))
+    scrubbed, n = CO.scrub_text(text, (term,), "[x]")
+    assert n == 1 and "zorblax" not in scrubbed.casefold()
+
+
 def test_random_texts_give_the_same_hits() -> None:
     rng = random.Random(11)
     alphabet = list("abcdefghijklmnopqrstuvwxyz ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 .,-_&'")
@@ -70,7 +89,7 @@ def test_random_texts_give_the_same_hits() -> None:
 def test_a_term_set_of_thousands_costs_one_pass_over_the_words() -> None:
     terms = tuple(f"Person{n} Name{n}" for n in range(3000)) + ("Jane Smith",)
     text = "A description with nothing in it. " * 400 + " jane smith "
-    assert [h.pattern for h in CO.scan_text(text, terms)] == [r"(?<!\w)Jane\ Smith(?!\w)"]
+    assert [h.pattern for h in CO.scan_text(text, terms)] == [r"(?<!\w)Jane\s+Smith(?!\w)"]
 
 
 def test_the_needles_are_read_from_the_parsed_pattern() -> None:

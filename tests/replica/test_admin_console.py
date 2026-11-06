@@ -18,7 +18,6 @@ import httpx
 import psycopg
 import pytest
 
-from llm.config import load_routing_config, with_model_split
 from tests.conftest import ADMIN_DSN
 from tests.fakes.phase3 import FakeStaffIdp
 from tests.phase3.conftest import BASE, Browser, make_app
@@ -171,6 +170,68 @@ async def test_client_settings_change_from_its_page(world: dict[str, Any], staff
 
 @pytest.mark.requires_postgres
 @pytest.mark.asyncio
+async def test_an_operator_records_and_withdraws_people_consent_for_a_client(
+    world: dict[str, Any], staff_env: None
+) -> None:
+    """No client admin can sign in before the client's SSO with multi-factor sign-in is
+    connected, so people research could not be switched on (staging 2026-11-06). An operator
+    records the consent at the client's request: the record names the operator, both audit logs
+    carry it, the research's consent check passes, and a withdrawal blocks people again."""
+    from agents.adapters import PgConsentStore
+    from agents.config import skill_config
+    from agents.guards import consent_decision
+
+    cfg = skill_config()
+    plane = make_app()
+    path = f"/operator/v1/console/clients/{world['b']}/people-consent"
+    before = await _staff(plane, "GET", path)
+    assert before.status_code == 200 and before.json()["current"] is False
+    granted = await _staff(plane, "POST", path, json={"accept": True})
+    assert granted.status_code == 200, granted.text
+    body = granted.json()
+    assert body["current"] is True and body["granted_by"].startswith("operator:")
+    record = await PgConsentStore().current(world["b"], cfg.consent_scope)
+    assert consent_decision(record, cfg.consent_scope, cfg.consent_text_version) is None
+    assert _db(
+        "SELECT count(*) FROM audit_events WHERE tenant_id = %s"
+        " AND action = 'operator.people_consent.granted'",
+        world["b"],
+    ) == [(1,)]
+    assert _db(
+        "SELECT count(*) FROM operator_audit WHERE action = 'people_consent.granted'"
+        " AND target = %s",
+        str(world["b"]),
+    ) == [(1,)]
+    withdrawn = await _staff(plane, "POST", path, json={"accept": False})
+    assert withdrawn.json()["current"] is False
+    record = await PgConsentStore().current(world["b"], cfg.consent_scope)
+    assert consent_decision(record, cfg.consent_scope, cfg.consent_text_version) is not None
+    other = await _staff(
+        plane,
+        "POST",
+        f"/operator/v1/console/clients/{uuid4()}/people-consent",
+        json={"accept": True},
+    )
+    assert other.status_code == 404
+
+
+@pytest.mark.requires_postgres
+@pytest.mark.asyncio
+async def test_rebuild_files_needs_an_account_with_delivered_files(
+    world: dict[str, Any], staff_env: None
+) -> None:
+    """Rebuild files reads a delivered run's stored rows; an account without one is a 404 (or a
+    503 where the builder is not configured), never a build of nothing."""
+    plane = make_app()
+    path = f"/operator/v1/console/clients/{world['b']}/rebuild-files"
+    missing = await _staff(plane, "POST", path, json={"domain": "no-such-account.example"})
+    assert missing.status_code in (404, 503), missing.text
+    bad = await _staff(plane, "POST", path, json={"domain": "not a domain"})
+    assert bad.status_code == 422
+
+
+@pytest.mark.requires_postgres
+@pytest.mark.asyncio
 async def test_terminated_access_is_refused_everywhere_and_re_enabled(
     world: dict[str, Any], staff_env: None
 ) -> None:
@@ -223,7 +284,7 @@ async def test_platform_defaults_and_the_model_choice(staff_env: None) -> None:
         {"email": "admin@6th.example", "role": "Operator"},
         {"email": "dev@6th.example", "role": "Support"},
     ]
-    assert before["skill_version"] and before["model_router_on"] is False
+    assert before["skill_version"] and "model_router_on" not in before
     # the analysis default is Opus 5.5 since 2026-10-20 (token review item 4)
     assert (before["default_research_model"], before["default_analysis_model"]) == (opus, opus)
     assert [m["id"] for m in before["models"]] == [opus, fable, kimi, sonnet, haiku, grok]
@@ -249,18 +310,6 @@ async def test_platform_defaults_and_the_model_choice(staff_env: None) -> None:
             " default_analysis_model = NULL, credit_cap_per_pull = %s WHERE id = 1",
             before["credit_cap_per_pull"],
         )
-
-
-def test_single_model_moves_extraction_to_the_analysis_tier_and_keeps_the_judge() -> None:
-    cfg = load_routing_config()
-    single = with_model_split(cfg, "single")
-    assert with_model_split(cfg, "split") is cfg
-    for name, kind in cfg.task_kinds.items():
-        moved = single.task_kinds[name].tier
-        assert moved == ("planner" if kind.tier == "extractor" else kind.tier)
-    assert single.routing_version != cfg.routing_version  # no reply reuse across modes
-    with pytest.raises(ValueError):
-        with_model_split(cfg, "mixed")
 
 
 @pytest.mark.requires_postgres
@@ -293,3 +342,48 @@ async def test_with_a_mailer_the_invite_link_is_emailed_too(staff_env: None) -> 
     assert (
         mailer.sent[1][0] == email and mailer.sent[1][2]["invite_url"] == renew.json()["invite_url"]
     )
+
+
+@pytest.mark.requires_postgres
+@pytest.mark.asyncio
+async def test_the_schedule_tick_limits_are_edited_on_the_defaults_page(staff_env: None) -> None:
+    """The scheduled-refresh tick's ceilings (ADR-0108) change at runtime, no deploy: the tick
+    reads them from platform_defaults on every run (replica/schedules.tick_bounds)."""
+    plane = make_app()
+    before = (await _staff(plane, "GET", "/operator/v1/console/defaults")).json()
+    assert (before["schedule_tick_max_starts"], before["schedule_tick_max_per_tenant"]) == (10, 3)
+    try:
+        r = await _staff(
+            plane,
+            "PUT",
+            "/operator/v1/console/defaults",
+            json={"schedule_tick_max_starts": 20, "schedule_tick_max_per_tenant": 5},
+        )
+        assert r.status_code == 200, r.text
+        assert (r.json()["schedule_tick_max_starts"], r.json()["schedule_tick_max_per_tenant"]) == (
+            20,
+            5,
+        )
+        from account_intelligence.db.system_scope import untenanted_session
+        from account_intelligence.replica.schedules import tick_bounds
+
+        async with untenanted_session() as s:
+            budget = await tick_bounds(s)
+        assert (budget.max_starts, budget.max_per_tenant) == (20, 5)
+        # a per-client ceiling above the tick's own is refused, alone or together, never a 500
+        for bad in (
+            {"schedule_tick_max_per_tenant": 21},
+            {"schedule_tick_max_starts": 4},
+            {"schedule_tick_max_starts": 2, "schedule_tick_max_per_tenant": 3},
+            {"schedule_tick_max_starts": 0},
+            {"schedule_tick_max_starts": 1001},
+        ):
+            got = await _staff(plane, "PUT", "/operator/v1/console/defaults", json=bad)
+            assert got.status_code == 422, (bad, got.text)
+    finally:
+        _db(
+            "UPDATE platform_defaults SET schedule_tick_max_starts = %s,"
+            " schedule_tick_max_per_tenant = %s WHERE id = 1",
+            before["schedule_tick_max_starts"],
+            before["schedule_tick_max_per_tenant"],
+        )

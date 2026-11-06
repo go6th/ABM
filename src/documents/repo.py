@@ -1171,9 +1171,13 @@ async def index_page(
     model: str,
     semantic: Sequence[Sequence[float]] | None = None,
     semantic_model: str | None = None,
+    *,
+    owner: str | None = None,
 ) -> bool:
     """Index one page of passages (their range is replaced, so a page indexed twice is written
-    once) and remember how far indexing got. False: the document was deleted meanwhile.
+    once) and remember how far indexing got. False: the document was deleted meanwhile, or
+    (with ``owner``) it is no longer being indexed under that lease, so a call that lost its
+    lease writes nothing after a re-parse cleared the passages (audit 2026-11-06).
     ``semantic`` are the retrieval vectors (on-server transformer), one per row, or None.
 
     The document row is locked (FOR NO KEY UPDATE, not FOR SHARE) before the page is written:
@@ -1181,7 +1185,11 @@ async def index_page(
     same document both took the share lock and then both updated the row, a deadlock seen on
     staging 2026-10-15. Now the second waits and rewrites the same page (idempotent)."""
     locked = await s.execute(
-        text("SELECT 1 FROM documents WHERE id = :d FOR NO KEY UPDATE"), {"d": document_id}
+        text(
+            "SELECT 1 FROM documents WHERE id = :d AND (CAST(:o AS text) IS NULL OR"
+            " (lease_owner = :o AND status = 'indexing')) FOR NO KEY UPDATE"
+        ),
+        {"d": document_id, "o": owner},
     )
     if locked.first() is None:
         return False
@@ -1220,7 +1228,11 @@ async def index_page(
         ],
     )
     await s.execute(
-        text("UPDATE documents SET indexed_through = :hi, updated_at = now() WHERE id = :d"),
+        # never backwards: a slower call writing an earlier page must not undo a later one
+        text(
+            "UPDATE documents SET indexed_through = GREATEST(coalesce(indexed_through, -1),"
+            " :hi), updated_at = now() WHERE id = :d"
+        ),
         {"d": document_id, "hi": hi},
     )
     return True

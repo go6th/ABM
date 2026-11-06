@@ -147,5 +147,7 @@ def test_restricted_terms_drop_the_platforms_own_name_and_tiny_terms() -> None:
     from exports.policy import restricted_terms
 
     terms = ["6th", "6th agents", "plausible", "Workday", "ab", "  ", "mckesson.ca", "Agents"]
-    assert restricted_terms(terms, "6th agents") == ("mckesson.ca", "plausible", "Workday")
+    # Workday is a platform of the job lexicon: every file names it, so it is never restricted
+    # (staging 2026-11-06: a tenant account workday.com withheld the Olympus Workday row)
+    assert restricted_terms(terms, "6th agents") == ("mckesson.ca", "plausible")
     assert restricted_terms(["jane roe", "Jane Roe"], "6th agents") == ("Jane Roe", "jane roe")

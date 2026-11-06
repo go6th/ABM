@@ -205,6 +205,12 @@ class ViewSource:
     kind: str
     run_ids: tuple[UUID, ...]
     account_ids: tuple[UUID, ...]
+    # where the rows live: ``view_rows`` (a delivered run's materialised tables) or ``native``
+    # (the accounts' CURRENT people, postings and detections in their own tables: an uploaded
+    # workspace is imported there and has no materialised run, ``replica.research_tables``)
+    source: str = "view_rows"
+    # ``native`` only: the ids of the rows the tenant's current exclusions hide
+    hidden: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal
 
@@ -228,8 +230,28 @@ class ProvidersConfig(_M):
 
 
 def load_providers_config(path: Path | None = None) -> ProvidersConfig:
-    """Load and validate config/providers.yaml (fail fast)."""
-    raw: Any = yaml.safe_load((path or CONFIG_DIR / "providers.yaml").read_text(encoding="utf-8"))
+    """Load and validate config/providers.yaml (fail fast), once per file state (modification
+    time and size: an edited file is read again). It is read on run paths (the credit proposal,
+    the spend stage, the run's end, every ``/readyz``): uncached, each call parsed the file and
+    validated it on the event loop (audit docs/audits/event-loop.md, ADR-0130). Callers must not
+    mutate the returned model (``model_copy`` it)."""
+    target = path or CONFIG_DIR / "providers.yaml"
+    try:
+        st = os.stat(target)
+    except OSError:
+        return _build_providers_config(target)  # raises the way an unreadable file does
+    return _cached_providers_config(target, st.st_mtime_ns, st.st_size)
+
+
+@lru_cache(maxsize=8)
+def _cached_providers_config(path: Path, mtime_ns: int, size: int) -> ProvidersConfig:
+    """The parsed file, cached by path, change time and size (the key is the cache entry)."""
+    del mtime_ns, size
+    return _build_providers_config(path)
+
+
+def _build_providers_config(path: Path) -> ProvidersConfig:
+    raw: Any = yaml.safe_load(path.read_text(encoding="utf-8"))
     return ProvidersConfig.model_validate(raw)
 
 

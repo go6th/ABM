@@ -1,6 +1,9 @@
-# Automatic Model Routing and Pricing Configuration
-# Strictly enforced by the backend model router. Callers cannot override model selection.
-version: "2026-10-20.1"
+# Model routing and pricing: the ONLY file that holds model ids and prices (ADR-0113, ADR-0115).
+# A task kind's tier comes from the routing table src/llm/route.py; the tier's task (below)
+# routes through the active arm to a profile, the profile names the model. Prices live in
+# `models.<id>.pricing` only (llm.cost); config/chat_models.yaml references these ids and holds
+# no price (test_single_price_table). Callers cannot override model selection.
+version: "2026-11-03.1"
 
 # Hard allowlist of approved models
 allowlist:
@@ -19,33 +22,29 @@ tasks:
   - narrative
   - verification
 
+# A profile names a provider and model; its prices are the model's (`models` below).
 profiles:
   collection_opus:
     provider: anthropic
     model: claude-opus-5-5
-    input_usd_per_mtok: 4.00
-    output_usd_per_mtok: 20.00
   analysis_fable:
     provider: anthropic
     model: claude-fable-5-1
-    input_usd_per_mtok: 10.00
-    output_usd_per_mtok: 50.00
   extraction_sonnet:
     provider: anthropic
     model: claude-sonnet-5-5
-    input_usd_per_mtok: 2.00
-    output_usd_per_mtok: 10.00
   # on the allowlist for the Ask route classifier (`helpers`); no research task routes here until
   # a Haiku 5.5 eval on the synthetic tabular workspace passes (token review item 9)
   helper_haiku:
     provider: anthropic
     model: claude-haiku-5-5
-    input_usd_per_mtok: 0.10
-    output_usd_per_mtok: 0.50
 
 arms:
   automatic:
-    description: "Automatic model routing: Opus 5.5 for collection, Fable 5.1 for prediction/analysis"
+    description: >-
+      Opus 5.5 plans, extracts, classifies and writes the Summary (sense check and distill run on
+      the planner tier, ADR-0116); Fable 5.1 serves synthesis, narrative and the judge (the judge
+      must differ from the extractor, G12)
     routes:
       pull_planning: collection_opus
       extraction: collection_opus
@@ -69,13 +68,23 @@ arms:
       verification: collection_opus
 
 # The owner's split (2026-10-14): Opus 5.5 plans, pulls, extracts and classifies, Fable 5.1
-# analyses and judges (the judge must differ from the extractor). The token review's cost_saving
-# arm (extraction on Sonnet 5.5) was tried on 2026-10-20 and reverted the same day by the owner:
-# extraction and classification stay on Opus 5.5, which runs at medium effort (its `effort` in
-# `models`). The arm serves every tier whose run keeps the default model of its role
-# (workflow.deps.RunDeps.chosen_model); a model the user picks still serves its tiers.
+# synthesises, narrates and judges (the judge must differ from the extractor). The token review's
+# cost_saving arm (extraction on Sonnet 5.5) was tried on 2026-10-20 and reverted the same day by
+# the owner. Extraction and classification run at their task_settings effort (low) whatever
+# effort a user picks (ADR-0114). The arm serves every tier whose run keeps the default model of
+# its role (workflow.deps.RunDeps.chosen_model); a model the user picks still serves its tiers.
 active_arm: automatic
 decision_status: Decided
+
+# G11 (split mode): the extraction agents (extractor tier) and the analysis agents (sense check
+# and distill, planner tier) run on different models, unless this block declares, with the ADR
+# that decided it, that they share one. The active arm puts both on Opus 5.5 on purpose
+# (ADR-0116), so the declaration is here; without it platform.llm.load_routes refuses to start
+# (llm.route.split_mode_problem: a silent equality fails). Remove the block when the two tiers
+# route to different models.
+g11_shared_model:
+  tiers: [extractor, planner]
+  adr: docs/decisions/ADR-0117-g11-shared-model-declared.md
 
 # Per-task request knobs for the Messages call (verified against anthropic 1.11.0, 2026-10-13:
 # ``messages.create`` accepts ``output_config`` and a system block with ``cache_control``).
@@ -118,7 +127,6 @@ batch:
     - classify_posting
     - classify_person
     - source_reread
-    - narrative_reread
     - abm_sense_check
   # one retrieve call per waiting batch each interval: 32 calls in flight at 45 s is ~43 requests
   # a minute, under the lowest batch request limit (EXTRACT_CONCURRENCY in agents/graph.py)
@@ -131,9 +139,6 @@ batch:
     - second_pass_posting
     - classify_person
     - lead_queries
-    - synthesise_hypotheses
-    - write_narrative
-    - distill
     # support_judge is not listed: the grading step asks the judge one short question at a time
     # (about 170 tokens in, 100 out) and waits for each answer before the next, so a batch per
     # question put minutes to half an hour of batch latency in front of every verdict. On
@@ -141,7 +146,6 @@ batch:
     # max_wait_seconds, were cancelled and re-asked as standard calls at 2 s each) for a discount
     # of cents. Standard calls keep the judge at seconds per verdict.
     - source_reread
-    - narrative_reread
     - file_extract_facts
     - abm_setup
     - abm_pass1_extract
@@ -177,18 +181,40 @@ ask_procedure_models: [claude-sonnet-5-5, claude-haiku-5-5]
 # (replica.exemplars): for a question like one Fable already answered for the same user, the
 # earlier answer's shape (columns, row count, numbers, note) goes in the prompt.
 reference_answer_models: [claude-fable-5-1]
+# How each model runs in Ask (Sonnet deep-thinking plan, 2026-11-03, owner approved "Sonnet
+# high, think deeply"): `min_effort` is the lowest effort an Ask turn on the model runs at (the
+# composer's chip can ask for more, never less); `tool_rounds` is how many tool rounds one answer
+# may use before its final answer (deeper reading needs more; the chat service's default is 6);
+# `thinking_display: summarized` returns a readable summary of the model's reasoning, which the
+# answer carries under "How this was worked out" after the same client-output scrub as the
+# answer itself. Display changes what comes back, never how much the model thinks or the bill.
+# A model not listed keeps the chip's effort, 6 rounds and no summary.
+ask_model_settings:
+  claude-sonnet-5-5: {min_effort: high, tool_rounds: 10, thinking_display: summarized}
+  claude-fable-5-1: {tool_rounds: 10, thinking_display: summarized}
+  claude-opus-5-5: {tool_rounds: 10, thinking_display: summarized}
+  claude-haiku-5-5: {thinking_display: summarized}
 
 surfaces:
   chat: {model: null, effort: medium}
   eval: {model: kimi-k3, effort: high}
 
+# Rule R8 of the deleted model Router, rebuilt on the live model path (ADR-0133): a request that
+# carries tenant or private data goes only to a model whose data_classes_allowed lists that class
+# (only a model with VERIFIED zero data retention may list tenant or private). "off" (default):
+# nothing changes; "warn": log model.data_class_violation and make the call; "enforce": refuse it
+# before any paid call (the run ends PARTIAL model_data_class_refused). Quote the value: a bare
+# off is read as false. A run on uploaded files (input_mode file) sends tenant data.
+data_class_guard: "off"
+
 models:
   claude-opus-5-5:
     provider: anthropic
+    data_classes_allowed: [public_web]  # zero retention not verified (ADR-0133)
     # the shortest prefix the API caches (prompt caching docs, read 2026-10-21)
     min_cache_tokens: 512
     display_name: "Claude Opus 5.5"
-    responsibility: "Data collection and judgment calls"
+    responsibility: "Planning, collection, extraction and the Summary (sense check, distill)"
     context_window: 1000000
     max_output_tokens: 128000
     pricing:
@@ -199,10 +225,11 @@ models:
 
   claude-fable-5-1:
     provider: anthropic
+    data_classes_allowed: [public_web]  # zero retention not verified (ADR-0133)
     # the shortest prefix the API caches (prompt caching docs, read 2026-10-21)
     min_cache_tokens: 512
     display_name: "Claude Fable 5.1"
-    responsibility: "Prediction, analysis, and follow-up chat"
+    responsibility: "Synthesis, narrative and the judge; a user's choice for Ask and chat"
     context_window: 1000000
     max_output_tokens: 128000
     pricing:
@@ -213,6 +240,7 @@ models:
 
   kimi-k3:
     provider: moonshot
+    data_classes_allowed: [public_web]  # zero retention not verified (ADR-0133)
     display_name: "Kimi K3"
     responsibility: "A user's choice for research or analysis (owner decision 2026-10-14)"
     # platform.kimi.ai/docs/pricing/chat, read 2026-10-14 (cache write at the default 5 min TTL)
@@ -226,6 +254,7 @@ models:
 
   claude-sonnet-5-5:
     provider: anthropic
+    data_classes_allowed: [public_web]  # zero retention not verified (ADR-0133)
     # the shortest prefix the API caches (prompt caching docs, read 2026-10-21)
     min_cache_tokens: 512
     display_name: "Claude Sonnet 5.5"
@@ -241,6 +270,7 @@ models:
 
   claude-haiku-5-5:
     provider: anthropic
+    data_classes_allowed: [public_web]  # zero retention not verified (ADR-0133)
     # the shortest prefix the API caches (prompt caching docs, read 2026-10-21)
     min_cache_tokens: 512
     display_name: "Claude Haiku 5.5"
@@ -256,6 +286,7 @@ models:
 
   grok-4.5:
     provider: xai
+    data_classes_allowed: [public_web]  # zero retention not verified (ADR-0133)
     display_name: "Grok 4.5"
     responsibility: "A user's choice for research or analysis (owner decision 2026-10-20)"
     # docs.x.ai/docs/models, read 2026-10-20: prompts under 200k tokens; a request whose prompt
@@ -276,71 +307,27 @@ models:
 helpers:
   route_classifier: {model: claude-haiku-5-5, max_tokens: 64}
 
-# Pipeline Phase Routing
-routing:
-  phase_1_collection:
-    model: claude-opus-5-5
-    description: "Data collection, approved sources, boundary judgment calls, lane discovery, job matching"
-    gcs_raw_layout: "tenants/{tenant}/runs/{run_id}/raw/"
-    turn_limit: 30
-    spend_limit_usd: 5.00
-    allow_analysis_tasks: false
-    retry_policy:
-      max_retries: 1
-      fallback_to_other_model: false
-      hold_on_failure: true
-
-  phase_2_analysis:
-    model: claude-fable-5-1
-    description: "Prediction, sense checks, explanations, Word and Excel deliverables"
-    fresh_session: true
-    allow_collection_tools: false
-    read_only_raw_artifacts: true
-    turn_limit: 20
-    spend_limit_usd: 5.00
-    retry_policy:
-      max_retries: 1
-      fallback_to_other_model: false
-      hold_on_failure: true
-
-  phase_3_quality_checks:
-    validator: "runtime_quality_checks"
-    hold_on_failure: true
-    checks:
-      - source_traceability
-      - unsupported_or_missing_source_references
-      - prohibited_tool_or_vendor_names
-      - cross_tenant_content_isolation
-      - required_output_deliverables
-      - artifact_structural_integrity
-
-  follow_up_chat:
-    model: claude-fable-5-1
-    description: "Follow-up questions regarding completed account runs"
-    allow_new_collection: false
-    read_only_saved_artifacts: true
-    turn_limit: 20
-    spend_limit_usd: 2.00
-
 # The models a user may choose (owner decision 2026-10-14, Phase 4B section 1): a research model
-# (planning, pulling, extraction and classification: tiers planner, extractor, classifier) and an
-# analysis model (Ask, file analysis, the sense check, distilling, synthesis, narrative and the
-# judge: tiers synthesis, narrative, judge). The defaults are the owner's split. The admin enables
+# (planning, which also runs the sense check and distill, pulling, extraction and classification:
+# tiers planner, extractor, classifier) and an analysis model (Ask, synthesis, narrative and the
+# judge: tiers synthesis, narrative, judge). Which tier belongs to which role is the routing
+# table (src/llm/route.py TIERS); ADR-0116 keeps the Summary writer on the planner tier. The
+# defaults are the owner's split. The admin enables
 # models for the platform and may narrow them per client. Every enabled model is allowed for every
 # client by default (owner decision 2026-10-15, was: Kimi K3 off until allowed per client); an
 # admin can still remove one on the client's page. `features` says what the model has here;
 # nothing assumes a feature a model does not list.
 choices:
-  research_tiers: [planner, extractor, classifier]
-  analysis_tiers: [synthesis, narrative, judge]
   # analysis default Opus 5.5 (token review item 4, 2026-10-20: was Fable 5.1, 2.5x the price);
   # Fable 5.1 stays a choice in every model menu
   defaults: {research: claude-opus-5-5, analysis: claude-opus-5-5}
   # The effort a user picks for each role, beside its model (owner decision 2026-10-20: medium or
-  # high for every model, chosen in the frontend, no fixed effort per task or model). The chosen
-  # effort serves every tier of its role (research: planning, pulling, extraction,
-  # classification; analysis: Ask, synthesis, narrative, the judge) and replaces the
-  # task_settings effort. A user who has not chosen gets the default.
+  # high for every model, chosen in the frontend). The chosen effort serves the judgment tiers of
+  # its role (research: planning, which runs the sense check and distill; analysis: Ask,
+  # synthesis, narrative, the judge) and replaces their task_settings effort. Extraction and
+  # classification keep their task_settings effort (low) unless config/agents.yaml names one
+  # (ADR-0114, 2026-11-03: a run that stored medium paid extraction at medium). A user who has
+  # not chosen gets the default.
   efforts: [medium, high]
   default_effort: {research: medium, analysis: medium}
   needs_client_permission: []

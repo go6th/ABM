@@ -1,7 +1,9 @@
 """The operator plane's principals (AD1, AD3, D-66): 6th staff, never a tenant role.
 
 * ``staff``: a bearer token from the 6th STAFF identity provider (not a tenant IdP), verified for
-  signature, issuer, audience and expiry; role ``operator`` or ``support``. Production reads the
+  signature, issuer, audience and expiry; role ``operator`` or ``support``. The console instead
+  presents a session token it minted from one (``api.operator_sessions``: 30 minutes idle, 8 hours
+  absolute, only its hash stored). Production reads the
   issuer, audience and key set from the environment (``config/support.yaml``); unset is 503.
 * ``require_operator``: every operator route that touches tenant data. The tenant comes ONLY from
   an active support grant (``X-Support-Grant``) a tenant admin gave to THIS operator, resolved on
@@ -210,17 +212,33 @@ def staff_verifier_from_env() -> Any:
 async def staff(
     request: Request, authorization: str | None = Header(default=None)
 ) -> StaffIdentity:
-    """The verified staff member (401 without a valid staff token; 503 when unconfigured)."""
+    """The verified staff member (401 without a valid staff token; 503 when unconfigured). The
+    bearer is either the staff IdP's token or a console session token minted from one
+    (``api.operator_sessions``, ADR-0111)."""
     from account_intelligence.api.tenant_plane import plane_of
 
-    verifier: Any = getattr(plane_of(request), "staff_verifier", None)
+    plane = plane_of(request)
+    verifier: Any = getattr(plane, "staff_verifier", None)
     try:
+        # an unconfigured staff plane is 503 for every caller, before any token is looked at
         verifier = verifier or staff_verifier_from_env()
     except NotConfigured as e:
         raise DependencyUnavailable() from e
     token = (authorization or "").removeprefix("Bearer ").strip()
     if not token:
         raise HTTPException(status_code=401, detail="invalid token")
+    from account_intelligence.api import operator_sessions
+
+    if operator_sessions.is_session_token(token):
+        from account_intelligence.db.system_scope import untenanted_session
+        from identity.sessions import load_policy
+
+        async with untenanted_session() as s:
+            session = await operator_sessions.resolve(s, token, plane.clock.now(), load_policy())
+        if session is None:
+            raise HTTPException(status_code=401, detail="invalid token")
+        request.state.operator_session = True
+        return session
     try:
         found: StaffIdentity = verifier.verify(token)
     except PermissionError:
@@ -241,7 +259,7 @@ async def require_staff(request: Request, who: StaffIdentity = Depends(staff)) -
     request.state.principal = who
     # staff read counts and categories across a client's users (system scope, migration 0063);
     # the console routes return names and counts only, never content
-    from account_intelligence.db.session import set_system
+    from account_intelligence.db.system_scope import set_system
 
     set_system()
     return who
@@ -255,7 +273,8 @@ async def require_operator(
     """The operator inside an active grant (see the module docstring)."""
     from account_intelligence.api.guard import route_template
     from account_intelligence.api.tenant_plane import plane_of
-    from account_intelligence.db.session import tenant_txn, untenanted_session
+    from account_intelligence.db.session import tenant_txn
+    from account_intelligence.db.system_scope import untenanted_session
     from admin import support
     from audit.events import AuditEvent, record
     from identity.sessions import load_policy, step_up_fresh
@@ -265,7 +284,7 @@ async def require_operator(
         raise HTTPException(status_code=403, detail="forbidden")
     if not step_up_fresh(who.step_up_at, plane_of(request).clock.now(), load_policy()):
         raise HTTPException(status_code=403, detail="step-up required")
-    from account_intelligence.db.session import set_system
+    from account_intelligence.db.system_scope import set_system
 
     set_system()
     try:

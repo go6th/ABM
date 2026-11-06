@@ -54,7 +54,7 @@ async def _documents(s: Any, body: Any) -> tuple[Any, list[Any]]:
         raise APIProblem(
             404, "document_not_found", "Document not found", "A document was not found."
         )
-    bad = [d for d in docs if d.status in ("rejected", "failed")]
+    bad = [d for d in docs if d.status in ("rejected", "failed", "scan_failed", "abandoned")]
     if bad:
         raise APIProblem(
             422,

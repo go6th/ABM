@@ -33,7 +33,8 @@ PROD_ENV = {
     "TASKS_AUDIENCE": "https://worker.invalid",
     "PAYLOAD_BUCKET": "synthetic-payloads",
     "CHECKPOINT_DATABASE_URL": "postgresql://app_rw@/ai?host=/cloudsql/x",
-    "REDIS_URL": "rediss://10.0.0.3:6379/0",
+    "REDIS_URL": "rediss://10.0.0.3:6379/0?ssl_ca_certs=/etc/redis-ca/ca.pem",
+    "REDIS_PINNED_HOST": "10.0.0.3",
 }
 
 

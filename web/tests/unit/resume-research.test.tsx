@@ -17,7 +17,7 @@ vi.mock("@/lib/api", () => {
   return { api: (...args: unknown[]) => api(...args), ApiError };
 });
 
-import { ResumeButton, ResumeResearch } from "@/components/accounts/ResumeResearch";
+import { replayWarning, ResumeButton, ResumeResearch } from "@/components/accounts/ResumeResearch";
 import { resumableRun } from "@/components/research/ResearchBoard";
 import { ApiError } from "@/lib/api";
 
@@ -62,6 +62,16 @@ test("the account card still explains the stop and becomes the resuming line", a
   resumeTwice();
   await waitFor(() => expect(screen.queryByText("This research stopped before finishing")).toBeNull());
   expect(screen.getByRole("status").textContent).toContain("Resuming: 4 of 8 steps already done");
+});
+
+test("a run keyed by an older replay-key version warns what the resume may cost before it is confirmed", async () => {
+  api.mockResolvedValue(resumed);
+  render(<ResumeResearch stopped={{ run_id: "r1", stalled: false, reason: "The worker was lost.", steps_done: 4, steps_total: 8, replay_extra_usd: 12.5 }} />);
+  expect(screen.getByRole("note").textContent).toContain("This resume may cost up to $12.50 more");
+  expect(screen.queryByText(/reuses it at no cost/)).toBeNull();
+  expect(api).not.toHaveBeenCalled(); // shown before the user confirms with the button
+  resumeTwice();
+  await waitFor(() => expect(api).toHaveBeenCalledTimes(1));
 });
 
 test("nothing is resumed until both questions are answered yes; No at either one posts nothing", () => {

@@ -15,6 +15,7 @@ import { LiveSync, RetryRefresh } from "@/components/accounts/LiveSync";
 import { AccountAsk } from "@/components/accounts/AccountAsk";
 import { ResumeResearch } from "@/components/accounts/ResumeResearch";
 import { ResearchProgress } from "@/components/accounts/ResearchProgress";
+import { ImportProblems } from "@/components/accounts/ImportProblems";
 import { DeleteAccount } from "@/components/accounts/DeleteAccount";
 import { ParityWorkspace } from "@/components/accounts/ParityWorkspace";
 
@@ -72,7 +73,7 @@ async function Delivered({ domain, here }: { domain: string; here: string }) {
 /** The client's own uploads for this account (viewers may not list documents: none shown). Read
  *  inside its own Suspense boundary so the page, whose data is the workspace, does not wait for a
  *  second round trip to the API before it shows. */
-async function Uploads({ accountId, here }: { accountId: string; here: string }) {
+async function Uploads({ accountId, domain, here }: { accountId: string; domain: string; here: string }) {
   let uploads: DocumentList["documents"] | null = null;
   try {
     uploads = (await serverGet<DocumentList>(`/v1/documents?account_id=${encodeURIComponent(accountId)}`, here))?.documents ?? null;
@@ -83,7 +84,7 @@ async function Uploads({ accountId, here }: { accountId: string; here: string })
   // Files follow what a work zip holds), so an upload shows without a reload
   return uploads ? (
     <>
-      <UploadedFilesCard docs={uploads} />
+      <UploadedFilesCard docs={uploads} domain={domain} />
       <LiveSync accountId={accountId} docs={uploads} />
     </>
   ) : (
@@ -127,7 +128,13 @@ export default async function AccountWorkspacePage({ params }: Params) {
     ["Sources", `${here}/sources`, ws.counts.sources],
     ["Archive", `${here}/archive`, ""],
     ["Web searches", `${here}/searches`, ws.counts.searches ?? 0],
+    ["Uploaded files", `${here}/uploaded-files`, ws.counts.files ?? 0],
     ["Platform picture by lane", `${here}/facts`, ws.counts.facts ?? 0],
+    ["Findings", `${here}/findings`, ws.counts.findings ?? 0],
+    ["Platform teams", `${here}/teams`, ws.counts.teams ?? 0],
+    ["Connections", `${here}/connections`, ws.counts.connections ?? 0],
+    ["Calls made", `${here}/calls`, ws.counts.calls ?? 0],
+    ["Notes", `${here}/notes`, ws.counts.notes ?? 0],
     ["Coverage", `${here}/coverage`, coverage],
   ];
   const glance: Array<[string, string, number]> = [
@@ -154,6 +161,8 @@ export default async function AccountWorkspacePage({ params }: Params) {
           <Link className="btn primary" href={`${here}/refresh`} prefetch={false}>Refresh from web</Link>
           <DeleteAccount domain={ws.domain} name={name} />
         </div>
+
+        <ImportProblems problems={ws.import_problems ?? []} sheetHref={`${here}/uploaded-files`} />
 
         <nav className="kpi-tiles" aria-label="At a glance">
           {glance.map(([label, href, n], i) => (
@@ -254,7 +263,7 @@ export default async function AccountWorkspacePage({ params }: Params) {
           ))}
         </nav>
         <FilesCard domain={ws.domain} files={ws.files} />
-        {ws.id ? <Suspense fallback={null}><Uploads accountId={ws.id} here={here} /></Suspense> : null}
+        {ws.id ? <Suspense fallback={null}><Uploads accountId={ws.id} domain={ws.domain} here={here} /></Suspense> : null}
       </div>
     </div>
   );

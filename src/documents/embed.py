@@ -16,6 +16,7 @@ from __future__ import annotations
 import hashlib
 import math
 import re
+import threading
 from collections.abc import Sequence
 from typing import Any, Protocol
 
@@ -173,10 +174,18 @@ class FastEmbedder:
         self.dimensions = SEMANTIC_DIMENSIONS
         self.cache_dir = cache_dir or os.environ.get("FASTEMBED_CACHE_PATH") or None
         self._engine: Any = None
+        # two embedding threads starting together loaded the model twice (staging 2026-11-06)
+        self._lock = threading.Lock()
         self.device = "unloaded"
         self.batch_size = self.CPU_BATCH
 
     def _load(self) -> Any:
+        if self._engine is not None:
+            return self._engine
+        with self._lock:
+            return self._load_locked()
+
+    def _load_locked(self) -> Any:
         if self._engine is None:
             import onnxruntime as ort  # type: ignore[import-untyped]
             from fastembed import TextEmbedding

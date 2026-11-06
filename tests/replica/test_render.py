@@ -117,6 +117,34 @@ def test_the_shape_check_rejects_what_the_tool_cannot_render() -> None:
     assert RENDER.check_shape(no_table)[0] == "no_table"  # type: ignore[index]
 
 
+def test_the_shape_check_says_exactly_what_to_fix() -> None:
+    """The error names the column, the length and the limit; sections count from 1 across every
+    kind; insights put under the steps' `items` key are pointed to `insights` (staging
+    2026-11-03: the model spent rounds guessing the 320-character limit, the index base and the
+    key)."""
+    prose = {"kind": "prose", "paragraphs": ["One."]}
+    long_cell = "x" * (RENDER.CELL_MAX_CHARS + 1)
+    table = {
+        "kind": "table",
+        "columns": ["Firm", "What the files show"],
+        "rows": [["A", long_cell]],
+    }
+    code, message = RENDER.check_shape({**_payload(), "sections": [prose, table]})  # type: ignore[misc]
+    assert code == "bad_table"
+    assert "section 2 (a table" in message and "count from 1" in message
+    assert '"What the files show"' in message and str(RENDER.CELL_MAX_CHARS + 1) in message
+    short = {**table, "rows": [["A"]]}
+    _, message = RENDER.check_shape({**_payload(), "sections": [short]})  # type: ignore[misc]
+    assert "has 1 cells; it needs exactly 2" in message
+    from account_intelligence.replica.open_question import OpenQuestion
+
+    items = {"kind": "insights", "items": [{"conclusion": "c", "grade": "Probable", "action": "a"}]}
+    code, message = RENDER.check_shape(  # type: ignore[misc]
+        {**_payload(), "sections": [items]}, OpenQuestion()
+    )
+    assert code == "bad_insights" and "`insights`, not `items`" in message
+
+
 def test_rewrite_checks_every_citation_against_the_numbered_rows() -> None:
     _, ids = _ids()
     converted = RENDER.rewrite(_payload(), ids)

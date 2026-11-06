@@ -26,25 +26,30 @@ import json
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal
-from functools import lru_cache
-from pathlib import Path
 from typing import Any, Protocol
 from uuid import UUID
 
 from sqlalchemy import text
 
 RUN_PLACEHOLDER = "{run}"
+# The account id is in every payload reference a prompt cites
+# (``tenants/<t>/accounts/<account>/runs/<run>/raw/<sha>``). Until 2026-11-05 it stayed in the
+# key, so the same company researched under a new account id (deleted, then added again through
+# an upload) paid for every model call again: staging run 8ed9911a, 497 calls, none reused.
+ACCOUNT_PLACEHOLDER = "{account}"
 ServedFrom = str  # "started" | "model" | "run_replay" | "cache"
 
 
-def normalise(body: str, run_id: UUID) -> str:
-    """The text with this run's id replaced by the placeholder."""
-    return body.replace(str(run_id), RUN_PLACEHOLDER)
+def normalise(body: str, run_id: UUID, account_id: UUID | None = None) -> str:
+    """The text with this run's (and account's) id replaced by the placeholder."""
+    body = body.replace(str(run_id), RUN_PLACEHOLDER)
+    return body if account_id is None else body.replace(str(account_id), ACCOUNT_PLACEHOLDER)
 
 
-def denormalise(body: str, run_id: UUID) -> str:
+def denormalise(body: str, run_id: UUID, account_id: UUID | None = None) -> str:
     """Inverse of ``normalise`` for the run that reads the reply."""
-    return body.replace(RUN_PLACEHOLDER, str(run_id))
+    body = body.replace(RUN_PLACEHOLDER, str(run_id))
+    return body if account_id is None else body.replace(ACCOUNT_PLACEHOLDER, str(account_id))
 
 
 def reply_key(task_kind: str, tier: str, max_tokens: int, system: str, user: str) -> str:
@@ -259,37 +264,23 @@ class PgReplyCache:
             )
 
 
-@lru_cache(maxsize=1)
-def _prices(path: Path | None = None) -> dict[str, dict[str, Decimal]]:
-    """Per-model prices (USD per million tokens) from ``config/models.yaml``; read once."""
-    import yaml
-
-    from account_intelligence.config import CONFIG_DIR
-
-    doc = yaml.safe_load((path or CONFIG_DIR / "models.yaml").read_text())
-    out: dict[str, dict[str, Decimal]] = {}
-    for model, spec in (doc.get("models") or {}).items():
-        pricing = spec.get("pricing") or {}
-        out[str(model)] = {k: Decimal(str(v)) for k, v in pricing.items()}
-    return out
-
-
 def price(model: str, usage: ReplyUsage) -> Decimal | None:
-    """The call's cost from ``config/models.yaml`` prices (uncached input, cached reads, cache
-    writes and output priced separately; one-hour cache writes at twice the input price; a
-    batched call at half price); None when the model is not priced there."""
-    p = _prices().get(model)
+    """The call's cost from the one price table (``llm.cost``, ``config/models.yaml``):
+    uncached input, cached reads, cache writes and output priced separately; one-hour cache
+    writes at twice the input price; a batched call at half price. None when the model is not
+    priced there (never zero)."""
+    from llm.cost import price_of
+
+    p = price_of(model)
     if p is None:
         return None
     million = Decimal(1_000_000)
-    base_input = p.get("input_usd_per_million", Decimal(0))
     long_writes = min(usage.cache_write_1h_tokens, usage.cache_write_tokens)
     cost = (
-        Decimal(usage.input_tokens) * base_input
-        + Decimal(usage.cache_read_tokens) * p.get("cached_read_usd_per_million", Decimal(0))
-        + Decimal(usage.cache_write_tokens - long_writes)
-        * p.get("cache_write_usd_per_million", Decimal(0))
-        + Decimal(long_writes) * base_input * CACHE_WRITE_1H_MULTIPLIER
-        + Decimal(usage.output_tokens) * p.get("output_usd_per_million", Decimal(0))
+        Decimal(usage.input_tokens) * p.input
+        + Decimal(usage.cache_read_tokens) * p.cached_read
+        + Decimal(usage.cache_write_tokens - long_writes) * p.cache_write
+        + Decimal(long_writes) * p.input * CACHE_WRITE_1H_MULTIPLIER
+        + Decimal(usage.output_tokens) * p.output
     ) / million
     return cost * BATCH_DISCOUNT if usage.batch else cost

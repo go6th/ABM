@@ -34,7 +34,8 @@ def test_the_replica_stack_runs_on_hermetic_fakes_on_its_own_ports() -> None:
     assert env["APP_ENV"] == "dev" and "ANTHROPIC_API_KEY" not in env
 
     def ports(doc: dict) -> set[str]:  # type: ignore[type-arg]
-        return {p.split(":")[0] for s in doc["services"].values() for p in s.get("ports", [])}
+        # "127.0.0.1:5433:5432": the host port is the second-to-last field
+        return {p.split(":")[-2] for s in doc["services"].values() for p in s.get("ports", [])}
 
     assert not ports(replica) & ports(main)  # never collides with the main stack
     assert replica["name"] == "abm-replica"

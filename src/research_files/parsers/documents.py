@@ -1,4 +1,4 @@
-"""Document parsers: PDF (pages), DOCX (sections by heading, tables as rows of text), PPTX
+"""Document parsers: PDF (pages), DOCX (sections by heading, tables as row units, links kept), PPTX
 (slides), plain text and Markdown (sections by heading), HTML (sections by heading, streamed).
 
 A unit is one page, slide or section (a long section is split at ``unit_text_bytes``). A heading
@@ -15,13 +15,14 @@ from __future__ import annotations
 
 import re
 import zipfile
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from typing import IO, Any
 
 from research_files.checks import Finding
 from research_files.parsers.base import ParseContext, Unit, detect_encoding, fatal
 
 W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+R = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
 A = "{http://schemas.openxmlformats.org/drawingml/2006/main}"
 PML = "{http://schemas.openxmlformats.org/presentationml/2006/main}"
 ODR = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
@@ -132,8 +133,39 @@ class PdfParser:
         yield Unit("note", {}, "", {"done": True}, stats={"pages": pages})
 
 
-def _docx_text(element: Any) -> str:
-    return "".join(t.text or "" for t in element.iter(f"{W}t"))
+def _docx_text(element: Any, rels: Mapping[str, str] | None = None) -> str:
+    """The element's text; a hyperlink keeps its address as ``label (url)`` when ``rels`` (the
+    document's relationship ids to targets) is given (2026-11-03: before, only the label
+    survived and every link of an uploaded Word deliverable was lost)."""
+    parts: list[str] = []
+    inside: set[int] = set()
+    for node in element.iter(f"{W}hyperlink", f"{W}t"):
+        if node.tag == f"{W}hyperlink":
+            texts = list(node.iter(f"{W}t"))
+            inside.update(id(t) for t in texts)
+            label = "".join(t.text or "" for t in texts)
+            target = (rels or {}).get(str(node.get(f"{R}id") or ""), "")
+            parts.append(f"{label} ({target})" if target and target not in label else label)
+        elif id(node) not in inside:
+            parts.append(node.text or "")
+    return "".join(parts)
+
+
+def _docx_rels(archive: zipfile.ZipFile) -> dict[str, str]:
+    """Relationship id to external target of the document body (hyperlinks)."""
+    from lxml import etree
+
+    try:
+        root = etree.fromstring(archive.read("word/_rels/document.xml.rels"))
+    except (KeyError, zipfile.BadZipFile, OSError, etree.XMLSyntaxError):
+        return {}
+    out: dict[str, str] = {}
+    for rel in root.iter(
+        "{http://schemas.openxmlformats.org/package/2006/relationships}Relationship"
+    ):
+        if str(rel.get("TargetMode") or "") == "External":
+            out[str(rel.get("Id") or "")] = str(rel.get("Target") or "")
+    return out
 
 
 def _docx_heading(paragraph: Any) -> str | None:
@@ -170,6 +202,7 @@ class DocxParser:
         skip = int(cursor.get("block", 0))
         skip_parts = int(cursor.get("skip_parts", 0))
         limit = ctx.cfg.parsing.unit_text_bytes
+        rels = _docx_rels(archive)
         block = 0
         heading: str | None = None
         lines: list[str] = []
@@ -184,12 +217,37 @@ class DocxParser:
                     element.clear()
                     continue
                 if element.tag == f"{W}tbl":
-                    for row in element.iter(f"{W}tr"):
-                        cells = [_docx_text(c) for c in row.iter(f"{W}tc")]
-                        lines.append(" | ".join(cells))
+                    rows = [
+                        [_docx_text(c, rels) for c in row.iter(f"{W}tc")]
+                        for row in element.iter(f"{W}tr")
+                    ]
                     element.clear()
+                    if len(rows) < 2:  # a one-row box is prose, not a table
+                        lines.extend(" | ".join(r) for r in rows)
+                        continue
+                    # a table is a table (2026-11-03): its rows are stored and queried like a
+                    # sheet's, under the heading it sits in; the prose keeps a one-line note
+                    if heading is not None or lines:
+                        yield from self._section(
+                            heading, lines, section_start, block - 1, limit, skip_parts
+                        )
+                        skip_parts = 0
+                    lines, section_start = [], block + 1
+                    name = f"table at block {block}: {heading or '(no heading)'}"[:200]
+                    header, data = rows[0], rows[1:]
+                    lines.append(f"[{name}: {len(data)} rows: {' | '.join(header)}]")
+                    yield Unit(
+                        "rows",
+                        {"table": name, "block": block, "section": heading or "(no heading)"},
+                        "\n".join(" | ".join(r) for r in rows)[:limit],
+                        {"block": block},
+                        table=name,
+                        header=header,
+                        header_row=1,
+                        rows=[(i + 2, r) for i, r in enumerate(data)],
+                    )
                     continue
-                text = _docx_text(element)
+                text = _docx_text(element, rels)
                 level = _docx_heading(element)
                 element.clear()
                 if level is not None:

@@ -13,6 +13,9 @@ export interface TurnUsage {
   costUsd: number;
   /** the model that wrote the answer; null for a workspace answer */
   model: string | null;
+  /** the LAST tool round's whole prompt: how full the window is (the counts above add every
+   * round); null for a turn stored before 2026-11-04 */
+  context?: number | null;
 }
 
 function count(v: unknown): number {
@@ -30,6 +33,7 @@ export function usageFromDone(data: Record<string, unknown>): TurnUsage | undefi
     cacheWrite: count(data.cache_write_tokens),
     costUsd: Number.isFinite(cost) && cost > 0 ? cost : 0,
     model: typeof data.model === "string" ? data.model : null,
+    context: count(data.context_tokens) || null,
   };
 }
 
@@ -41,8 +45,13 @@ export function usageFromTurn(t: {
   cache_write_tokens: number;
   cost_usd: string;
   model_id: string;
+  answer?: unknown;
 }): TurnUsage {
   const cost = Number(t.cost_usd);
+  const stored =
+    t.answer && typeof t.answer === "object"
+      ? (t.answer as Record<string, unknown>).context_tokens
+      : undefined;
   return {
     input: count(t.input_tokens),
     output: count(t.output_tokens),
@@ -50,12 +59,21 @@ export function usageFromTurn(t: {
     cacheWrite: count(t.cache_write_tokens),
     costUsd: Number.isFinite(cost) && cost > 0 ? cost : 0,
     model: t.model_id || null,
+    context: count(stored) || null,
   };
 }
 
-/** The whole context the model read for an answer: uncached, cached and newly cached input. */
-export function contextTokens(u: TurnUsage): number {
+/** Everything the model read for an answer, every tool round added: uncached, cached and newly
+ * cached input. What the turn paid for, not how full the window is (see contextTokens). */
+export function readTokens(u: TurnUsage): number {
   return u.input + u.cacheRead + u.cacheWrite;
+}
+
+/** How full the context window is: the last round's prompt, or null when the turn did not
+ * report it (an older stored turn). The sum of every round is not a window share: 808K read
+ * over ten rounds showed "81%" of a 1M window (staging 2026-11-03). */
+export function contextTokens(u: TurnUsage): number | null {
+  return u.context ?? null;
 }
 
 /** Every answer of a conversation added together (the model is not summed). */

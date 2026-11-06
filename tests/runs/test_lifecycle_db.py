@@ -98,8 +98,10 @@ async def test_create_is_one_transaction_with_tracker_and_reservation() -> None:
         ("running", 6)
     ]
     assert balance(t) == Decimal("94")
+    # the replay-key version is stored on every run (ADR-0129)
     assert fetch("SELECT run_input FROM account_runs WHERE id = %s", run)[0][0] == {
-        "lanes_off": ["veeva"]
+        "lanes_off": ["veeva"],
+        "replay_key_version": 2,
     }
 
 
@@ -326,22 +328,62 @@ async def test_a_run_with_a_high_row_unset_never_ends_completed() -> None:
     ) == [(True, True, True)]
 
 
-async def test_the_abm_deliver_step_still_reports_partial_when_rows_are_open() -> None:
-    """A guard on the source: the ABM graph's deliver step decides "completed" only when every
-    coverage row is done or none, or a stated gap the client chose (internal history not
-    switched on: ``agents.guards.STATED_GAPS``, allowed the same way by the tracker's completion
-    policy) (the replica keeps it; see FIX_LOG decision D1)."""
+async def test_the_abm_deliver_step_never_votes_on_the_terminal_status() -> None:
+    """A guard on the source (ADR-0128, superseding FIX_LOG decision D1): the deliver step
+    releases the files and returns no outcome; "Completed" is the tracker verdict's alone."""
     import inspect
 
     from agents import graph
 
     source = inspect.getsource(graph.build_abm_graph)
     deliver = source[source.index("async def deliver(") : source.index("async def finish(")]
-    assert 'r.status in ("done", "none") or r.reason in STATED_GAPS' in deliver
-    from agents.guards import STATED_GAPS
+    body = deliver[deliver.index('"""', deliver.index('"""') + 3) :]
+    assert '"outcome"' not in body and "STATED_GAPS" not in body
+    assert body.rstrip().endswith("return {}")
 
-    assert {"no_internal_access"} == STATED_GAPS
-    assert '"completed" if complete else "partial"' in deliver
+
+async def test_the_graph_says_complete_the_tracker_says_not_the_run_ends_partial() -> None:
+    """The old graph rule would have said complete (every row it saw read Done); one High row
+    the tracker never had reported keeps the run from COMPLETED: PARTIAL, reason code
+    ``tracker_verdict``, the row named in the stop detail, and the verdict evaluated once."""
+    from account_intelligence.tracker.config import load_checklist
+    from account_intelligence.tracker.model import Actor
+    from account_intelligence.workflow.spec import load_spec
+    from tests.tracker.world import World
+
+    t = tenant()
+    run = (await _create(t, req())).run_id
+    account = fetch("SELECT account_id FROM account_runs WHERE id = %s", run)[0][0]
+    w = World(t, account, run, "acme.example")
+    owners = load_spec().coverage_owners
+    rows = load_checklist().rows
+    high = next(r.key for r in rows if r.priority == "high")
+    async with tenant_txn(t) as s:
+        svc = tracker(s)
+        for row in rows:
+            if row.key != high:
+                ref = ledger_done(w, record_count=1, queries=(row.key,))
+                await svc.record_outcome(t, run, row.key, [ref], Actor.STAGE, stage=owners[row.key])
+    reported = [r for r in rows if r.key != high]
+    assert reported  # the graph's old rule over these rows: all Done, so "completed"
+    await _to_verifying(t, run)
+    async with tenant_txn(t) as s:
+        svc = tracker(s)
+        calls = 0
+        evaluate = svc.verdict
+
+        async def counted(run_id: UUID):  # type: ignore[no-untyped-def]
+            nonlocal calls
+            calls += 1
+            return await evaluate(run_id)
+
+        svc.verdict = counted  # type: ignore[method-assign]
+        status, _ = await finish(s, svc, run, S.COMPLETED)
+    assert (status, calls) == ("PARTIAL", 1)
+    ((reason, detail),) = fetch(
+        "SELECT finished_reason, stop_detail FROM account_runs WHERE id = %s", run
+    )
+    assert reason == "tracker_verdict" and high in detail
 
 
 async def test_no_progress_slices_count_up_and_start_again_on_progress() -> None:

@@ -14,7 +14,6 @@ and checked for drift). Run them with `uv run --frozen python scripts/<name>.py`
 | `gen_loops.py --check` | every bounded loop carries a `LOOP(name): cap=…; exit=…` comment; `docs/architecture/loops.md` is current | `make static` |
 | `vulture_whitelist.py` | the whitelist vulture reads (names that look unused but are an interface) | `make static` |
 | `check_route_catalog.py` | every API route has exactly one policy and an audit class | `make contract` |
-| `check_routing_governance.py` | a change to `config/model_routing.yaml` has a recorded decision in `docs/routing/DECISIONS.md` | CI, eval gate |
 | `check_telemetry.py` | every metric and span in code is in the telemetry contract | `make obs-verify` |
 | `check_runbooks.py` | every alert names a runbook that exists with the required sections | `make obs-verify` |
 | `check_conformance.py` | roadmap section 11 conformance report (`docs/crosscutting/CONFORMANCE.md`) | manual, CI |

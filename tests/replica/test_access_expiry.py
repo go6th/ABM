@@ -71,7 +71,7 @@ async def test_idle_users_are_warned_then_expired_and_history_is_kept() -> None:
 async def test_one_failing_client_never_stops_the_pass() -> None:
     from contextlib import asynccontextmanager
 
-    from account_intelligence.db.session import untenanted_session
+    from account_intelligence.db.system_scope import untenanted_session
 
     t = new_tenant("idle-pass")
     calls: list[Any] = []

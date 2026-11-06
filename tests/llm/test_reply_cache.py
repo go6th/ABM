@@ -13,6 +13,7 @@ from account_intelligence.platform.hermetic import MemoryPayloadStore, ScriptedL
 from account_intelligence.workflow.deps import RunDeps
 from account_intelligence.workflow.spec import load_spec
 from llm.reply_cache import (
+    ACCOUNT_PLACEHOLDER,
     RUN_PLACEHOLDER,
     InMemoryReplyCache,
     ReplyUsage,
@@ -23,8 +24,10 @@ from llm.reply_cache import (
 )
 
 
-def _deps(llm: ScriptedLlm, cache: InMemoryReplyCache, tenant, run=None, fresh=False) -> RunDeps:  # type: ignore[no-untyped-def]
-    account = uuid4()
+def _deps(
+    llm: ScriptedLlm, cache: InMemoryReplyCache, tenant, run=None, fresh=False, account=None
+) -> RunDeps:  # type: ignore[no-untyped-def]
+    account = account or uuid4()
     return RunDeps(
         tenant,
         run or uuid4(),
@@ -74,6 +77,63 @@ async def test_a_reply_is_reused_across_runs_with_the_run_id_rewritten() -> None
 
 
 @pytest.mark.asyncio
+async def test_a_reply_is_reused_when_the_company_comes_back_under_a_new_account_id() -> None:
+    """2026-11-05 (staging run 8ed9911a): the company was deleted and added again through an
+    upload, which gave it a new account id; the payload references in every prompt carry that id,
+    so all 497 model calls were paid again 20 minutes after the same research."""
+    tenant = uuid4()
+    cache = InMemoryReplyCache()
+    llm = ScriptedLlm(lambda tier, system, user: '{"cited": "' + user.split()[-1] + '"}')
+    one = _deps(llm, cache, tenant)
+    ref1 = f"tenants/{tenant}/accounts/{one.account_id}/runs/{one.run_id}/raw/x"
+    first = await one.model("abm_pass1_extract", "sys", f"payload {ref1}")
+    two = _deps(llm, cache, tenant)
+    ref2 = f"tenants/{tenant}/accounts/{two.account_id}/runs/{two.run_id}/raw/x"
+    second = await two.model("abm_pass1_extract", "sys", f"payload {ref2}")
+    assert len(llm.calls) == 1 and second.extra.get("cached") is True
+    assert second.text == first.text.replace(ref1, ref2)  # this account's and run's references
+
+
+@pytest.mark.asyncio
+async def test_a_reply_logged_before_the_account_key_change_is_still_reused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Review 2026-11-05: replies logged before the account id left the key are keyed with it;
+    a resume or rerun of the same account reuses them instead of paying once more."""
+    import llm.reply_cache as rc
+
+    tenant, account = uuid4(), uuid4()
+    cache = InMemoryReplyCache()
+    llm = ScriptedLlm(lambda tier, system, user: '{"cited": "' + user.split()[-1] + '"}')
+
+    def ask(d: RunDeps) -> str:
+        return f"payload tenants/{tenant}/accounts/{account}/runs/{d.run_id}/raw/x"
+
+    # the code before the change: only the run id is normalised
+    real = rc.normalise
+    monkeypatch.setattr(rc, "normalise", lambda body, run, _account=None: real(body, run))
+    one = _deps(llm, cache, tenant, account=account)
+    await one.model("abm_pass1_extract", "sys", ask(one))
+    monkeypatch.setattr(rc, "normalise", real)
+    two = _deps(llm, cache, tenant, account=account)
+    got = await two.model("abm_pass1_extract", "sys", ask(two))
+    assert len(llm.calls) == 1 and got.extra.get("cached") is True
+    assert got.text == '{"cited": "' + ask(two).split()[-1] + '"}'
+    # the reuse row is logged under the new key, so the next lookup hits it directly
+    three = _deps(llm, cache, tenant, account=account)
+    await three.model("abm_pass1_extract", "sys", ask(three))
+    assert len(llm.calls) == 1
+
+
+def test_normalisation_round_trips_the_account_id() -> None:
+    run, account = uuid4(), uuid4()
+    body = f"tenants/t/accounts/{account}/runs/{run}/raw/abc"
+    assert str(account) not in normalise(body, run, account)
+    assert ACCOUNT_PLACEHOLDER in normalise(body, run, account)
+    assert denormalise(normalise(body, run, account), run, account) == body
+
+
+@pytest.mark.asyncio
 async def test_reply_reuse_expires_and_stays_within_the_tenant() -> None:
     cache = InMemoryReplyCache(ttl_days=7)
     llm = ScriptedLlm(lambda *a: '{"ok": true}')
@@ -95,7 +155,7 @@ async def test_a_fresh_run_and_a_non_cacheable_task_always_ask(
 ) -> None:
     from dataclasses import replace
 
-    import llm.tasks as tasks
+    import llm.route as tasks
 
     # no configured kind is marked not cacheable since 2026-10-20 (token review item 11): the
     # re-read kind is marked so here to check the mechanism

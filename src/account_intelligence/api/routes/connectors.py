@@ -25,6 +25,7 @@ from account_intelligence.api import contract as C
 from account_intelligence.api.audit_log import audit_action
 from account_intelligence.api.auth import Identity
 from account_intelligence.api.errors import APIProblem
+from account_intelligence.api.flags import behind_flag
 from account_intelligence.api.guard import authorize
 from account_intelligence.api.policy import register, tenant_route
 from account_intelligence.api.tenant_plane import plane_of
@@ -79,6 +80,7 @@ def _refused(e: oauth.ConnectorRefused) -> APIProblem:
 
 
 @router.get("", response_model=C.Connections)
+@behind_flag("connectors")
 async def list_connectors(request: Request, ident: Identity = Depends(authorize)) -> dict[str, Any]:
     """The tenant's connections (never a token)."""
     async with tenant_txn(ident.tenant_id) as s:
@@ -120,6 +122,7 @@ class StartBody(BaseModel):
 
 
 @router.post("", response_model=C.ConnectorStarted, status_code=201)
+@behind_flag("connectors")
 async def start(
     body: StartBody, request: Request, ident: Identity = Depends(authorize)
 ) -> dict[str, Any]:
@@ -164,6 +167,7 @@ async def start(
 
 
 @router.get("/oauth/callback")
+@behind_flag("connectors")
 async def callback(
     request: Request,
     state: str = Query(min_length=16, max_length=200),
@@ -208,6 +212,7 @@ class GrantBody(BaseModel):
 
 
 @router.post("/{connection_id}/grants", response_model=C.ConnectorGranted, status_code=201)
+@behind_flag("connectors")
 async def grant(
     connection_id: UUID, body: GrantBody, request: Request, ident: Identity = Depends(authorize)
 ) -> dict[str, Any]:
@@ -238,6 +243,7 @@ async def grant(
 
 
 @router.post("/{connection_id}/fetch", response_model=C.FetchResult)
+@behind_flag("connectors")
 async def fetch(
     connection_id: UUID, request: Request, ident: Identity = Depends(authorize)
 ) -> dict[str, Any]:
@@ -278,6 +284,7 @@ async def fetch(
 
 
 @router.get("/{connection_id}/quarantine", response_model=C.Quarantine)
+@behind_flag("connectors")
 async def held(
     connection_id: UUID, request: Request, ident: Identity = Depends(authorize)
 ) -> dict[str, Any]:
@@ -290,6 +297,7 @@ async def held(
 
 
 @router.post("/{connection_id}/quarantine/{item_id}/{decision}", response_model=C.QuarantineDecided)
+@behind_flag("connectors")
 async def decide(
     connection_id: UUID,
     item_id: UUID,
@@ -323,6 +331,7 @@ async def decide(
 
 
 @router.post("/{connection_id}/disconnect", response_model=C.Disconnected)
+@behind_flag("connectors")
 async def disconnect(
     connection_id: UUID, request: Request, ident: Identity = Depends(authorize)
 ) -> dict[str, Any]:

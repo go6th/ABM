@@ -21,7 +21,7 @@ OWNERS: dict[str, set[str]] = {
     "facts": {"grading/repo.py"},
     "fact_evidence": {"grading/repo.py"},
     "grade_events": {"grading/repo.py"},
-    "sources": {"account_intelligence/db/source_ids.py"},
+    "sources": {"db/source_ids.py"},
     "claim_drops": {"grading/repo.py"},
     "lead_verifications": {"grading/repo.py"},
     "lead_verification_queries": {"grading/repo.py"},
@@ -35,6 +35,7 @@ OWNERS: dict[str, set[str]] = {
         "runs/lifecycle.py",
         "datamodel/careers.py",
         "datamodel/entity_lock.py",  # entity_lock and entity_lock_at only (migration 0083)
+        "datamodel/watch_config.py",  # watch_config_json only (same-company confirmation)
         "replica/schedules.py",  # refresh_cadence and next_refresh_at only
     },
     "account_bundles": {"parity/service.py"},
@@ -44,7 +45,7 @@ OWNERS: dict[str, set[str]] = {
     "job_posting_observations": {"jobs/repo.py"},
     "job_pipeline_runs": {"jobs/repo.py"},
     "job_pipeline_passes": {"jobs/repo.py"},
-    "people": {"people/repo.py", "privacy/dsar.py"},
+    "people": {"people/repo.py"},
     "person_search_pages": {"people/repo.py"},
     "person_sources": {"people/repo.py"},
     "person_profiles": {"people/repo.py"},
@@ -77,10 +78,10 @@ OWNERS: dict[str, set[str]] = {
     "notification_deliveries": {"spend/notify.py"},
     "prepulled_intents": {"spend/exhaustion.py"},
     "prepulled_intent_events": {"spend/exhaustion.py", "spend/upload.py"},
-    # model routing (migration 0018): the call ledger has one writer; candidate health is written
-    # only by the llm_health_record function (called from llm/health.py)
-    "llm_calls": {"llm/record.py"},
-    "llm_call_attempts": {"llm/record.py"},
+    # model routing (migration 0018): the dormant router's call ledger and candidate health have
+    # no writer since it was removed (ADR-0113); the tables stay, read as empty
+    "llm_calls": set(),
+    "llm_call_attempts": set(),
     # research cache (migration 0049): the model reply log has one writer
     "model_reply_log": {"llm/reply_cache.py"},
     # research files (migration 0051): the earlier upload path is gone and nothing writes its
@@ -92,6 +93,9 @@ OWNERS: dict[str, set[str]] = {
     "document_passages": {"documents/repo.py"},
     "document_parts": {"documents/repo.py"},
     "document_tables": {"documents/repo.py"},
+    "document_members": {"documents/repo.py"},
+    "import_runs": {"documents/import_status.py"},
+    "import_run_parts": {"documents/import_status.py"},
     "document_table_rows": {"documents/repo.py"},
     "raw_files": {"documents/repo.py"},
     "download_jobs": {"replica/downloads.py"},
@@ -158,6 +162,7 @@ OWNERS: dict[str, set[str]] = {
     "flag_events": {"admin/flags.py"},
     "broker_keys": {"admin/keys.py"},
     "operator_audit": {"admin/tenants.py"},
+    "operator_sessions": {"api/operator_sessions.py"},
     "run_feedback": {"pilot/feedback.py"},
     "usefulness_events": {"pilot/usefulness.py"},
     "refresh_slots": {"refresh/slots.py"},
@@ -180,16 +185,6 @@ OWNERS: dict[str, set[str]] = {
     "subscriptions": {"alerts/subscriptions.py"},
     "alert_feedback": {"alerts/feedback.py"},
     "digest_runs": {"alerts/digest.py"},
-    "analyst_label_tasks": {"quality/analyst_loop.py"},
-    "analyst_labels": {"quality/analyst_loop.py"},
-    "release_checks": {"quality/release_check.py"},
-    "contract_fingerprints": {"contracts/monitor.py"},
-    "contract_operation_status": {"contracts/monitor.py"},
-    "contract_drift_events": {"contracts/monitor.py"},
-    "dsar_requests": {"privacy/dsar.py"},
-    "dsar_events": {"privacy/dsar.py"},
-    "suppression_entries": {"privacy/suppression.py"},
-    "tombstones": {"privacy/tombstones.py"},
     "monitoring_budget_versions": {"governance/monitoring_budget.py"},
     "monitoring_usage": {"governance/monitoring_budget.py"},
     "throttle_events": {"governance/monitoring_budget.py"},
@@ -221,6 +216,12 @@ OWNERS: dict[str, set[str]] = {
     "tech_detections": {"agents/production/pipelines.py"},
     # the organisation's tech stack (Confirmed stack sheet), written by the same node
     "tech_stack_items": {"agents/production/pipelines.py"},
+    "platform_teams": {"agents/production/pipelines.py"},
+    "news_events": {"agents/production/pipelines.py"},
+    "org_connections": {"agents/production/pipelines.py"},
+    "person_comments": {"people/repo.py"},
+    "research_notes": {"documents/repo.py"},
+    "pull_log_calls": {"documents/repo.py"},
     # the link archive (migration 0086): every stored address with its copy, one writer module
     "link_archive": {"archive.py"},
     # replica (migrations 0053 to 0056): client limits, the credit pool and its jobs, notices

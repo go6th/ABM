@@ -44,7 +44,7 @@ from account_intelligence import archive_records as AR
 from account_intelligence.config import CONFIG_DIR
 from account_intelligence.safety.client_output import scan_text
 from agents.errors import GuardViolation
-from exports.policy import use_client_guard
+from exports.policy import use_client_guard, use_client_scrub
 
 _WORD = re.compile(r"[^\W\d_]+", re.UNICODE)
 
@@ -311,6 +311,35 @@ def client_rule(text: str) -> str | None:
 
 
 use_client_guard(client_rule)
+
+
+def scrub_provider_names(text: str, marker: str) -> tuple[str, int]:
+    """``(text, n)``: the provider names (``client_hits`` kind ``provider``, as written) and the
+    data-tool names in ``text`` replaced by ``marker``, counted. The allow-listed English uses
+    ("in parallel") stay. For records the exports scrub keeps in the zip
+    (``exports.policy.use_client_scrub``)."""
+    n = 0
+    pattern, words = _term_patterns(provider_terms())
+    if pattern is not None:
+        text, k = pattern.subn(marker, text)
+        n += k
+    for word in words:
+        refused = [
+            m
+            for m in _vendor_pattern(word).finditer(text)
+            if not _english_use(text, m.start(), m.end())
+        ]
+        for m in reversed(refused):  # from the end, so the earlier spans stay valid
+            text = text[: m.start()] + marker + text[m.end() :]
+        n += len(refused)
+    _names, tools = _tool_pattern()
+    if tools is not None:
+        text, k = tools.subn(marker, text)
+        n += k
+    return text, n
+
+
+use_client_scrub(scrub_provider_names)
 
 
 def assert_client_clean(texts: Iterable[str], extra_terms: Iterable[str] = ()) -> None:

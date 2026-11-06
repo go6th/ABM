@@ -1,4 +1,5 @@
-"""The selectable model catalog fails closed on malformed or unpriced model facts."""
+"""The selectable model catalog fails closed on malformed or unpriced model facts. The catalogue
+names model ids; their provider, name, context window and prices come from ``models.yaml``."""
 
 from __future__ import annotations
 
@@ -13,7 +14,7 @@ from account_intelligence.config import CONFIG_DIR
 
 
 def _catalog(tmp_path: Path) -> Path:
-    """A small valid provider catalogue with exact pricing fields."""
+    """A small valid chat catalogue and, beside it, the models.yaml that prices its model."""
     content: dict[str, Any] = {
         "version": 1,
         "default_model": "model-a",
@@ -27,19 +28,28 @@ def _catalog(tmp_path: Path) -> Path:
         "models": [
             {
                 "id": "model-a",
-                "provider": "anthropic",
-                "display_name": "Model A",
-                "input_usd_per_million": "1.0",
-                "output_usd_per_million": "2.0",
-                "cache_write_usd_per_million": "1.25",
-                "cache_read_usd_per_million": "0.1",
-                "context_window": 100,
                 "max_output_tokens": 50,
                 "capabilities": {"streaming": True, "vision": False, "tool_use": True},
             }
         ],
     }
-    path = tmp_path / "models.yaml"
+    models: dict[str, Any] = {
+        "models": {
+            "model-a": {
+                "provider": "anthropic",
+                "display_name": "Model A",
+                "context_window": 100,
+                "pricing": {
+                    "input_usd_per_million": "1.0",
+                    "cached_read_usd_per_million": "0.1",
+                    "cache_write_usd_per_million": "1.25",
+                    "output_usd_per_million": "2.0",
+                },
+            }
+        }
+    }
+    (tmp_path / "models.yaml").write_text(yaml.safe_dump(models))
+    path = tmp_path / "chat_models.yaml"
     path.write_text(yaml.safe_dump(content))
     return path
 
@@ -61,25 +71,60 @@ def test_catalog_exposes_public_facts_and_exact_decimal_costs() -> None:
         registry.model("unapproved-model")
 
 
+def test_a_small_catalogue_takes_its_facts_from_models_yaml(tmp_path: Path) -> None:
+    model = load_chat_registry(_catalog(tmp_path)).model(None)
+    assert (model.provider, model.display_name, model.context_window) == (
+        "anthropic",
+        "Model A",
+        100,
+    )
+    assert model.cost(input_tokens=1_000_000, output_tokens=1_000_000) == 3
+
+
+def _models(change: Any) -> Any:
+    """A change to the models.yaml beside the catalogue."""
+
+    def apply(_: dict[str, Any], models: dict[str, Any]) -> None:
+        change(models["models"]["model-a"])
+
+    return apply
+
+
+def _chat(change: Any) -> Any:
+    """A change to the chat catalogue."""
+
+    def apply(chat: dict[str, Any], _: dict[str, Any]) -> None:
+        change(chat)
+
+    return apply
+
+
 @pytest.mark.parametrize(
     ("change", "message"),
     [
-        (lambda data: data.update(version=2), "version"),
-        (lambda data: data.update(unexpected="value"), "unsupported fields"),
-        (lambda data: data.update(default_model="missing"), "default_model"),
-        (lambda data: data["models"][0].update(provider="openai"), "provider"),
-        (lambda data: data["models"][0].update(input_usd_per_million="NaN"), "price"),
-        (lambda data: data["models"][0].update(max_output_tokens=101), "context window"),
-        (lambda data: data["models"][0].update(capabilities={"streaming": "yes"}), "capabilities"),
-        (lambda data: data["limits"].update(max_turns=True), "positive integer"),
-        (lambda data: data["providers"]["anthropic"].update(enabled=False), "enabled"),
+        (_chat(lambda data: data.update(version=2)), "version"),
+        (_chat(lambda data: data.update(unexpected="value")), "unsupported fields"),
+        (_chat(lambda data: data.update(default_model="missing")), "default_model"),
+        (_models(lambda m: m.update(provider="openai")), "provider"),
+        (_models(lambda m: m["pricing"].update(input_usd_per_million="NaN")), "priced"),
+        (_models(lambda m: m.pop("pricing")), "not a priced model"),
+        (_chat(lambda data: data["models"][0].update(input_usd_per_million="1")), "unsupported"),
+        (_chat(lambda data: data["models"][0].update(max_output_tokens=101)), "context window"),
+        (
+            _chat(lambda data: data["models"][0].update(capabilities={"streaming": "yes"})),
+            "capabilities",
+        ),
+        (_chat(lambda data: data["limits"].update(max_turns=True)), "positive integer"),
+        (_chat(lambda data: data["providers"]["anthropic"].update(enabled=False)), "enabled"),
     ],
 )
 def test_invalid_registry_is_rejected(tmp_path: Path, change: Any, message: str) -> None:
     path = _catalog(tmp_path)
-    data = yaml.safe_load(path.read_text())
-    change(data)
-    path.write_text(yaml.safe_dump(data))
+    chat = yaml.safe_load(path.read_text())
+    models = yaml.safe_load((tmp_path / "models.yaml").read_text())
+    change(chat, models)
+    path.write_text(yaml.safe_dump(chat))
+    (tmp_path / "models.yaml").write_text(yaml.safe_dump(models))
     with pytest.raises(ChatConfigInvalid, match=message):
         load_chat_registry(path)
 

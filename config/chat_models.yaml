@@ -1,5 +1,7 @@
-# Public chat model catalogue. Prices are USD per million tokens.
-# Enforced by the backend model router. Callers cannot override model selection.
+# Public chat model catalogue: the chat allow-list and chat-only settings. Every id must be a
+# model of config/models.yaml, which holds its provider, display name, context window and prices
+# (the one price table, ADR-0115; test_single_price_table fails on a price here).
+# Enforced by the backend. Callers cannot override model selection.
 version: 1
 default_model: claude-sonnet-5-5
 limits:
@@ -17,71 +19,25 @@ providers:
   xai:
     enabled: true
     credential_source: env_or_secret_manager
+# max_output_tokens: the most a chat reply may ask for on this model (at most its models.yaml
+# maximum)
 models:
-  # published prices (platform.claude.com pricing, read 2026-10-20; token review item 18: was
-  # $3 in, $8 out, 200k context)
   - id: claude-sonnet-5-5
-    provider: anthropic
-    display_name: Claude Sonnet 5.5
-    input_usd_per_million: "2.00"
-    output_usd_per_million: "10.00"
-    cache_write_usd_per_million: "2.50"
-    cache_read_usd_per_million: "0.10"
-    context_window: 1000000
     max_output_tokens: 128000
     capabilities: {streaming: true, vision: false, tool_use: false}
-  # the Ask route classifier's model (models.yaml `helpers`); prices for prompts up to 100k
-  # tokens ($0.50 in, $2.50 out above that)
+  # the Ask route classifier's model (models.yaml `helpers`)
   - id: claude-haiku-5-5
-    provider: anthropic
-    display_name: Claude Haiku 5.5
-    input_usd_per_million: "0.10"
-    output_usd_per_million: "0.50"
-    cache_write_usd_per_million: "0.125"
-    cache_read_usd_per_million: "0.01"
-    context_window: 1000000
     max_output_tokens: 128000
     capabilities: {streaming: true, vision: false, tool_use: false}
   - id: claude-fable-5-1
-    provider: anthropic
-    display_name: Claude Fable 5.1
-    input_usd_per_million: "10.00"
-    output_usd_per_million: "50.00"
-    cache_write_usd_per_million: "12.50"
-    cache_read_usd_per_million: "0.25"
-    context_window: 1000000
     max_output_tokens: 128000
     capabilities: {streaming: true, vision: false, tool_use: false}
   - id: claude-opus-5-5
-    provider: anthropic
-    display_name: Claude Opus 5.5
-    input_usd_per_million: "4.00"
-    output_usd_per_million: "20.00"
-    cache_write_usd_per_million: "5.00"
-    cache_read_usd_per_million: "0.20"
-    context_window: 1000000
     max_output_tokens: 128000
     capabilities: {streaming: true, vision: false, tool_use: false}
   - id: kimi-k3
-    provider: moonshot
-    display_name: Kimi K3
-    # platform.kimi.ai/docs/pricing/chat, read 2026-10-14 (cache write at the default 5 min TTL)
-    input_usd_per_million: "3.00"
-    output_usd_per_million: "15.00"
-    cache_write_usd_per_million: "3.00"
-    cache_read_usd_per_million: "0.30"
-    context_window: 1048576
     max_output_tokens: 131072
     capabilities: {streaming: true, vision: false, tool_use: false}
   - id: grok-4.5
-    provider: xai
-    display_name: Grok 4.5
-    # docs.x.ai/docs/models, read 2026-10-20 (prompts under 200k tokens; xAI bills no cache
-    # write, so a written prefix is priced as input)
-    input_usd_per_million: "2.00"
-    output_usd_per_million: "6.00"
-    cache_write_usd_per_million: "2.00"
-    cache_read_usd_per_million: "0.30"
-    context_window: 500000
     max_output_tokens: 128000
     capabilities: {streaming: true, vision: false, tool_use: false}

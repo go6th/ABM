@@ -6,6 +6,12 @@ Tools (2026-10-17): the Anthropic provider runs a bounded tool loop when a turn 
 back, up to ``MAX_TOOL_ROUNDS`` rounds, and only the last round's text is the answer (text the
 model wrote before calling a tool is withdrawn with a ``discard`` event). Moonshot offers no
 tools; a tabular turn there answers through retrieval.
+
+Thinking (Sonnet deep-thinking plan, 2026-11-03): every round sends the model's thinking blocks
+back unchanged with the rest of its turn, so its reasoning carries across tool calls instead of
+restarting each round; the request's system prompt and tool list never change inside a turn
+(a change would invalidate those blocks). A model that spends every round and nudge without the
+final-answer call gets one answer-only round (``tool_choice`` none) instead of a discarded reply.
 """
 
 from __future__ import annotations
@@ -13,7 +19,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, is_dataclass
 from decimal import Decimal
 from typing import Any, Literal, Protocol
 
@@ -203,15 +209,21 @@ class ChatUsage:
     cache_write_tokens: int = 0
     # why the last round ended (Anthropic: "end_turn", "tool_use", "max_tokens"); None if unknown
     stop_reason: str | None = None
+    # the LAST round's whole prompt (uncached + cache read + cache write): how full the context
+    # window is. The counts above add every tool round, so 808K over ten rounds is not 81% of a
+    # 1M window (staging 2026-11-03); 0 when unknown
+    context_tokens: int = 0
 
 
 @dataclass(frozen=True)
 class ChatEvent:
     """One streamed text delta, a tool call the provider ran (name, input and result), a
     ``discard`` (the text streamed so far in this turn was written before a tool call and is
-    withdrawn), or the final provider usage."""
+    withdrawn), a ``thinking`` summary (the readable summary of one round's reasoning, when the
+    model's thinking display is ``summarized``; never streamed to the client as it arrives, the
+    caller decides where it goes), or the final provider usage."""
 
-    kind: Literal["text", "usage", "tool", "discard"]
+    kind: Literal["text", "usage", "tool", "discard", "thinking"]
     text: str = ""
     usage: ChatUsage | None = None
     tool: Mapping[str, Any] | None = None
@@ -231,10 +243,24 @@ RENDER_NUDGE = (
     "You have not called `render_answer`. Call it now, once, with the whole answer: a headline"
     " and sections that include at least one `table` section carrying EVERY matching row (or,"
     " for a narrative answer, the facts the answer rests on, one per row), each row's [R#]"
-    " citation in its last cell. Do not write the answer as text. If you have not yet read the"
-    " data with the table or search tools and still have data calls left, do that first: the"
-    " rows are stored complete."
+    " citation in its last cell; for an OPEN QUESTION, its one `insights` section instead. Do"
+    " not write the answer as text. If you have not yet read the data with the table or search"
+    " tools and still have data calls left, do that first: the rows are stored complete."
 )
+# the last round of a turn whose model used every tool round and every nudge without the final
+# answer call (staging 2026-11-02: two Fable replies, $1.94 and $2.31, kept searching and were
+# discarded): the request keeps its tools unchanged (a changed tool list invalidates the model's
+# kept thinking blocks) and sets tool_choice "none", so the model can only write; its text is the
+# answer, citation-checked like any Markdown answer
+FINAL_ANSWER_NOTE = (
+    "The tool budget for this answer is used up and no tool can be called any more. Write the"
+    " complete final answer now as Markdown text from what you have read, citing each row you"
+    " rely on as [R#], and say in one line what you could not read."
+)
+# the assistant blocks that carry the model's reasoning: sent back unchanged on every later
+# round of the same answer (Anthropic, Claude 5 family: thinking blocks must be passed back
+# with the rest of the assistant turn; dropping them made every tool round reason from scratch)
+THINKING_BLOCKS = frozenset({"thinking", "redacted_thinking"})
 
 
 def _render_offered(tools: Sequence[Mapping[str, Any]] | None) -> bool:
@@ -263,13 +289,18 @@ class ChatProvider(Protocol):
         run_tool: ToolRunner | None = None,
         temperature: float | None = None,
         effort: str | None = None,
+        max_tool_rounds: int | None = None,
+        thinking_display: str | None = None,
     ) -> AsyncIterator[ChatEvent]:
         """Yield bounded text deltas followed by exactly one final usage event. ``system``
         replaces the grounded rules; ``cached`` is large data (a whole file) appended to the
         system prompt in a block the provider may cache across turns; ``tools`` (with
         ``run_tool``) lets the model call them, each call and its result yielded as a ``tool``
         event; ``temperature`` pins sampling (0 for a tabular turn); ``effort`` is the user's
-        choice for this turn (medium or high), in place of the provider's configured one."""
+        choice for this turn (medium or high), in place of the provider's configured one;
+        ``max_tool_rounds`` replaces ``MAX_TOOL_ROUNDS`` for this turn (the model's Ask
+        setting); ``thinking_display`` asks a provider that supports it for readable thinking
+        summaries (``thinking`` events)."""
         ...
 
 
@@ -336,6 +367,8 @@ class AnthropicChatProvider:
         run_tool: ToolRunner | None = None,
         temperature: float | None = None,
         effort: str | None = None,
+        max_tool_rounds: int | None = None,
+        thinking_display: str | None = None,
     ) -> AsyncIterator[ChatEvent]:
         """Stream text and final token counts; provider exceptions retain no user text.
         ``system`` replaces the default grounded rules (the Ask answer format supplies its own).
@@ -395,19 +428,28 @@ class AnthropicChatProvider:
         chosen = effort or effort_for(model.id, self._effort)
         if chosen is not None:
             request["output_config"] = {"effort": chosen}
+        if thinking_display:
+            # adaptive thinking is the default on every current Claude model; naming it only
+            # adds the display, which changes what comes back, never how much the model thinks
+            request["thinking"] = {"type": "adaptive", "display": thinking_display}
         # temperature is deliberately NOT forwarded: the installed SDK's Messages call has no
         # temperature parameter (open item OI-LLM-1) — forwarding the 0.0 that tabular Ask
         # turns send would TypeError every round. The Moonshot provider pins temperature/seed.
         stop_reason: str | None = None
         totals = [0, 0, 0, 0]
+        last_prompt = 0  # the last round's whole prompt (ChatUsage.context_tokens)
         rounds = nudges = 0
+        round_cap = max_tool_rounds or MAX_TOOL_ROUNDS
         render_offered = _render_offered(tools)
-        # LOOP(tool rounds): cap=MAX_TOOL_ROUNDS tool rounds plus the answer plus
-        # MAX_RENDER_NUDGES; exit=the model stops without a tool call (after its nudges), or no
-        # tool runner
+        # the salvage round (FINAL_ANSWER_NOTE): set once every round and nudge is spent
+        answer_only = False
+        # LOOP(tool rounds): cap=round_cap tool rounds plus MAX_RENDER_NUDGES plus one
+        # answer-only round; exit=the model stops without a tool call (after its nudges), the
+        # answer-only round ends, or no tool runner
         while True:
             wrote = False
-            async with self._client.messages.stream(**request, messages=request_messages) as stream:
+            sent = dict(request, tool_choice={"type": "none"}) if answer_only else request
+            async with self._client.messages.stream(**sent, messages=request_messages) as stream:
                 async for event in stream:
                     if getattr(event, "type", None) == "text" and event.text:
                         wrote = True
@@ -415,14 +457,26 @@ class AnthropicChatProvider:
                 final = await stream.get_final_message()
             usage = final.usage
             stop_reason = getattr(final, "stop_reason", None)
-            totals[0] += int(getattr(usage, "input_tokens", 0) or 0)
+            prompt = [
+                int(getattr(usage, key, 0) or 0)
+                for key in (
+                    "input_tokens",
+                    "cache_read_input_tokens",
+                    "cache_creation_input_tokens",
+                )
+            ]
+            totals[0] += prompt[0]
             totals[1] += int(getattr(usage, "output_tokens", 0) or 0)
-            totals[2] += int(getattr(usage, "cache_read_input_tokens", 0) or 0)
-            totals[3] += int(getattr(usage, "cache_creation_input_tokens", 0) or 0)
+            totals[2] += prompt[1]
+            totals[3] += prompt[2]
+            last_prompt = sum(prompt)
+            summary = _thinking_summary(final.content)
+            if summary:
+                yield ChatEvent("thinking", text=summary)
             calls = [b for b in final.content if getattr(b, "type", None) == "tool_use"]
-            if run_tool is None:
+            if run_tool is None or answer_only:
                 break
-            over_budget = rounds >= MAX_TOOL_ROUNDS
+            over_budget = rounds >= round_cap
             # a model that ends without the final-answer call (text only, or out of tool rounds)
             # is sent back for it: the answer's table must not depend on the model's habit
             nudge = render_offered and nudges < MAX_RENDER_NUDGES
@@ -472,10 +526,16 @@ class AnthropicChatProvider:
             if terminal:
                 break
             if over_budget:
-                if not nudge:
+                if nudge:
+                    nudges += 1
+                    results.append({"type": "text", "text": RENDER_NUDGE})
+                elif render_offered:
+                    # every round and nudge is spent and the model is still calling tools: one
+                    # last round that can only write, so a paid reply is never thrown away
+                    answer_only = True
+                    results.append({"type": "text", "text": FINAL_ANSWER_NOTE})
+                else:
                     break
-                nudges += 1
-                results.append({"type": "text", "text": RENDER_NUDGE})
             request_messages.append({"role": "assistant", "content": _blocks(final.content)})
             request_messages.append({"role": "user", "content": results})
         yield ChatEvent(
@@ -486,16 +546,43 @@ class AnthropicChatProvider:
                 cache_read_tokens=totals[2],
                 cache_write_tokens=totals[3],
                 stop_reason=None if stop_reason is None else str(stop_reason),
+                context_tokens=last_prompt,
             ),
         )
 
 
+def _thinking_summary(content: Sequence[Any]) -> str:
+    """The readable thinking of one round (non-empty only under a ``summarized`` display; the
+    default display leaves the text empty), its blocks joined in order."""
+    parts = [
+        str(getattr(block, "thinking", "") or "").strip()
+        for block in content
+        if getattr(block, "type", None) == "thinking"
+    ]
+    return "\n\n".join(p for p in parts if p)
+
+
+def _thinking_param(block: Any) -> dict[str, Any]:
+    """A thinking block as it goes back to the API: unchanged, every field the API returned
+    (the signature included) kept as returned; a test double is copied field for field."""
+    to_dict = getattr(block, "to_dict", None)
+    if callable(to_dict):  # an SDK block: exactly the fields the response set
+        return dict(to_dict(mode="json"))
+    if is_dataclass(block) and not isinstance(block, type):
+        return asdict(block)
+    return dict(vars(block))
+
+
 def _blocks(content: Sequence[Any]) -> list[dict[str, Any]]:
-    """The assistant turn as the API takes it back: its text and tool_use blocks only."""
+    """The assistant turn as the API takes it back: its thinking blocks unchanged and in their
+    place, its text and its tool_use blocks (Anthropic: thinking blocks must be passed back with
+    the rest of the turn on every tool round, or the next round reasons from scratch)."""
     out: list[dict[str, Any]] = []
     for block in content:
         kind = getattr(block, "type", None)
-        if kind == "text" and getattr(block, "text", ""):
+        if kind in THINKING_BLOCKS:
+            out.append(_thinking_param(block))
+        elif kind == "text" and getattr(block, "text", ""):
             out.append({"type": "text", "text": str(block.text)})
         elif kind == "tool_use":
             out.append(
@@ -557,6 +644,8 @@ class MoonshotChatProvider:
         run_tool: ToolRunner | None = None,
         temperature: float | None = None,
         effort: str | None = None,
+        max_tool_rounds: int | None = None,
+        thinking_display: str | None = None,
     ) -> AsyncIterator[ChatEvent]:
         """Stream text and final token counts; provider exceptions retain no user text. The
         whole file (``cached``) rides in the system prompt. With ``tools`` the model may call
@@ -565,7 +654,8 @@ class MoonshotChatProvider:
         structured error instead of running."""
         from llm.adapters import moonshot_api as k
 
-        del user_id, request_id, fresh_output
+        del user_id, request_id, fresh_output, thinking_display
+        round_cap = max_tool_rounds or MAX_TOOL_ROUNDS
         system_instruction = (system or grounded_system_prompt(context, max_output_tokens)) + (
             f"\n\n{cached}" if cached else ""
         )
@@ -573,6 +663,7 @@ class MoonshotChatProvider:
             {"role": m.role, "content": m.content} for m in messages
         ]
         totals = [0, 0, 0, 0]
+        last_prompt = 0  # the last round's whole prompt (ChatUsage.context_tokens)
         rounds = nudges = 0
         render_offered = _render_offered(tools)
         # LOOP(tool rounds): cap=MAX_TOOL_ROUNDS tool rounds plus the answer plus
@@ -605,9 +696,14 @@ class MoonshotChatProvider:
                 totals[1] += int(usage.output_tokens)
                 totals[2] += int(usage.cache_read_input_tokens or 0)
                 totals[3] += int(usage.cache_creation_input_tokens or 0)
+                last_prompt = (
+                    int(usage.input_tokens)
+                    + int(usage.cache_read_input_tokens or 0)
+                    + int(usage.cache_creation_input_tokens or 0)
+                )
             if run_tool is None:
                 break
-            over_budget = rounds >= MAX_TOOL_ROUNDS
+            over_budget = rounds >= round_cap
             nudge = render_offered and nudges < MAX_RENDER_NUDGES
             if not calls and not nudge:
                 break
@@ -665,6 +761,7 @@ class MoonshotChatProvider:
                 output_tokens=totals[1],
                 cache_read_tokens=totals[2],
                 cache_write_tokens=totals[3],
+                context_tokens=last_prompt,
             ),
         )
 

@@ -83,6 +83,12 @@ class BlobStore(Protocol):
         """The object's size in bytes (``BlobMissing`` when absent)."""
         ...
 
+    async def crc32c(self, key: str) -> str:
+        """The object's CRC32C as base64 of the 4 big-endian bytes, the form Cloud Storage keeps
+        in its metadata (computed streaming where the store has none; ``BlobMissing`` when
+        absent)."""
+        ...
+
 
 class LocalBlobStore:
     """See the module docstring."""
@@ -192,6 +198,19 @@ class LocalBlobStore:
             return self.path(key).stat().st_size
         except FileNotFoundError:
             raise BlobMissing(key) from None
+
+    async def crc32c(self, key: str) -> str:
+        """Computed by reading the file in 1 MiB blocks (a local directory has no metadata)."""
+        from research_files.crc32c import crc32c_of
+
+        def compute() -> str:
+            """The checksum of the file, read in blocks (run off the event loop)."""
+            with self.open(key) as reader:
+                return crc32c_of(reader)
+
+        import asyncio
+
+        return await asyncio.to_thread(compute)
 
     async def delete(self, key: str) -> None:
         """Unlink."""
@@ -335,6 +354,15 @@ class GcsBlobStore:
             raise BlobMissing(key)
         return int(blob.size)
 
+    async def crc32c(self, key: str) -> str:
+        """The object's CRC32C from its metadata (nothing is read)."""
+        import asyncio
+
+        blob = await asyncio.to_thread(self.bucket.get_blob, key)
+        if blob is None:
+            raise BlobMissing(key)
+        return str(blob.crc32c or "")
+
     async def delete_prefix(self, prefix: str) -> int:
         """Delete every object under the prefix."""
         import asyncio
@@ -343,3 +371,26 @@ class GcsBlobStore:
         for blob in blobs:
             await asyncio.to_thread(blob.delete)
         return len(blobs)
+
+
+async def copy_between(
+    source: BlobStore, source_key: str, target: BlobStore, target_key: str, size: int
+) -> None:
+    """Copy one object from one store to another (the clean upload leaving the quarantine
+    bucket for the documents bucket). Two Cloud Storage buckets copy server side; anything else
+    streams in ``COPY_BUFFER`` blocks, so no file is ever held in memory."""
+    if isinstance(source, GcsBlobStore) and isinstance(target, GcsBlobStore):
+        import asyncio
+
+        blob = source.bucket.blob(source_key)
+        await asyncio.to_thread(source.bucket.copy_blob, blob, target.bucket, target_key)
+        return
+
+    async def blocks() -> AsyncIterator[bytes]:
+        """The source object in bounded blocks."""
+        with source.open(source_key) as reader:
+            # LOOP(blob copy between stores): cap=object size / COPY_BUFFER reads; exit=end
+            while block := reader.read(COPY_BUFFER):
+                yield block
+
+    await target.write_stream(target_key, blocks(), max_bytes=size)

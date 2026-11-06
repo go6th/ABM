@@ -327,6 +327,10 @@ profile_fields:
 internal_only_providers:
   value: [p_org]
   source: "routing.yaml adapter rule: the organisation provider's output is never routed to a hosted file"
+  # ADR-0025 narrowed (owner decision 2026-11-06, Olympus: 356 people found, none shown): the
+  # People List file and the web tables list these people; the workspace zip still leaves them
+  # out (data/people_grid.txt, data/derived/people.json). false restores "never named".
+  listed_in_files: true
 
 # ---- caps and thresholds (proposal) ---------------------------------------------------------
 caps:

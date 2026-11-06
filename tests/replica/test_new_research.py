@@ -42,6 +42,8 @@ async def test_new_research_shows_the_estimate_and_starts_only_on_confirm(
         "company_name": "Newco",
         "domain": "newco.example",
         "credits": est["credits"],
+        "confirm": True,
+        "confirm_again": True,
     }
     moved = await _call(plane, "POST", "/v1/research", json={**body, "credits": 1})
     assert moved.status_code == 409 and moved.json()["type"].endswith("estimate_changed")
@@ -73,7 +75,13 @@ async def test_no_research_left_reserves_nothing(world: dict[str, Any]) -> None:
         world["b"],
         user,
     )
-    body = {"request_id": str(uuid4()), "company_name": "Shortco", "domain": "shortco.example"}
+    body = {
+        "request_id": str(uuid4()),
+        "company_name": "Shortco",
+        "domain": "shortco.example",
+        "confirm": True,
+        "confirm_again": True,
+    }
     refused = await _call(plane, "POST", "/v1/research", json=body)
     assert refused.status_code == 403, refused.text
     assert refused.json()["type"].endswith("limit_reached")
@@ -100,7 +108,13 @@ async def test_stop_ends_a_research_that_has_not_started_and_releases_its_credit
     """Stop on the account page: a research waiting or queued (no run yet) ends canceled, its
     reserved credits go back to the pool, and a second Stop says it has ended."""
     plane = _plane(world["a"], "priya-test", world["payloads"])
-    body = {"request_id": str(uuid4()), "company_name": "Stopco", "domain": "stopco.example"}
+    body = {
+        "request_id": str(uuid4()),
+        "company_name": "Stopco",
+        "domain": "stopco.example",
+        "confirm": True,
+        "confirm_again": True,
+    }
     started = (await _call(plane, "POST", "/v1/research", json=body)).json()
     job = started["job_id"]
     assert started["status"] == "queued"
@@ -131,7 +145,13 @@ async def test_stop_says_busy_instead_of_hanging_when_the_job_row_is_locked(
     from account_intelligence.api.routes import research
 
     plane = _plane(world["a"], "priya-test", world["payloads"])
-    body = {"request_id": str(uuid4()), "company_name": "Lockco", "domain": "lockco.example"}
+    body = {
+        "request_id": str(uuid4()),
+        "company_name": "Lockco",
+        "domain": "lockco.example",
+        "confirm": True,
+        "confirm_again": True,
+    }
     job = (await _call(plane, "POST", "/v1/research", json=body)).json()["job_id"]
     monkeypatch.setattr(research, "STOP_LOCK_WAIT_S", 1)
     with psycopg.connect(ADMIN_DSN) as holder:  # another transaction holds the job row
@@ -154,7 +174,14 @@ async def test_a_research_goal_is_optional_stored_and_checked(world: dict[str, A
 
     def body(**extra: object) -> dict[str, object]:
         domain = f"goal-{uuid4().hex[:6]}.example"
-        return {"request_id": str(uuid4()), "company_name": "Goalco", "domain": domain, **extra}
+        return {
+            "request_id": str(uuid4()),
+            "company_name": "Goalco",
+            "domain": domain,
+            "confirm": True,
+            "confirm_again": True,
+            **extra,
+        }
 
     for bad in ("ab", "  a \n ", "x" * 501):
         refused = await _call(plane, "POST", "/v1/research", json=body(goal=bad))

@@ -80,6 +80,27 @@ test("an older API without the token card still shows the total as one segment",
   expect([...container.querySelectorAll(".tk-seg")].map((s) => s.getAttribute("class"))).toEqual(["tk-seg tk-c-all"]);
 });
 
+test("a step that fell back to Claude says why the bill differs from the estimate", () => {
+  const fell: TokenUse = {
+    ...live,
+    fallbacks: [
+      { step: "abm_pass2_extract", from_model: "Kimi K3", to_model: "Claude Opus 5.5", reason: "schema_invalid", discarded_usd: 0.03, extra_usd: 0.0412 },
+      { step: "abm_people_extract", from_model: "Kimi K3", to_model: "Claude Opus 5.5", reason: "schema_invalid", discarded_usd: 0.01, extra_usd: null },
+    ],
+  };
+  render(<TokenMeter run={runWith(fell)} steps={states} status="RUNNING" />);
+  const note = screen.getByRole("note", { name: "Model fallbacks" });
+  expect(note.textContent).toContain("2 steps moved from Kimi K3 to Claude Opus 5.5");
+  expect(note.textContent).toContain("could not return the required format");
+  expect(note.textContent).toContain("cost $0.04 more than the estimate");
+  expect(note.textContent).toContain("includes $0.04 of discarded replies");
+});
+
+test("without a fallback the card shows no fallback note", () => {
+  render(<TokenMeter run={runWith({ ...live, fallbacks: [] })} steps={states} status="RUNNING" />);
+  expect(screen.queryByRole("note", { name: "Model fallbacks" })).toBeNull();
+});
+
 test("helpers: compact counts, the bar scale and the run state", () => {
   expect(formatTokens(950)).toBe("950");
   expect(formatTokens(12_400)).toBe("12.4K");

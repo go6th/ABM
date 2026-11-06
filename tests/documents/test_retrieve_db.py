@@ -120,6 +120,31 @@ async def test_two_workers_indexing_one_document_never_deadlock(
     assert admin("SELECT count(*) FROM chunks WHERE doc_id = %s", doc) == [(len(rows),)]
 
 
+async def test_a_page_is_written_only_under_the_lease_that_indexes_it(
+    tenant_a: UUID, tmp_path: Path
+) -> None:
+    """A call that lost the document's lease writes nothing, and how far indexing got never
+    moves back (staging 2026-11-05: two calls on one instance shared a lease and pages were
+    embedded two or three times; audit 2026-11-06)."""
+    from documents import repo
+
+    account, doc = await _indexed(tenant_a, tmp_path, semantic=False)
+    async with tenant_txn(tenant_a) as s:
+        rows = await repo.passages_after(s, doc, -1, 100)
+    vectors = [[0.0] * 1535 + [1.0] for _ in rows]
+    admin("UPDATE documents SET status = 'indexing', lease_owner = 'w:a' WHERE id = %s", doc)
+    async with tenant_txn(tenant_a) as s:
+        lost = await repo.index_page(s, doc, account, rows, vectors, "local-hash-v1", owner="w:b")
+        held = await repo.index_page(s, doc, account, rows, vectors, "local-hash-v1", owner="w:a")
+    assert (lost, held) == (False, True)
+    top = int(rows[-1].seq)
+    admin("UPDATE documents SET indexed_through = %s WHERE id = %s", top + 50, doc)
+    async with tenant_txn(tenant_a) as s:
+        assert await repo.index_page(s, doc, account, rows, vectors, "local-hash-v1", owner="w:a")
+    assert admin("SELECT indexed_through FROM documents WHERE id = %s", doc) == [(top + 50,)]
+    assert admin("SELECT count(*) FROM chunks WHERE doc_id = %s", doc) == [(len(rows),)]
+
+
 async def test_a_zip_is_read_member_by_member_with_each_file_cited(
     tenant_a: UUID, tmp_path: Path
 ) -> None:

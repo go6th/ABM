@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
@@ -273,3 +274,73 @@ class SettingsAdapter:
             internal_history=InternalHistorySettings(),
             depth="deep" if requested == "deep" else "standard",
         )
+
+
+IMPORTED_SECTION_KINDS = frozenset(
+    {
+        "narrative",
+        "caveat",
+        "executive_voice",
+        "hypothesis",
+        "first_call_question",
+        "decision_change",
+        "stands_out",
+        "lane_meaning",
+        "how_wrong",
+        "sharpen",
+        "baseline",
+        "caution",
+        "interpretation",
+    }
+)
+
+
+async def import_sections(
+    s: Any,
+    tenant_id: UUID,
+    account_id: UUID,
+    run_id: UUID,
+    sections: Sequence[Mapping[str, Any]],
+    *,
+    visibility: str = "private",
+) -> int:
+    """Store the prose of an uploaded Account Summary as the file-import run's report sections
+    (workspace import phase 3, 2026-11-03): one row per section in order (``kind``, ``text``,
+    optional ``confirming_question``, ``lane``, ``cited_source_codes``), the same table the
+    research's own narrative lives in, so the account page's one-minute version, findings,
+    hypotheses and questions read it. Private unless the file is authoritative. A section the
+    run already holds is left as is. Returns the rows written."""
+    written = 0
+    positions: Counter[str] = Counter()
+    for section in sections:
+        kind = str(section.get("kind") or "narrative")
+        if kind not in IMPORTED_SECTION_KINDS:
+            continue
+        body = " ".join(str(section.get("text") or "").split())[:8000]
+        if not body:
+            continue
+        position = positions[kind]
+        positions[kind] += 1
+        res = await s.execute(
+            text(
+                "INSERT INTO report_sections (tenant_id, account_id, run_id, version, kind,"
+                " position, text, cited_source_codes, fact_ids, confirming_question, lane,"
+                " visibility) VALUES (:t, :a, :r, 1, :k, :p, :body, :codes,"
+                " CAST('{}' AS uuid[]), :question, :lane, :vis)"
+                " ON CONFLICT (tenant_id, run_id, version, kind, position) DO NOTHING"
+            ),
+            {
+                "t": tenant_id,
+                "a": account_id,
+                "r": run_id,
+                "k": kind,
+                "p": position,
+                "body": body,
+                "codes": [str(c) for c in (section.get("cited_source_codes") or ())],
+                "question": (str(section.get("confirming_question") or "")[:2000] or None),
+                "lane": (str(section.get("lane") or "")[:100] or None),
+                "vis": visibility if visibility in ("public", "private") else "private",
+            },
+        )
+        written += int(bool(res.rowcount))
+    return written

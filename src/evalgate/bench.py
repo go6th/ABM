@@ -1,5 +1,5 @@
 """The routing benchmark (D-48, D-51): a candidate per task kind, run over the golden accounts,
-reported with intervals plus a PROPOSED routing diff. Nothing in ``config/model_routing.yaml``
+reported with intervals plus a PROPOSED routing diff. Nothing in ``config/models.yaml``
 changes from it without the D-51 sign-off. Without analyst-labelled accounts, model access and
 credits the report ships with an empty results table and status Blocked.
 

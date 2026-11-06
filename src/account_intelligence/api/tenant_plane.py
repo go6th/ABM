@@ -141,7 +141,8 @@ class TenantPlane:
 
     def broker(self) -> Broker:
         """The identity broker over the shared database sessions."""
-        from account_intelligence.db.session import tenant_txn, untenanted_session
+        from account_intelligence.db.session import tenant_txn
+        from account_intelligence.db.system_scope import untenanted_session
 
         if not self.base_url:
             raise NotConfigured("PUBLIC_BASE_URL is not configured")

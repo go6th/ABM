@@ -65,7 +65,9 @@ def main(data: Path) -> None:
         )
     places.sort(key=lambda p: (-p[6], p[0]))
     doc = {
-        "source": "GeoNames cities15000 (CC BY 4.0, https://www.geonames.org/) via geonamescache (MIT)",
+        "source": (
+            "GeoNames cities15000 (CC BY 4.0, https://www.geonames.org/) via geonamescache (MIT)"
+        ),
         "fields": ["name", "ascii", "country", "admin1", "lat", "lon", "population"],
         "countries": {v["iso"]: v["name"] for v in countries.values()},
         "us_states": {code: s["name"] for code, s in states.items()},

@@ -64,6 +64,15 @@ unwanted-things/web/.next-*/
 
 # generated workspace bundles hold real people data from research runs: never committed
 fixtures/workspaces/
+# real customer data never enters git (ADR-0107; history purged by scripts/ops/purge_real_fixtures.sh).
+# *.zip above already covers workspace zips; these also cover their tests, eval cases and backups.
+tests/fixtures/gsk/
+tests/documents/test_tables_real_gsk.py
+tests/evals/test_tabular_gsk_live.py
+evals/tabular_gsk/
+unwanted-things/real-account-fixtures/
+unwanted-things/backup-*/
+*.tar
 # a symlinked node_modules (a worktree sharing the main checkout's install) is ignored like the folder
 web/node_modules
 # rendered deliverables of real workspaces (parity replay output): never committed

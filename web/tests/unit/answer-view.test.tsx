@@ -3,7 +3,7 @@
 // link only when its address is an absolute http(s) URL (a scheme-relative "//host" is refused).
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, expect, test } from "vitest";
-import { AnswerView, dayMonth } from "@/components/ask/AnswerView";
+import { AnswerView, dayMonth, UsedPanel } from "@/components/ask/AnswerView";
 import type { ChatAnswer } from "@/lib/gen/api.gen";
 
 afterEach(cleanup);
@@ -70,4 +70,61 @@ test("a source with no web page (a provider's own page) has no link in the answe
   a.sources[0]!.label = "6th agents";
   const { container } = view(a);
   expect(container.querySelector("a.src-link")).toBeNull();
+});
+
+// --- an Ask citation of a deep-dive table opens the sheet (owner, 2026-11-04) ------------------
+
+function sheetAnswer(match: { match_col: string; match: string } | null): ChatAnswer {
+  const a = answer(null, "12 openings in San Francisco [1]");
+  a.sources[0] = {
+    account_domain: "holdings.example", account_name: "Synthetic Holdings", date: null, kind: "file",
+    meta: match ? `Filtered: Location contains ${match.match}` : "Internal · 644 rows, queried whole",
+    n: 1, title: "Job postings sheet", url: null, label: null,
+    sheet: { key: "jobs", ...(match ?? {}) },
+  };
+  return a;
+}
+
+test("a cited sheet opens the deep dive with its match encoded, in the answer and the source card", () => {
+  const a = sheetAnswer({ match_col: "location", match: "San Francisco & Bay/Area" });
+  const { container } = view(a);
+  const href = "/accounts/holdings.example/jobs?match_col=location&match=San%20Francisco%20%26%20Bay%2FArea";
+  const inline = container.querySelector(".reply .md a.src-link");
+  expect(inline?.textContent).toBe("Open in the deep dive");
+  expect(inline?.getAttribute("href")).toBe(href);
+  // an in-app page: no new tab, no external rel
+  expect(inline?.getAttribute("target")).toBeNull();
+  const card = container.querySelector(".src-card a.link");
+  expect(card?.textContent).toBe("Open in the deep dive");
+  expect(card?.getAttribute("href")).toBe(href);
+  expect(container.querySelector(".src-card")?.textContent).toContain("Filtered: Location contains San Francisco & Bay/Area");
+});
+
+test("a cited sheet without a match opens the whole sheet; a sheet without an account has no link", () => {
+  const { container, unmount } = view(sheetAnswer(null));
+  expect(container.querySelector(".reply .md a.src-link")?.getAttribute("href")).toBe("/accounts/holdings.example/jobs");
+  unmount();
+  const orphan = sheetAnswer(null);
+  orphan.sources[0]!.account_domain = null;
+  const again = view(orphan);
+  expect(again.container.querySelector("a.src-link")).toBeNull();
+});
+
+test("a cited cell of the structured answer and the used panel open the same sheet", () => {
+  const a = sheetAnswer({ match_col: "location", match: "San Francisco" });
+  a.structured = {
+    headline: "12 openings [1]",
+    stats: [],
+    sections: [{ kind: "table", title: "Openings", columns: ["City", "Openings"], rows: [["San Francisco [1]", "12"]] }],
+  };
+  const { container } = view(a);
+  const href = "/accounts/holdings.example/jobs?match_col=location&match=San%20Francisco";
+  const links = [...container.querySelectorAll(".reply a.src-link")].map((l) => l.getAttribute("href"));
+  expect(links.length).toBeGreaterThanOrEqual(2); // the headline and the table cell
+  expect(new Set(links)).toEqual(new Set([href]));
+  cleanup();
+  const used = render(<UsedPanel answer={a} onOpenSource={() => undefined} />);
+  const link = used.getByRole("link", { name: /Open in the deep dive: source 1/ });
+  expect(link.getAttribute("href")).toBe(href);
+  expect(used.container.textContent).toContain("Job postings sheet");
 });

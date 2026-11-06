@@ -312,6 +312,7 @@ def check_people(tables: Mapping[str, RepairedTable]) -> list[CheckResult]:
         return [_skipped(n, "no People table") for n in names]
     valid = _name_validator()
     bad_names: list[str] = []
+    imported = {str(n) for n in (table.stats.get("imported_names") or ())}
     bad_news: list[str] = []
     bad_links: list[str] = []
     real = 0
@@ -321,6 +322,8 @@ def check_people(tables: Mapping[str, RepairedTable]) -> list[CheckResult]:
             continue
         real += 1
         if not valid(who):
+            if who in imported:
+                continue  # an uploaded workbook's name stands as the owner wrote it
             bad_names.append(f"row {r_no}: {who[:40]!r} is not a person name")
         if "news" in fold(_cell(row, "Found by")):
             bad_news.append(f"row {r_no}: found by {_cell(row, 'Found by')[:30]!r}")
@@ -640,6 +643,84 @@ def check_counts(
     return _result(name, bad, detail, compared=compared, skipped=len(notes))
 
 
+# ---- the workspace as a whole ----------------------------------------------------------------
+
+
+def check_entity_resolves(
+    profile: WorkspaceProfile, tables: Mapping[str, RepairedTable]
+) -> CheckResult:
+    """When the workspace holds postings, at least one must count as the account: every posting
+    tagged another entity means the account's domains do not cover its careers site (the UCB
+    bundle of 2026-11-04: 42 of 42 "Not the account", and every table behind them empty)."""
+    name = "entity_resolves_account"
+    table = _find(tables, "jobs")
+    if table is None:
+        return _skipped(name, "no Jobs table")
+    resolved = table.stats.get("resolved")
+    postings = (
+        list(resolved) if isinstance(resolved, Sequence) and not isinstance(resolved, str) else []
+    )
+    if not postings:
+        return _result(name, [], "no postings to resolve", postings=0)
+    counted = sum(1 for p in postings if getattr(p, "counts_as_account", False))
+    labels = Counter(
+        str(getattr(p, "entity", ""))
+        for p in postings
+        if not getattr(p, "counts_as_account", False)
+    )
+    problems = []
+    if counted == 0:
+        problems.append(
+            f"none of {len(postings)} postings counts as {profile.label}: "
+            + ", ".join(f"{k} ({v})" for k, v in labels.most_common(3))
+            + "; bind the careers site's domain to the account"
+        )
+    return _result(
+        name, problems, f"{counted} of {len(postings)} postings count as the account",
+        postings=len(postings), account=counted,
+    )  # fmt: skip
+
+
+# tables that must not come out empty when their input held records: (table, input records)
+_EMPTIED: tuple[tuple[str, str, str], ...] = (
+    ("jobs", "jobs", "postings"),
+    ("people", "people", "people"),
+    ("news", "articles", "articles"),
+    ("searches", "searches", "search calls"),
+    ("signals", "signal_seeds", "stored signals"),
+    ("tech", "tech", "technology records"),
+)
+
+
+def check_tables_not_emptied(tables: Mapping[str, RepairedTable], inp: RepairInput) -> CheckResult:
+    """A table whose input held records must keep at least one row: a table that drops every
+    record it was given hides a rule gone wrong behind a clean sheet."""
+    name = "tables_not_emptied"
+    problems: list[str] = []
+    numbers: dict[str, Any] = {}
+    for key, attr, label in _EMPTIED:
+        records = len(getattr(inp, attr, ()) or ())
+        table = _find(tables, key)
+        if table is None or records == 0:
+            continue
+        rows = [
+            r
+            for r in table.main.rows
+            if not str(r.get(table.main.columns[0], "")).startswith("Not collected")
+        ]
+        numbers[key] = f"{len(rows)}/{records}"
+        if not rows:
+            reasons = Counter(x.reason for x in table.exclusions)
+            problems.append(
+                f"{table.title}: {records} {label} in, 0 rows out ("
+                + "; ".join(f"{k}: {v}" for k, v in reasons.most_common(3))
+                + ")"
+            )
+    return _result(
+        name, problems, "every table with input kept rows", tables=len(numbers), **numbers
+    )
+
+
 # ---- the entry point --------------------------------------------------------------------------
 
 
@@ -661,6 +742,8 @@ def run_checks(
         ("tech", lambda: check_tech(tables)),
         ("sources", lambda: check_sources(tables, inp)),
         ("coverage_agrees_with_deliverables", lambda: check_coverage(tables, inp)),
+        ("entity_resolves_account", lambda: check_entity_resolves(profile, tables)),
+        ("tables_not_emptied", lambda: check_tables_not_emptied(tables, inp)),
         ("zip_contains_readme_paths", lambda: check_zip(tables, zip_bytes)),
         ("table_counts_match_deliverables", lambda: check_counts(profile, tables, inp)),
     ]

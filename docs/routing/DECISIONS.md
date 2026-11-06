@@ -1,5 +1,9 @@
 # Routing decisions (D-51)
 
+> **Superseded 2026-11-03 (ADR-0113).** `config/model_routing.yaml`, the D-48 Router and
+> `scripts/check_routing_governance.py` were removed; the one routing table is `src/llm/route.py`
+> over `config/models.yaml`. This file is kept as history.
+
 Every version of `config/model_routing.yaml` that reaches `main` is listed here with its sha256
 (`scripts/check_routing_governance.py` enforces it). A version backed by a benchmark names its
 report (`benchmark: benchmark-<id>`) and a human sign-off; a version without one is

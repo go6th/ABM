@@ -146,6 +146,7 @@ GRANT EXECUTE ON FUNCTION purge_candidates(text) TO account_purge_runner;
 -- Refuses a live account and an open research; one tenant and one account per call; dry run by
 -- default of the caller's choice; deletes only the tables of the plan, scrubs only the columns
 -- of the plan, never a ledger or audit row; EXECUTE for account_purge_runner only.
+-- reviewed: (comment only, 2026-11-03) the review above covers the SECURITY DEFINER line below.
 CREATE OR REPLACE FUNCTION purge_deleted_account(
    p_tenant uuid, p_account uuid, p_execute boolean,
    p_actor text DEFAULT 'operator:purge-account', p_allow_shared boolean DEFAULT false)

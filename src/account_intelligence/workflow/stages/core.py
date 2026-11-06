@@ -169,7 +169,7 @@ async def jobs_stage(deps: RunDeps, state: RunState) -> dict[str, Any]:
         ConnectorPostingSource(deps, careers_host),
         ConnectorPageReader(deps),
         LlmPostingClassifier(deps, "classify_posting", "posting_classifier.v1"),
-        LlmPostingClassifier(deps, "second_pass_posting", "posting_second_pass.v1"),
+        LlmPostingClassifier(deps, "second_pass_posting", "posting_second_pass.v2"),
         canary=deps.canary,
         hostile_markers=tuple(gcfg.spans.instruction_markers),
         is_hostile=hostile,

@@ -166,3 +166,62 @@ any paid run. The research-side checks use the stored rows of past runs and the 
 D1 decided by the owner (2026-11-05 night): provider payloads and build scripts stay out of the
 research zip (D-25 stands). Still open: U3 (re-upload the UCB zip on staging), `pass1_phase2.md`
 (no stored source), and the deploy.
+
+## 7. Later packages that differ a little (2026-11-05, night)
+
+The owner's rule: any later workspace zip is "90 to 95 percent the same, a little up and down",
+and the upload must store it as properly as the original. Probe: the real UCB zip changed six
+ways (`tests/documents/workspace_variants.py`) and uploaded on a scratch database
+(`tests/documents/test_workspace_variants_real_zip.py`, by hand; the synthetic form
+`test_workspace_variants_db.py` runs in the suite).
+
+| Variant | Before the change | After |
+| --- | --- | --- |
+| original | SAME | SAME |
+| renamed files (`UCB People List.xlsx`, `Deliverables/`, another top folder) | files not registered; Word tables read as rows: people 1,670 / 1,620, postings 168 / 104 | SAME |
+| no marker (no RESTORE.md, renamed files) | not a workspace: nothing registered, 0 people, 0 postings; long numbers masked as card numbers | SAME |
+| flat (the five files at the zip root) | same as no marker | SAME |
+| changed columns (`Full Name`, `Job Title`, `Seniority level`, `LinkedIn URL`, `Req ID`, `Platforms`, `Posting URL`, new columns, renamed sheets, a new sheet) | rows and tables SAME, but Job Title, Seniority level and Platforms were not read into the rows | SAME |
+| mixed (all of it) | like no marker | SAME |
+
+Built:
+
+- `documents/workspace.py`: `deliverable_role` knows a deliverable by the words of its name as
+  well as the exact suffix; the deliverables folder in any case; a zip with deliverables of two
+  kinds side by side is a workspace even without a marker or folders; a Word file named in no
+  known way is stored but never read as rows.
+- `documents/deliverables.py`: a field column is also found by its words ("Job Title" for
+  title, "Seniority level" for level) with at most one extra word, never for the key or the
+  columns that decide a sheet's kind; aliases `platforms`, `position`, `designation`, `job level`.
+- `documents/workspace_import.py`: `sniff_kind` registers a workbook named in no known way by
+  its sheets; `safe_filename` registers a name with spaces or `&` in the form the
+  `deliverables.filename` check accepts, the uploaded name kept as `original_name` in the
+  manifest; Download everything ships the file under its uploaded name.
+- `documents/exact_copy.column_lines` + `Logs/import_report.md` "Sheets and columns": per sheet
+  what it was read as, the columns read under another name, and the columns kept as written
+  only (a new column is always kept in the file and in Tables/; it is only not part of the
+  searchable rows).
+- Tests: `tests/documents/test_workspace_tolerance.py` (pure), `test_workspace_variants_db.py`
+  (6 variants, synthetic, green).
+
+Real-zip result after the change: all six variants SAME (tables 33 or 34 of 33 or 34 cell for
+cell, five files registered by kind, people 1,620 = 1,620, postings 104 = 104). Documents and
+replica suites: 867 passed, 8 skipped (the hand-run real-zip checks).
+
+## 8. Hardening (2026-11-05, late)
+
+Two weak spots found by probing the rules of section 7, both fixed with tests in
+`tests/documents/test_workspace_tolerance.py`:
+
+- **Two files of one kind** ("UCB People List old.xlsx" beside "UCB_People_List.xlsx"): the
+  first in zip order became the account's file, so an old copy could win.
+  `workspace_import.choose_files` now decides the same way whatever the order: a name marking an
+  old or spare copy ("old", "backup", "copy", "draft", "previous", "archive") last, then the
+  product's exact name, then a name in words, then a file known only by its sheets; then the
+  shallower path, then the name. The files not used are logged
+  (`documents.import_duplicate_kind`) and stay in the upload and its table store.
+- **A name that disagrees with the contents** (a people list named "Teams"): the workbook's
+  sheets decide (`sniff_kind`); a Word file's name decides.
+- **One column read as two things**: `deliverables.field_columns` lets the name key and every
+  field matched by its own name claim their columns first; the word match only fills the fields
+  still open from the columns nobody claimed. Original headers map exactly as before.

@@ -99,6 +99,11 @@ def fuzz_app() -> Any:
     plane = make_app()
     tenant = new_tenant("fuzz")
     add_member(tenant, "fuzz-admin", "admin")  # the membership re-check must pass
+    # the flag-gated routes (api/flags.py) reach their handlers, not the flag's 404
+    from tests.conftest import ADMIN_DSN
+    from tests.fakes.flags import enable_flags
+
+    enable_flags(ADMIN_DSN, [tenant])
 
     async def admin() -> Identity:
         # a fresh MFA step-up on every call, so step-up (settings, users, caps) never hides a
@@ -190,9 +195,11 @@ def test_no_operation_fails_with_a_server_error(fuzz_app: Any) -> None:
         loop.run_until_complete(engine.dispose())
         loop.close()
         db._BOUND[:] = previous
-    # the fuzz reached handlers, not only the validators: some answers succeed
+    # the fuzz reached handlers, not only the validators: some answers succeed. The staff plane
+    # is unconfigured here (503 for every caller), so only the tenant operations can succeed
+    tenant_ops = [op for op in ops if not op[1].startswith("/operator/")]
     assert len(SEEN) >= len(ops) * 5, len(SEEN)
-    assert sum(1 for c in SEEN if c < 300) >= len(ops) // 4, sorted(set(SEEN))
+    assert sum(1 for c in SEEN if c < 300) >= len(tenant_ops) // 4, sorted(set(SEEN))
 
 
 def test_non_standard_json_is_a_422_problem_not_a_500(fuzz_app: Any) -> None:

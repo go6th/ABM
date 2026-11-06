@@ -9,7 +9,11 @@ from account_intelligence.api.routes.ask import _done_frame
 
 def test_the_done_frame_carries_what_the_answer_used() -> None:
     usage = SimpleNamespace(
-        input_tokens=1200, output_tokens=300, cache_read_tokens=40000, cache_write_tokens=0
+        input_tokens=1200,
+        output_tokens=300,
+        cache_read_tokens=40000,
+        cache_write_tokens=0,
+        context_tokens=30000,
     )
     frame = _done_frame("turn-1", "test-model-a", usage, Decimal("0.0200"))
     assert frame == {
@@ -20,8 +24,11 @@ def test_the_done_frame_carries_what_the_answer_used() -> None:
         "output_tokens": 300,
         "cache_read_tokens": 40000,
         "cache_write_tokens": 0,
+        # the last round's prompt, which the context meter shows (the counts above add rounds)
+        "context_tokens": 30000,
         "cost_usd": "0.0200",
     }
     # a workspace answer (no model call) reports zero tokens and its cost
     local = _done_frame("turn-2", "local", None, Decimal("0"))
     assert local["input_tokens"] == 0 and local["output_tokens"] == 0 and local["cost_usd"] == "0"
+    assert local["context_tokens"] == 0

@@ -146,6 +146,33 @@ async def test_the_slice_ceiling_still_refunds_a_run_that_holds_nothing(monkeypa
 
 
 @pytest.mark.asyncio
+async def test_a_run_without_an_independent_judge_fails_at_its_start_with_a_full_refund(
+    monkeypatch,  # type: ignore[no-untyped-def]
+) -> None:
+    """G12 (ADR-0118): no Claude model other than the generator's ends the run FAILED with a
+    full refund before the graph runs (no paid call), through the runner's one stop path; it
+    used to run on and cap every claim at Probable with no error."""
+    from llm.route import JudgeNotIndependent
+
+    ended = _ceiling_deps(monkeypatch, used=1, waits=0, usable=False)
+    deps = _ceiling_run_deps()
+
+    def refuse() -> None:
+        raise JudgeNotIndependent("no Claude model other than the generator's is configured")
+
+    deps.ensure_independent_judge = refuse  # type: ignore[attr-defined]
+    outcome = await runner._begin(deps, runner.SliceSettings(max_slices=8), 0)
+    assert outcome == runner.SliceOutcome("done", "FAILED")
+    assert ended[0]["target"] is RunStatus.FAILED and ended[0]["refund_all"] is True
+    assert ended[0]["reason"] == "judge_not_independent"
+    # an independent judge lets the slice run the graph
+    ended.clear()
+    deps.ensure_independent_judge = lambda: None  # type: ignore[attr-defined]
+    assert await runner._begin(deps, runner.SliceSettings(max_slices=8), 0) is None
+    assert ended == []
+
+
+@pytest.mark.asyncio
 async def test_slices_spent_waiting_for_a_person_do_not_count_toward_the_ceiling(
     monkeypatch,
 ) -> None:  # type: ignore[no-untyped-def]

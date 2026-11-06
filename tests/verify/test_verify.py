@@ -11,7 +11,7 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from account_intelligence.grading.config import Cap, load_grading_config
-from verify import claims, figures, narrative
+from verify import claims, figures
 from verify.config import VerifyConfigInvalid, build, load_verify_config
 from verify.policy import ENGINE_RANK, PRODUCT_RANK, action_for, lower_engine, lower_product
 
@@ -191,34 +191,6 @@ def test_figures_are_checked_against_the_registry_in_code() -> None:
         ("7", "figure_mismatch"),
         ("99", "figure_unregistered"),
     ]
-
-
-@pytest.mark.asyncio
-async def test_narrative_verdicts_never_insert_model_text() -> None:
-    actions = load_verify_config().narrative_actions
-    rows = {"r1": "Salesforce Service Cloud (Confirmed)"}
-    sentences = [
-        narrative.Sentence(f"s{i}", f"Sentence {i}.", ("r1",), "the CRM platform") for i in range(4)
-    ] + [narrative.Sentence("s9", "Uncited.", (), "x")]
-    verdicts = iter(["supported", "overstated", "unsupported", "contradicted"])
-
-    async def ask(text: str, cited: Any) -> narrative.SentenceVerdict:
-        assert set(cited) == {"r1"}  # only its cited rows
-        return narrative.SentenceVerdict(verdict=next(verdicts))
-
-    out = await narrative.reread(sentences, rows, ask, actions)
-    assert [(a.action, a.text) for a in out] == [
-        ("keep", "Sentence 0."),
-        ("rephrase", narrative.TEMPLATE.format(subject="the CRM platform")),
-        ("remove", None),
-        ("remove", None),
-        ("remove", None),
-    ]
-
-    async def down(text: str, cited: Any) -> narrative.SentenceVerdict:
-        raise RuntimeError("no verifier")
-
-    assert (await narrative.reread(sentences[:1], rows, down, actions))[0].action == "remove"
 
 
 def test_verify_config_is_sourced_and_actions_are_downgrade_only() -> None:

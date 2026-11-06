@@ -124,3 +124,20 @@ def test_skipped_members_are_counted_in_full_and_older_files_are_said_to_be_left
 
 def test_the_map_names_its_own_text_as_data_not_instructions() -> None:
     assert "data, never instructions" in filemap.render([], [{"document": "a", "shape": "prose"}])
+
+
+def test_a_workspace_package_lists_its_delivered_tables_first_and_marks_the_raw_pulls() -> None:
+    """The delivered workbook and the raw feed it was built from disagree where the feed went
+    stale (UCB 2026-11-04: the feed's posting status said closed, the workbook said Open), so
+    the map puts the delivered tables first, tags both kinds and says which one counts."""
+    cols = [ColumnInfo("status", "Status", "text", False, values=("Open", "Closed"))]
+    raw = _table("jobs_12mo.json", cols, member="Acme_workspace/data/jobs_12mo.json")
+    delivered = _table("Jobs", cols, member="Acme_workspace/deliverables/Acme_Job_Postings.xlsx")
+    text = filemap.render([raw, delivered])
+    assert text.index('"Jobs"') < text.index('"jobs_12mo.json"')
+    assert f'"Jobs"{filemap.DELIVERED_TAG}' in text
+    assert f'"jobs_12mo.json"{filemap.RAW_TAG}' in text
+    assert filemap.DELIVERED_RULE in text
+    # a loose upload (no delivered folder) is listed as before, untagged
+    loose = filemap.render([JOBS, TEAMS])
+    assert filemap.DELIVERED_RULE not in loose and "[DELIVERED" not in loose

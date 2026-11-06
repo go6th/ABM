@@ -129,14 +129,19 @@ async def test_a_client_run_takes_the_tenant_settings(plane: Plane, browser: Bro
     refused = await browser.call(
         "POST",
         "/v1/runs",
-        json={"domain": "eu.partner.example"},
+        json={"domain": "eu.partner.example", "confirm": True, "confirm_again": True},
         headers={"Idempotency-Key": uuid4().hex},
     )
     assert refused.status_code == 409 and "excluded_company" in refused.text
     started = await browser.call(
         "POST",
         "/v1/runs",
-        json={"domain": "acme-ws5.example", "pursuing_client": True},
+        json={
+            "domain": "acme-ws5.example",
+            "pursuing_client": True,
+            "confirm": True,
+            "confirm_again": True,
+        },
         headers={"Idempotency-Key": uuid4().hex},
     )
     assert started.status_code == 202, started.text
@@ -179,7 +184,7 @@ async def test_an_account_is_deleted_only_with_its_domain_typed_back_and_comes_b
     started = await browser.call(
         "POST",
         "/v1/runs",
-        json={"domain": "gone-ws5.example"},
+        json={"domain": "gone-ws5.example", "confirm": True, "confirm_again": True},
         headers={"Idempotency-Key": uuid4().hex},
     )
     assert started.status_code == 202, started.text
@@ -230,7 +235,7 @@ async def test_polling_with_etag_and_a_bounded_event_stream(
     started = await browser.call(
         "POST",
         "/v1/runs",
-        json={"domain": "acme-sse.example"},
+        json={"domain": "acme-sse.example", "confirm": True, "confirm_again": True},
         headers={"Idempotency-Key": uuid4().hex},
     )
     run = started.json()["run_id"]

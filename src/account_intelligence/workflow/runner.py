@@ -8,7 +8,9 @@ One slice:
 1. a terminal run returns at once; an AWAITING_APPROVAL run waits; QUEUED moves to RUNNING; a run
    past ``max_slices`` (plus one per wait for a person: those slices are not research time) ends
    PARTIAL ``slice_ceiling`` with everything it found when it holds anything usable, FAILED with
-   a full refund when it holds nothing (the rule of every other early stop);
+   a full refund when it holds nothing (the rule of every other early stop); a run whose judge
+   would share the extractor's model (``JudgeNotIndependent``, G12) ends the same way before the
+   graph runs, so at its start: FAILED with a full refund, no paid call (ADR-0118);
 2. the graph runs under ``asyncio.timeout(slice_seconds)``; between supersteps the run status is
    re-read and a CANCELED run stops cleanly (its settlement was made by the cancel path);
 3. an approval interrupt moves the run to AWAITING_APPROVAL and arms the 24 hour timeout task
@@ -228,6 +230,14 @@ async def _begin(
             f" (the limit is {settings.max_slices}) and the research was not finished",
             {"slices": used},
         )
+    from llm.route import JudgeNotIndependent
+
+    try:
+        # G12 before the graph (and any paid call) runs: a run whose judge would share the
+        # extractor's model ends FAILED with a full refund, never with silently capped claims
+        deps.ensure_independent_judge()
+    except JudgeNotIndependent as refused:
+        return await _end_stopped(deps, "judge_not_independent", str(refused), {"slices": used})
     return None
 
 
@@ -450,6 +460,17 @@ async def _slice(
                 graph = await graph_factory.build(deps, saver)
                 first: dict[str, Any] = await graph_factory.initial(deps)
             else:
+                if slice_no == 0:
+                    # Workflow v1 is deprecated (ADR-0135): only a ``full`` company run of a
+                    # client whose explicit abm_agents rule leaves it off, or a direct caller
+                    # with no graph factory, still reaches it; removal is the release after next
+                    _log.warning(
+                        "workflow_v1.deprecated",
+                        extra={
+                            "graph_version": str(deps.spec.version)[:40],
+                            "reason": "abm_agents_off",
+                        },
+                    )
                 graph, first = _workflow_graph(
                     deps, saver, retry_policy, on_enter, tenant_id, run_id
                 )
@@ -484,6 +505,16 @@ async def _slice(
                 # failure: the slice ends like a timeout and the next one re-runs the node
                 snap = await graph.aget_state(config)
                 waited = (deps.clock.now() - started).total_seconds()
+                if isinstance(stopped, SlotUnavailable):
+                    # which provider had no slot, and for how long its caller waited
+                    _log.info(
+                        "slice.slot_unavailable",
+                        extra={
+                            "provider_code": stopped.provider_code,
+                            "waited_s": round(stopped.waited_s),
+                            "stage": _stage(snap),
+                        },
+                    )
                 return await _timed_out(
                     deps,
                     slice_no,

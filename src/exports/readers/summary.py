@@ -232,6 +232,10 @@ def _cited_texts(
         if f:
             texts.append(f.value_text)
             texts.extend(e.supporting_sentence for e in by_fact.get(fid, []))
+            if f.event_date:
+                # the date the finding happened is part of the cited row (the signal tables
+                # print it), so its year, month and day are figures the block may use
+                texts.append(f.event_date)
     codes = set(s.codes)
     for f in facts.values():
         for e in by_fact.get(f.id, []):
@@ -239,6 +243,8 @@ def _cited_texts(
             if code in codes:
                 texts.append(e.supporting_sentence)
                 texts.append(f.value_text)
+                if f.event_date:
+                    texts.append(f.event_date)
     return texts
 
 

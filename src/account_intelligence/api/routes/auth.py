@@ -31,7 +31,8 @@ from account_intelligence.api.guard import authorize
 from account_intelligence.api.policy import ANONYMOUS, register, tenant_route
 from account_intelligence.api.problem import DependencyUnavailable
 from account_intelligence.api.tenant_plane import plane_of
-from account_intelligence.db.session import tenant_txn, untenanted_session
+from account_intelligence.db.session import tenant_txn
+from account_intelligence.db.system_scope import untenanted_session
 from account_intelligence.platform.ports import NotConfigured
 from identity import local_password, membership, rate_limit, sessions
 from identity.local_password import PasswordRejected

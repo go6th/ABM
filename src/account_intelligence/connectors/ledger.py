@@ -4,9 +4,15 @@ Guarantees (ADR-0006; proven by tests/connectors/test_ledger_*.py):
 
 * **Pull once.** A key ``(run_id, args_hash)`` with a ``tool_calls`` row is replayed
   from storage; the provider is not called again.
-* **One worker per run.** Every claim upserts the run lease in the same transaction;
-  a different live owner gets ``LeaseUnavailable``. The lease row lock serialises all
-  ledger transactions of a run.
+* **One worker per run.** Every claim locks the run lease row in the same transaction and
+  checks this worker holds it; a different live owner gets ``LeaseUnavailable``. The lease
+  row lock serialises all ledger transactions of a run. A claim does NOT renew the lease
+  (ADR-0131): the runner's heartbeat (``workflow.runner._drive``, every ``lease_heartbeat_s``)
+  renews it on its own short transaction, so a fan-out of paid calls writes no lease row; only a
+  lease that is not this worker's live lease (none yet, expired, taken) goes through the upsert.
+* **Bounded claims per worker.** At most ``max_in_flight_claims`` claim transactions of one
+  worker instance are open at once (``config/parallel.yaml`` ``worker``), so a fan-out cannot
+  hold more database connections and row locks than the database's cores can serve.
 * **Identical concurrent calls pay once.** The first claim writes a ``started`` event
   before the provider is called; an identical claim by the same owner sees it and
   waits for the result (bounded), then replays.
@@ -36,8 +42,10 @@ provider's response and the ``done`` write repeats that one call (flagged).
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
+import weakref
 from collections.abc import Awaitable, Callable, Sequence
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
@@ -203,8 +211,15 @@ class Ledger:
         in_flight_stale_s: float = 900.0,
         lease_stale_after_s: float | None = None,
         payload_exists: Callable[[str], Awaitable[bool]] | None = None,
+        max_in_flight_claims: int | None = None,
     ) -> None:
         self._payload_exists = payload_exists
+        # claim transactions open at once in this worker instance (None: unbounded); one
+        # semaphore per event loop (an asyncio primitive is bound to the loop that first waits on
+        # it: rel-087cbe6)
+        self.max_in_flight_claims = max_in_flight_claims
+        self._claim_gates: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Semaphore]
+        self._claim_gates = weakref.WeakKeyDictionary()
         self._txn = txn
         self._clock = clock
         self.lease_ttl_s = lease_ttl_s
@@ -263,6 +278,37 @@ class Ledger:
             raise LeaseUnavailable()
         return int(row.epoch)
 
+    async def _held_lease(self, s: AsyncSession, run_id: UUID, owner: str) -> int:
+        """The run mutex and this worker's lease epoch, WITHOUT renewing the lease (ADR-0131).
+
+        The lease row is locked (``FOR UPDATE``: the mutex every ledger transaction of the run
+        takes) and read. When it is this owner's and live, its epoch is returned and nothing is
+        written: the heartbeat renews it. Any other case (no lease yet, expired, another owner)
+        goes through ``_upsert_lease`` exactly as a claim always did, so a lease another live
+        worker holds still raises ``LeaseUnavailable`` (the slice stops) and a stale one may be
+        taken."""
+        row = (
+            await s.execute(
+                text(
+                    "SELECT owner, epoch, expires_at FROM run_leases WHERE run_id = :r FOR UPDATE"
+                ),
+                {"r": run_id},
+            )
+        ).first()
+        if row is not None and row.owner == owner and row.expires_at > self._clock.now():
+            return int(row.epoch)
+        return await self._upsert_lease(s, run_id, owner)
+
+    def _claim_gate(self) -> asyncio.Semaphore | None:
+        """This loop's bound on open claim transactions (None when unbounded)."""
+        if self.max_in_flight_claims is None:
+            return None
+        loop = asyncio.get_running_loop()
+        gate = self._claim_gates.get(loop)
+        if gate is None:
+            gate = self._claim_gates[loop] = asyncio.Semaphore(self.max_in_flight_claims)
+        return gate
+
     async def acquire_lease(self, ctx: CallContext, owner: str) -> int:
         """Take or renew the run lease; ``LeaseUnavailable`` while another owner holds it."""
         async with self._txn(ctx.tenant_id) as s:
@@ -290,9 +336,25 @@ class Ledger:
     ) -> ClaimResult:
         """Replay a done call, wait for one in flight, or claim a new attempt and reserve. A new
         paid attempt first passes the credit cap gate (``spend.gate.decide``) in this same
-        transaction; a replay never does (it costs nothing)."""
+        transaction; a replay never does (it costs nothing). At most ``max_in_flight_claims``
+        claims of this worker run at once."""
+        gate = self._claim_gate()
+        if gate is None:
+            return await self._claim(ctx, owner, key, estimate_usd, charge_budget, cost_known)
+        async with gate:
+            return await self._claim(ctx, owner, key, estimate_usd, charge_budget, cost_known)
+
+    async def _claim(
+        self,
+        ctx: CallContext,
+        owner: str,
+        key: CallKey,
+        estimate_usd: float,
+        charge_budget: bool,
+        cost_known: bool,
+    ) -> ClaimResult:
         async with self._txn(ctx.tenant_id) as s:
-            epoch = await self._upsert_lease(s, ctx.run_id, owner)  # also the run mutex
+            epoch = await self._held_lease(s, ctx.run_id, owner)  # also the run mutex
             done = (
                 await s.execute(
                     text(
@@ -511,7 +573,7 @@ class Ledger:
         if ctx.resume_from is None and (self.cache is None or not ctx.reuse_cached):
             return False
         async with self._txn(ctx.tenant_id) as s:
-            await self._upsert_lease(s, ctx.run_id, owner)
+            await self._held_lease(s, ctx.run_id, owner)
             attempts = (
                 await s.execute(
                     text(
@@ -901,6 +963,36 @@ async def record_document_read(
     return ref
 
 
+async def record_prepulled_search(
+    s: Any,
+    tenant_id: UUID,
+    run_id: UUID,
+    args_hash_: str,
+    response: dict[str, Any],
+    now: datetime,
+) -> int:
+    """A zero-cost ledger row for one web search a workspace import read from the owner's
+    pre-pulled files (tool ``p_search:web_search``, cost source ``prepulled``). Idempotent per
+    run and arguments. Returns the rows written (0 when it was written before)."""
+    res = await s.execute(
+        text(
+            "INSERT INTO tool_calls (tenant_id, run_id, tool, args_hash, response, cost_usd,"
+            " provider_code, operation, cost_source, created_at)"
+            " VALUES (:t, :r, 'p_search:web_search', :h, CAST(:resp AS jsonb), 0,"
+            " 'p_search', 'web_search', 'prepulled', :now)"
+            " ON CONFLICT (run_id, args_hash) DO NOTHING"
+        ),
+        {
+            "t": tenant_id,
+            "r": run_id,
+            "h": args_hash_,
+            "resp": json.dumps(response, sort_keys=True),
+            "now": now,
+        },
+    )
+    return int(res.rowcount or 0)
+
+
 _RESUME_ONLY: list[ResearchCache] = []
 
 
@@ -929,4 +1021,5 @@ __all__ = [
     "args_hash",
     "canonical_json",
     "record_document_read",
+    "record_prepulled_search",
 ]

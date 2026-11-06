@@ -49,7 +49,10 @@ async def test_a_deleted_account_is_hidden_from_every_reader_and_comes_back_on_a
     for d in (DOMAIN, KEPT):
         assert (await browser.call("POST", "/v1/accounts", json={"domain": d})).status_code == 201
     started = await browser.call(
-        "POST", "/v1/runs", json={"domain": DOMAIN}, headers={"Idempotency-Key": uuid4().hex}
+        "POST",
+        "/v1/runs",
+        json={"domain": DOMAIN, "confirm": True, "confirm_again": True},
+        headers={"Idempotency-Key": uuid4().hex},
     )
     assert started.status_code == 202, started.text
     run_id = started.json()["run_id"]

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 from uuid import UUID
@@ -41,9 +42,24 @@ def checklist_version(path: Path | None = None) -> str:
 
 
 def model_versions(path: Path | None = None) -> dict[str, str]:
-    """Profile -> model id."""
-    doc = yaml.safe_load((path or CONFIG_DIR / "models.yaml").read_text())
-    return {str(k): str(v["model"]) for k, v in sorted(doc["profiles"].items())}
+    """Profile -> model id. Parsed once per file state (modification time and size) with the C
+    YAML loader: every run creation parsed the whole models.yaml in pure Python on the event
+    loop (2026-11-04)."""
+    target = path or CONFIG_DIR / "models.yaml"
+    try:
+        stat = target.stat()
+        stamp = (stat.st_mtime_ns, stat.st_size)
+    except OSError:
+        stamp = (0, 0)
+    return dict(_model_versions(target, stamp))
+
+
+@lru_cache(maxsize=8)
+def _model_versions(path: Path, stamp: tuple[int, int]) -> tuple[tuple[str, str], ...]:
+    del stamp  # part of the cache key only
+    loader = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+    doc = yaml.load(path.read_text(), Loader=loader)  # noqa: S506 - the safe loader, in C
+    return tuple((str(k), str(v["model"])) for k, v in sorted(doc["profiles"].items()))
 
 
 async def of_run(s: Any, run_id: UUID) -> Pins:

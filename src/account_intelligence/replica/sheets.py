@@ -1,6 +1,8 @@
 """The deep-dive tables of an account, as spreadsheet sheets: People, Signals, Job postings,
-Tech stack and teams, News, From your mail and drive, Sources and Coverage (the 33-item research
-tracker of the latest finished run, with each item's status and reason).
+Tech stack and teams, News, From your mail and drive, Sources, Web searches, Uploaded files,
+Platform teams, Connections, Findings, Calls made, Notes and Coverage (the 33-item research
+tracker of the latest finished run, with each item's status and reason). An imported workspace
+fills the last six from its own files (``documents.workspace_import``).
 
 Each sheet is a fixed definition: a base query over the account's rows, its columns (each with an
 allow-listed sort expression), and its filter chips (each a fixed SQL predicate with a live
@@ -25,11 +27,13 @@ from uuid import UUID
 
 from sqlalchemy import text
 
+from account_intelligence.db.session import session_tenant
 from account_intelligence.replica.answers import LANE_LABEL, day_month
 from account_intelligence.replica.current import NEWEST_DETECTION, NEWEST_PERSON, NEWEST_POSTING
 from account_intelligence.replica.source_label import source_link
 from account_intelligence.replica.workspace import FACT_CLASS, relative
 from exports.policy import leak_hits
+from people.config import internal_people_sql
 
 GRADE_LABEL = {
     "confirmed": "Confirmed",
@@ -47,7 +51,9 @@ GRADE_ORDER = (
 class Col:
     """One column: its key in the row, its heading, its sort expression and how it is shown.
     ``link_text`` is what a link column of a file-shaped sheet shows in place of the address
-    (the People List's "Open profile"); the address goes in the row's ``links``."""
+    (the People List's "Open profile"); the address goes in the row's ``links``. ``match``: a
+    link may open the sheet narrowed to the rows whose cell in this column contains a text
+    (``Query.match``; an Ask citation opens the rows it counted)."""
 
     key: str
     label: str
@@ -55,6 +61,7 @@ class Col:
     # text, strong, grade, priority, status, date, ago, link, num, url, code, long
     kind: str = "text"
     link_text: str | None = None
+    match: bool = False
 
 
 @dataclass(frozen=True)
@@ -100,9 +107,51 @@ def _fact_rows(category: str, columns: str) -> str:
     finds as graded facts; see ``workspace.FACT_CLASS``), with each fact's latest evidence."""
     return (
         f"SELECT f.id AS _id, {columns} FROM facts f LEFT JOIN LATERAL (SELECT url, evidence_date"
-        " FROM fact_evidence x WHERE x.fact_id = f.id ORDER BY evidence_date DESC NULLS LAST"
-        f" LIMIT 1) e ON true WHERE {FACT_CLASS[category]}"
+        " FROM fact_evidence x WHERE x.tenant_id = f.tenant_id AND x.fact_id = f.id"
+        f" ORDER BY evidence_date DESC NULLS LAST LIMIT 1) e ON true WHERE {FACT_CLASS[category]}"
     )
+
+
+def _sql_case(expr: str, mapping: Mapping[str, str], otherwise: str) -> str:
+    """``CASE expr WHEN 'k' THEN 'label' ... ELSE otherwise END`` with the labels quoted."""
+    arms = " ".join(
+        f"WHEN '{k}' THEN '{v.replace(chr(39), chr(39) * 2)}'" for k, v in mapping.items()
+    )
+    return f"CASE {expr} {arms} ELSE {otherwise} END"
+
+
+def _member_cases() -> tuple[str, str]:
+    """The role and reason labels of the Uploaded files sheet, as SQL."""
+    from documents.service import PART_MESSAGES, SKIP_CHECKS
+    from documents.workspace import ROLE_LABELS
+
+    role = _sql_case("m.role", {str(k): v for k, v in ROLE_LABELS.items()}, "m.role")
+    skipped = _sql_case("m.failure", SKIP_CHECKS, "m.failure")
+    failed = _sql_case("m.failure", PART_MESSAGES, "m.failure")
+    reason = f"CASE m.status WHEN 'skipped' THEN {skipped} WHEN 'failed' THEN {failed} ELSE '' END"
+    return role, reason
+
+
+_ROLE_CASE, _REASON_CASE = _member_cases()
+
+# which import part a package file feeds (documents.import_status.PARTS), and what the Uploaded
+# files sheet shows for it: the part's status, with the count when rows were not imported
+_PART_CASE = (
+    "CASE m.role WHEN 'deliverable_jobs' THEN 'jobs' WHEN 'deliverable_people' THEN 'people'"
+    " WHEN 'deliverable_tech' THEN 'tech'"
+    " WHEN 'deliverable_summary' THEN 'docx' WHEN 'deliverable_evidence' THEN 'docx'"
+    " WHEN 'raw_pull' THEN 'raw' WHEN 'captured_page' THEN 'raw' WHEN 'note' THEN 'raw' END"
+)
+_IMPORT_CASE = (
+    # an import that failed as a whole (before any part ran) shows on every file that feeds one
+    f"CASE WHEN ip.status IS NULL THEN CASE WHEN ir.status = 'failed' AND {_PART_CASE} IS NOT NULL"
+    " THEN 'failed' ELSE '' END"
+    " WHEN ip.status = 'skipped' AND ip.rows_skipped > 0"
+    " THEN 'skipped (' || ip.rows_skipped || ' rows)'"
+    " WHEN ip.status = 'ok' AND ip.rows_skipped > 0"
+    " THEN 'ok (' || ip.rows_skipped || ' rows not imported)'"
+    " ELSE ip.status END"
+)
 
 
 SHEETS: dict[str, Sheet] = {
@@ -117,12 +166,14 @@ SHEETS: dict[str, Sheet] = {
             " priority,"
             " coalesce(p.classification_json->>'grade', '') AS grade, p.created_at AS seen,"
             " p.profile_url AS link, p.profile_url AS profile,"
-            " (p.run_id IS DISTINCT FROM (SELECT r.id FROM account_runs r WHERE r.account_id ="
-            " p.account_id"
+            " (p.run_id IS DISTINCT FROM (SELECT r.id FROM account_runs r WHERE r.tenant_id ="
+            " p.tenant_id AND r.account_id = p.account_id"
             "   AND r.status IN ('COMPLETED', 'PARTIAL') ORDER BY r.finished_at LIMIT 1)) AS"
             " later_run"
-            " FROM people p WHERE p.account_id = :a AND NOT p.excluded AND p.merged_into IS NULL"
-            " AND p.erased_at IS NULL AND NOT coalesce(p.internal_only, false)"
+            " FROM people p WHERE p.tenant_id = :t AND p.account_id = :a AND NOT p.excluded AND"
+            " p.merged_into IS NULL"
+            " AND p.erased_at IS NULL AND "
+            + internal_people_sql()
             + NEWEST_PERSON
             + " UNION ALL "
             + _fact_rows(
@@ -141,10 +192,12 @@ SHEETS: dict[str, Sheet] = {
                 # any evidence of the fact that is the person's own profile page, not only the
                 # newest (a fact quoted from a release and from the profile lost the profile
                 # when the release was dated later; link archive 2026-10-27)
-                "   (SELECT x.url FROM fact_evidence x WHERE x.fact_id = f.id"
+                "   (SELECT x.url FROM fact_evidence x WHERE x.tenant_id = f.tenant_id AND"
+                " x.fact_id = f.id"
                 "     AND x.url ~* '^https?://([a-z]+[.])?linkedin[.]com/(in|pub)/'"
                 "     ORDER BY x.evidence_date DESC NULLS LAST, x.id LIMIT 1),"
-                "   (SELECT p2.profile_url FROM people p2 WHERE p2.account_id = f.account_id"
+                "   (SELECT p2.profile_url FROM people p2 WHERE p2.tenant_id = f.tenant_id AND"
+                " p2.account_id = f.account_id"
                 "     AND p2.profile_url IS NOT NULL AND NOT p2.excluded AND p2.merged_into IS NULL"
                 "     AND p2.erased_at IS NULL AND lower(p2.name) = lower(trim(split_part("
                 "       coalesce(f.value_text, f.value_json->>'text', ''), ',', 1)))"
@@ -153,10 +206,10 @@ SHEETS: dict[str, Sheet] = {
             )
         ),
         cols=(
-            Col("name", "Name", "s.name", "strong"),
-            Col("title", "Title as reported", "s.title"),
-            Col("area", "Area", "s.area"),
-            Col("priority", "Priority", "s.priority", "priority"),
+            Col("name", "Name", "s.name", "strong", match=True),
+            Col("title", "Title as reported", "s.title", match=True),
+            Col("area", "Area", "s.area", match=True),
+            Col("priority", "Priority", "s.priority", "priority", match=True),
             Col("profile", "LinkedIn", None, "url", link_text="Open profile"),
             Col("grade", "Fact grade", GRADE_ORDER.format("s.grade"), "grade"),
             Col("seen", "Last seen", "s.seen", "ago"),
@@ -179,15 +232,31 @@ SHEETS: dict[str, Sheet] = {
         base=(
             "SELECT s.id AS _id, s.title, initcap(s.signal_type) AS type, s.grade, s.detected_at"
             " AS detected,"
-            " (SELECT e.url FROM fact_evidence e WHERE e.fact_id = s.fact_id LIMIT 1) AS link,"
+            " (SELECT e.url FROM fact_evidence e WHERE e.tenant_id = s.tenant_id AND e.fact_id ="
+            " s.fact_id"
+            " LIMIT 1) AS link,"
             " (s.detected_at > coalesce((SELECT r.finished_at FROM account_runs r WHERE"
-            " r.account_id = s.account_id"
+            " r.tenant_id = s.tenant_id AND r.account_id = s.account_id"
             "   AND r.status IN ('COMPLETED', 'PARTIAL') ORDER BY r.finished_at DESC OFFSET 1"
             " LIMIT 1),"
             "   'infinity'::timestamptz)) AS is_new,"
-            " coalesce((SELECT f.visibility = 'private' FROM facts f WHERE f.id = s.fact_id),"
+            " coalesce((SELECT f.visibility = 'private' FROM facts f WHERE f.tenant_id ="
+            " s.tenant_id"
+            " AND f.id = s.fact_id),"
             " false) AS _private"
-            " FROM signal_events s WHERE s.account_id = :a"
+            " FROM signal_events s WHERE s.tenant_id = :t AND s.account_id = :a"
+            # the research's own news and leadership findings (owner decision 2026-11-06)
+            " UNION ALL "
+            + _fact_rows(
+                "signals",
+                "coalesce(f.value_text, f.value_json->>'text') AS title,"
+                " CASE WHEN split_part(f.attribute_key, '.', 2) = 'leadership_changes'"
+                "   OR f.attribute_key ~ '(appointment|departure|executive)' THEN 'Leadership'"
+                "   ELSE 'News' END AS type,"
+                " f.product_grade AS grade, coalesce(e.evidence_date::timestamptz, f.created_at)"
+                " AS detected, e.url AS link, false AS is_new,"
+                " f.visibility = 'private' AS _private",
+            )
         ),
         cols=(
             Col("title", "Signal", "s.title", "strong"),
@@ -217,7 +286,7 @@ SHEETS: dict[str, Sheet] = {
             " coalesce(j.location, '') AS location,"
             " coalesce(j.posted_at, j.first_seen) AS posted, initcap(j.status) AS status, j.url AS"
             " link"
-            " FROM job_postings j WHERE j.account_id = :a"
+            " FROM job_postings j WHERE j.tenant_id = :t AND j.account_id = :a"
             + NEWEST_POSTING
             + " UNION ALL "
             + _fact_rows(
@@ -233,11 +302,11 @@ SHEETS: dict[str, Sheet] = {
             )
         ),
         cols=(
-            Col("title", "Role", "s.title", "strong"),
-            Col("lanes", "Lane", "s.lanes"),
-            Col("location", "Location", "s.location"),
+            Col("title", "Role", "s.title", "strong", match=True),
+            Col("lanes", "Lane", "s.lanes", match=True),
+            Col("location", "Location", "s.location", match=True),
             Col("posted", "Posted", "s.posted", "date"),
-            Col("status", "Status", "s.status"),
+            Col("status", "Status", "s.status", match=True),
             Col("link", "Posting", None, "link"),
         ),
         filters=(
@@ -264,9 +333,10 @@ SHEETS: dict[str, Sheet] = {
             " last_seen,"
             # source_ref is the page's address (newer rows) or its S-code (older rows)
             " CASE WHEN t.source_ref ~* '^https?://' THEN t.source_ref ELSE"
-            " (SELECT s.url FROM sources s WHERE s.account_id = t.account_id AND s.source_code ="
+            " (SELECT s.url FROM sources s WHERE s.tenant_id = t.tenant_id AND s.account_id ="
+            " t.account_id AND s.source_code ="
             " t.source_ref) END AS link"
-            " FROM tech_detections t WHERE t.account_id = :a"
+            " FROM tech_detections t WHERE t.tenant_id = :t AND t.account_id = :a"
             + NEWEST_DETECTION
             + " UNION ALL "
             + _fact_rows(
@@ -274,7 +344,8 @@ SHEETS: dict[str, Sheet] = {
                 "coalesce(f.value_text, f.value_json->>'text') AS technology,"
                 " coalesce(CASE WHEN f.value_json->>'sources' ~ '^[0-9]+$'"
                 "   THEN CAST(f.value_json->>'sources' AS int) END,"
-                "   (SELECT count(*) FROM fact_evidence x WHERE x.fact_id = f.id)) AS sources,"
+                "   (SELECT count(*) FROM fact_evidence x WHERE x.tenant_id = f.tenant_id"
+                "   AND x.fact_id = f.id)) AS sources,"
                 " coalesce(f.value_json->>'rank', '') AS check,"
                 " coalesce(CAST(e.evidence_date AS text), '') AS first_seen,"
                 " coalesce(f.value_json->>'last_seen', CAST(e.evidence_date AS text), '')"
@@ -282,7 +353,7 @@ SHEETS: dict[str, Sheet] = {
             )
         ),
         cols=(
-            Col("technology", "Technology", "s.technology", "strong"),
+            Col("technology", "Technology", "s.technology", "strong", match=True),
             Col("sources", "Sources", "s.sources", "num"),
             Col("check", "Cross check", "s.check"),
             Col("first_seen", "First seen", "s.first_seen"),
@@ -301,28 +372,42 @@ SHEETS: dict[str, Sheet] = {
         title="News",
         file="News.xlsx",
         scope=f"Announcements and coverage about the account. {SORT_HINT}",
+        # the graded news facts of the research, then the news events of an imported workspace
+        # (``news_events``, the feed's own fields; an event is not a graded fact)
         base=(
             "SELECT f.id AS _id, coalesce(f.value_text, f.value_json->>'text') AS headline,"
-            " f.product_grade AS grade,"
-            " e.evidence_date AS published, e.url AS link"
+            " f.product_grade AS grade, '' AS category,"
+            " e.evidence_date AS published, e.url AS link, '' AS why, false AS imported"
             " FROM facts f LEFT JOIN LATERAL (SELECT url, evidence_date FROM fact_evidence x WHERE"
-            " x.fact_id = f.id"
+            " x.tenant_id = f.tenant_id AND x.fact_id = f.id"
             "   ORDER BY evidence_date DESC NULLS LAST LIMIT 1) e ON true"
             f" WHERE {FACT_CLASS['news']}"
+            " UNION ALL"
+            " SELECT n.id AS _id, n.headline, NULL::text AS grade, coalesce(n.category, '') AS"
+            " category, CAST(coalesce(n.effective_date, n.found_at) AS timestamptz) AS published,"
+            " n.source_url AS link, coalesce(n.why_it_matters, n.summary, '') AS why,"
+            " true AS imported FROM news_events n WHERE n.tenant_id = :t AND n.account_id = :a"
         ),
         cols=(
-            Col("headline", "Headline", "s.headline", "strong"),
+            Col("headline", "Headline", "s.headline", "strong", match=True),
+            Col("category", "Category", "s.category", match=True),
             Col("grade", "Fact grade", GRADE_ORDER.format("s.grade"), "grade"),
             Col("published", "Published", "s.published", "date"),
+            Col("why", "Why it matters", "s.why", "long"),
             Col("link", "Source", None, "link"),
         ),
         filters=(
             Filter("all", "All", "true"),
             Filter("month", "This month", f"s.published >= {_MONTH}"),
             Filter("confirmed", "Confirmed", "s.grade = 'confirmed'"),
+            Filter("imported", "From your workspace", "s.imported"),
         ),
         default_sort="published",
         default_dir="desc",
+        footnote=(
+            "Only Confirmed facts should be said to a prospect. A row from your workspace is the"
+            " news feed as you uploaded it, not a graded fact."
+        ),
     ),
     "mail-and-drive": Sheet(
         key="mail-and-drive",
@@ -335,7 +420,8 @@ SHEETS: dict[str, Sheet] = {
             "   ELSE 'Thread' END AS kind, coalesce(i.location, '') AS location, i.item_date AS"
             " dated,"
             " coalesce(i.snippet, '') AS snippet"
-            " FROM connector_items i WHERE i.account_id = :a AND i.owner_user_id = :u AND i.state"
+            " FROM connector_items i WHERE i.tenant_id = :t AND i.account_id = :a AND"
+            " i.owner_user_id = :u AND i.state"
             " = 'matched'"
         ),
         cols=(
@@ -369,31 +455,40 @@ SHEETS: dict[str, Sheet] = {
             "SELECT s0.id::text AS _id, s0.source_code AS code, coalesce(s0.title, '') AS title,"
             " coalesce(s0.publisher, '') AS publisher, s0.published_at AS published, s0.url AS"
             " link, false AS ungraded,"
-            " EXISTS (SELECT 1 FROM fact_evidence e WHERE e.source_id = s0.id) AS cited"
-            " FROM sources s0 WHERE s0.account_id = :a"
+            " EXISTS (SELECT 1 FROM fact_evidence e WHERE e.tenant_id = s0.tenant_id"
+            " AND e.source_id = s0.id) AS cited,"
+            " coalesce(s0.how_retrieved, '') AS how_retrieved,"
+            " coalesce(s0.what_it_supports, '') AS supports"
+            " FROM sources s0 WHERE s0.tenant_id = :t AND s0.account_id = :a"
             " UNION ALL"
             " SELECT DISTINCT ON (t.response->'args'->>'url') t.id::text AS _id, 'Read' AS code,"
             " '' AS title, '' AS publisher, NULL::timestamptz AS published,"
-            " t.response->'args'->>'url' AS link, true AS ungraded, false AS cited"
-            " FROM tool_calls t JOIN account_runs r ON r.id = t.run_id"
-            " WHERE r.account_id = :a"
+            " t.response->'args'->>'url' AS link, true AS ungraded, false AS cited,"
+            " '' AS how_retrieved, '' AS supports"
+            " FROM tool_calls t JOIN account_runs r ON r.tenant_id = t.tenant_id AND r.id ="
+            " t.run_id"
+            " WHERE r.tenant_id = :t AND r.account_id = :a"
             " AND t.tool IN ('p_search:read_page', 'p_scrape:scrape_job_page')"
             " AND t.response->'args'->>'url' IS NOT NULL"
-            " AND NOT EXISTS (SELECT 1 FROM sources x WHERE x.account_id = :a"
+            " AND NOT EXISTS (SELECT 1 FROM sources x WHERE x.tenant_id = :t AND x.account_id = :a"
             "   AND x.url = t.response->'args'->>'url')"
             # the client's own uploaded files that facts cite (documents.deliverables)
             " UNION ALL"
             " SELECT d.id::text AS _id, 'File' AS code, d.name AS title,"
             " 'Uploaded by you' AS publisher, d.created_at AS published, NULL::text AS link,"
-            " false AS ungraded, true AS cited FROM documents d WHERE d.account_id = :a"
-            " AND EXISTS (SELECT 1 FROM fact_evidence e JOIN facts f ON f.id = e.fact_id"
-            "   WHERE e.document_id = d.id AND f.account_id = :a AND f.status = 'current')"
+            " false AS ungraded, true AS cited, '' AS how_retrieved, '' AS supports"
+            " FROM documents d WHERE d.tenant_id = :t AND d.account_id = :a"
+            " AND EXISTS (SELECT 1 FROM fact_evidence e JOIN facts f ON f.tenant_id = e.tenant_id"
+            "   AND f.id = e.fact_id WHERE e.tenant_id = d.tenant_id AND e.document_id = d.id"
+            "   AND f.account_id = :a AND f.status = 'current')"
         ),
         cols=(
             Col("code", "Code", "s.code"),
-            Col("title", "Title", "s.title", "strong"),
-            Col("publisher", "Publisher", "s.publisher"),
+            Col("title", "Title", "s.title", "strong", match=True),
+            Col("publisher", "Publisher", "s.publisher", match=True),
             Col("published", "Published", "s.published", "date"),
+            Col("how_retrieved", "How retrieved", "s.how_retrieved"),
+            Col("supports", "What it supports", "s.supports", "long"),
             Col("link", "Link", None, "link"),
         ),
         filters=(
@@ -425,8 +520,9 @@ SHEETS: dict[str, Sheet] = {
             "   CASE WHEN jsonb_typeof(t.response->'pages') = 'array'"
             "   THEN t.response->'pages' ELSE '[]'::jsonb END) p), '') AS sites,"
             " (t.cost_source = 'cache') AS reused"
-            " FROM tool_calls t JOIN account_runs r ON r.id = t.run_id"
-            " WHERE r.account_id = :a AND t.tool = 'p_search:web_search'"
+            " FROM tool_calls t JOIN account_runs r ON r.tenant_id = t.tenant_id AND r.id ="
+            " t.run_id"
+            " WHERE r.tenant_id = :t AND r.account_id = :a AND t.tool = 'p_search:web_search'"
         ),
         cols=(
             Col("query", "Searched for", "s.query", "strong"),
@@ -443,6 +539,272 @@ SHEETS: dict[str, Sheet] = {
         default_dir="desc",
         footnote=(
             "Sites are listed for searches from 15 October 2026 on; earlier searches show counts."
+        ),
+    ),
+    "uploaded-files": Sheet(
+        key="uploaded-files",
+        title="Uploaded files",
+        file="Uploaded files.xlsx",
+        scope=(
+            "Every file inside the zips you uploaded for this account (``document_members``):"
+            " which package file it is, whether it was read, skipped or failed and why, and what"
+            f" it produced. An owner-only file is listed but never read. {SORT_HINT}"
+        ),
+        base=(
+            "SELECT m.id AS _id, d.name AS document, m.member_path AS member,"  # nosec B608 -- labels from fixed mappings, no input.
+            f" {_ROLE_CASE} AS role, m.role AS role_code, m.status, {_REASON_CASE} AS reason,"
+            " m.passages, m.tables, m.rows_imported, m.rows_merged, m.rows_skipped,"
+            " m.bytes, m.audience, m.updated_at AS seen, "
+            f"{_IMPORT_CASE} AS import_status"
+            " FROM document_members m JOIN documents d ON d.tenant_id = m.tenant_id"
+            " AND d.id = m.document_id"
+            " LEFT JOIN import_runs ir ON ir.tenant_id = m.tenant_id"
+            " AND ir.document_id = m.document_id"
+            " LEFT JOIN import_run_parts ip ON ip.tenant_id = m.tenant_id"
+            f" AND ip.import_run_id = ir.id AND ip.part = {_PART_CASE}"
+            " WHERE m.tenant_id = :t AND d.account_id = :a"
+        ),
+        cols=(
+            Col("member", "File", "s.member", "strong"),
+            Col("document", "Uploaded as", "s.document"),
+            Col("role", "What it is", "s.role"),
+            Col("status", "Read", "s.status", "status"),
+            Col("reason", "Why not", "s.reason"),
+            Col("passages", "Passages", "s.passages", "num"),
+            Col("tables", "Tables", "s.tables", "num"),
+            Col("rows_imported", "Rows imported", "s.rows_imported", "num"),
+            Col("rows_merged", "Rows merged", "s.rows_merged", "num"),
+            Col("rows_skipped", "Rows not imported", "s.rows_skipped", "num"),
+            Col("bytes", "Bytes", "s.bytes", "num"),
+            # last, so the columns an export already had keep their positions
+            Col("import_status", "Import", "s.import_status"),
+        ),
+        filters=(
+            Filter("all", "All", "true"),
+            Filter(
+                "import_problems",
+                "Import problems",
+                "(s.import_status LIKE 'failed%' OR s.import_status LIKE 'pending%'"
+                " OR s.import_status LIKE 'running%')",
+            ),
+            Filter("read", "Read", "s.status = 'read'"),
+            Filter("skipped", "Skipped", "s.status = 'skipped'"),
+            Filter("failed", "Failed", "s.status = 'failed'"),
+            # the stored role, not its label ("people list" never matched, 2026-11-04)
+            Filter("deliverables", "Deliverables", "s.role_code LIKE 'deliverable_%'"),
+        ),
+        default_sort="member",
+        footnote=(
+            "Files inside the zips you uploaded. A build script or an owner-only file is listed"
+            " and not read; upload an owner-only file on its own to keep it private. For a"
+            " workbook, rows imported plus rows merged (duplicates folded into one) plus rows"
+            " not imported (no title or name) is the sheet's row count."
+        ),
+    ),
+    "teams": Sheet(
+        key="teams",
+        title="Platform teams",
+        file="Platform teams.xlsx",
+        scope=(
+            "The teams whose public records name a lane platform (``platform_teams``: the"
+            f" Platform teams sheet of the Tech stack workbook, live). {SORT_HINT}"
+        ),
+        base=(
+            "SELECT t.id AS _id, t.team, coalesce(t.function, '') AS function,"
+            " t.postings_count AS postings, t.first_activity, t.last_activity,"
+            " array_to_string(t.lane_technologies, '; ') AS lanes,"
+            " coalesce((SELECT string_agg(x->>'name' || CASE WHEN x->>'postings' IS NULL"
+            "   THEN '' ELSE ' (' || (x->>'postings') || ')' END, '; ')"
+            "   FROM jsonb_array_elements(t.technologies) x), '') AS technologies,"
+            " coalesce((SELECT string_agg(x->>'place' || CASE WHEN x->>'postings' IS NULL"
+            "   THEN '' ELSE ' (' || (x->>'postings') || ')' END, '; ')"
+            "   FROM jsonb_array_elements(t.locations) x), '') AS locations,"
+            " t.merged_count AS merged"
+            " FROM platform_teams t WHERE t.tenant_id = :t AND t.account_id = :a AND t.run_id ="
+            " (SELECT r.run_id FROM"
+            "   platform_teams r WHERE r.tenant_id = :t AND r.account_id = :a ORDER BY r.created_at"
+            " DESC LIMIT 1)"
+        ),
+        cols=(
+            Col("team", "Team", "s.team", "strong", match=True),
+            Col("function", "Function", "s.function", match=True),
+            Col("postings", "Postings", "s.postings", "num"),
+            Col("first_activity", "First activity", "s.first_activity", "date"),
+            Col("last_activity", "Last activity", "s.last_activity", "date"),
+            Col("lanes", "Lane platforms", "s.lanes"),
+            Col("technologies", "Technologies", "s.technologies", "long"),
+            Col("locations", "Locations", "s.locations", "long", match=True),
+            Col("merged", "Rows merged", "s.merged", "num"),
+        ),
+        filters=(
+            Filter("all", "All", "true"),
+            Filter(
+                "active",
+                "Active this year",
+                "s.last_activity >= date_trunc('year', CAST(:now AS timestamptz))",
+            ),  # fmt: skip
+        ),
+        default_sort="postings",
+        default_dir="desc",
+        footnote="Teams as the research or your uploaded workspace recorded them.",
+    ),
+    "connections": Sheet(
+        key="connections",
+        title="Connections",
+        file="Connections.xlsx",
+        scope=(
+            "Organisations the account's public records connect it to: partners, customers,"
+            f" vendors and peers (``org_connections``). {SORT_HINT}"
+        ),
+        base=(
+            "SELECT c.id AS _id, coalesce(c.company_name, c.company_domain) AS company,"
+            " c.company_domain AS domain, coalesce(c.category, '') AS category,"
+            " coalesce(c.source_category, '') AS how, c.first_seen_at, c.last_seen_at,"
+            " c.source_url AS link FROM org_connections c WHERE c.tenant_id = :t AND c.account_id ="
+            " :a"
+        ),
+        cols=(
+            Col("company", "Organisation", "s.company", "strong", match=True),
+            Col("domain", "Domain", "s.domain", match=True),
+            Col("category", "Relationship", "s.category", match=True),
+            Col("how", "Found through", "s.how"),
+            Col("first_seen_at", "First seen", "s.first_seen_at", "date"),
+            Col("last_seen_at", "Last seen", "s.last_seen_at", "date"),
+            Col("link", "Source", None, "link"),
+        ),
+        filters=(
+            Filter("all", "All", "true"),
+            Filter(
+                "year",
+                "Seen this year",
+                "s.last_seen_at >= date_trunc('year', CAST(:now AS timestamptz))",
+            ),  # fmt: skip
+        ),
+        default_sort="company",
+        footnote="Connections as the research or your uploaded workspace recorded them.",
+    ),
+    "findings": Sheet(
+        key="findings",
+        title="Findings",
+        file="Findings.xlsx",
+        scope=(
+            "Every written finding of the Account Summary: the narrative, hypotheses, cautions,"
+            " first-call questions and the other sections, with the sources each one cites"
+            f" (``report_sections``). {SORT_HINT}"
+        ),
+        base=(
+            "SELECT r.id AS _id, replace(initcap(replace(r.kind, '_', ' ')), 'Ai ', 'AI ') AS"
+            " kind, r.kind AS kind_key, r.position, r.text, coalesce(r.lane, '') AS lane,"
+            " array_to_string(r.cited_source_codes, ', ') AS sources,"
+            " coalesce(r.confirming_question, '') AS question, r.created_at AS written,"
+            " r.visibility"
+            " FROM report_sections r WHERE r.tenant_id = :t AND r.account_id = :a"
+            " AND (r.run_id, r.version) = (SELECT x.run_id, x.version FROM report_sections x"
+            "   WHERE x.tenant_id = :t AND x.account_id = :a ORDER BY x.created_at DESC, x.version"
+            " DESC LIMIT 1)"
+        ),
+        cols=(
+            Col("kind", "Section", "s.kind"),
+            Col("position", "Order", "s.position", "num"),
+            Col("text", "Text", "s.text", "long"),
+            Col("lane", "Lane", "s.lane"),
+            Col("sources", "Sources cited", "s.sources", "code"),
+            Col("question", "Confirming question", "s.question", "long"),
+        ),
+        filters=(
+            Filter("all", "All", "true"),
+            Filter("hypotheses", "Hypotheses", "s.kind_key = 'hypothesis'"),
+            Filter("cautions", "Cautions", "s.kind_key = 'caution'"),
+            Filter("questions", "First-call questions", "s.kind_key = 'first_call_question'"),
+            Filter("narrative", "Narrative", "s.kind_key = 'narrative'"),
+        ),
+        default_sort="position",
+        # a section imported from the client's own workspace is private: shown here, never in
+        # a shareable workbook
+        export_where="s.visibility = 'public'",
+        footnote=(
+            "The sections of the newest Account Summary, as written or as imported from your"
+            " workspace. Only Confirmed facts should be said to a prospect."
+        ),
+    ),
+    "calls": Sheet(
+        key="calls",
+        title="Calls made",
+        file="Calls made.xlsx",
+        scope=(
+            "Every call the research made for this account: the tool, what it was asked and what"
+            " came back (``tool_calls``), and the pull log of an imported workspace"
+            f" (``pull_log_calls``). No cost is shown. {SORT_HINT}"
+        ),
+        base=(
+            "SELECT t.id::text AS _id, t.created_at AS made, '' AS step, t.tool,"
+            " coalesce(t.response->>'args', '') AS parameters,"
+            " coalesce(t.response->>'record_count', '') AS result, '' AS output,"
+            " (t.cost_source = 'cache') AS reused, false AS imported"
+            " FROM tool_calls t JOIN account_runs r ON r.tenant_id = t.tenant_id AND r.id ="
+            " t.run_id"
+            " WHERE r.tenant_id = :t AND r.account_id = :a"
+            " UNION ALL"
+            " SELECT 'pull:' || c.id::text AS _id, c.created_at AS made, coalesce(c.step, '') AS"
+            " step, coalesce(c.tool_role, '') AS tool, coalesce(c.parameters, '') AS parameters,"
+            " coalesce(c.result_count, '') AS result, coalesce(c.output_file, '') AS output,"
+            " false AS reused, true AS imported FROM pull_log_calls c WHERE c.tenant_id = :t AND"
+            " c.account_id = :a"
+        ),
+        cols=(
+            Col("made", "When", "s.made", "date"),
+            Col("step", "Step", "s.step"),
+            Col("tool", "Tool", "s.tool", "strong"),
+            Col("parameters", "Parameters", "s.parameters", "long"),
+            Col("result", "Result", "s.result"),
+            Col("output", "Output file", "s.output", "code"),
+        ),
+        filters=(
+            Filter("all", "All", "true"),
+            Filter("month", "This month", f"s.made >= {_MONTH}"),
+            Filter("reused", "Reused from earlier research", "s.reused"),
+            Filter("imported", "From your workspace", "s.imported"),
+        ),
+        default_sort="made",
+        default_dir="desc",
+        footnote=(
+            "Calls as the research made them, or as the pull log of your workspace lists them."
+        ),
+    ),
+    "notes": Sheet(
+        key="notes",
+        title="Notes",
+        file="Notes.xlsx",
+        scope=(
+            "The research notes of your uploaded workspace: the hand-off, pass notes, the pull log"
+            f" and sense checks (``research_notes``). {SORT_HINT}"
+        ),
+        base=(
+            "SELECT n.id AS _id, n.title, replace(initcap(replace(n.kind, '_', ' ')), 'Ai ',"
+            " 'AI ') AS kind, n.text, coalesce(n.member_path, '') AS member,"
+            " CASE n.audience WHEN 'owner_only' THEN 'Owner only' ELSE 'Client' END AS audience,"
+            " n.created_at AS added FROM research_notes n WHERE n.tenant_id = :t AND n.account_id ="
+            " :a"
+        ),
+        cols=(
+            Col("title", "Note", "s.title", "strong"),
+            Col("kind", "Kind", "s.kind"),
+            Col("text", "Text", "s.text", "long"),
+            Col("member", "File", "s.member", "code"),
+            Col("audience", "Who sees it", "s.audience"),
+            Col("added", "Added", "s.added", "date"),
+        ),
+        filters=(
+            Filter("all", "All", "true"),
+            Filter("owner", "Owner only", "s.audience = 'Owner only'"),
+        ),
+        default_sort="added",
+        default_dir="desc",
+        private=True,
+        export_where="s.audience <> 'Owner only'",
+        footnote=(
+            "Notes are internal: they are never part of a client file. An owner-only note leaves"
+            " no workbook."
         ),
     ),
     "coverage": Sheet(
@@ -467,9 +829,12 @@ SHEETS: dict[str, Sheet] = {
             " coalesce(CAST(:tracker AS jsonb)->'reason'->>c.reason_code, '') AS reason,"
             " coalesce(CAST(CAST(:tracker AS jsonb)->'order'->>c.row_key AS int), 999) AS ord,"
             " c.last_checked_at AS checked"
-            " FROM coverage_rows c WHERE c.run_id = (SELECT r.id FROM account_runs r"
-            "   WHERE r.account_id = :a AND r.status IN ('COMPLETED', 'PARTIAL', 'BUDGET_EXCEEDED')"
-            "   AND EXISTS (SELECT 1 FROM coverage_rows x WHERE x.run_id = r.id)"
+            " FROM coverage_rows c WHERE c.tenant_id = :t AND c.run_id = (SELECT r.id FROM"
+            " account_runs r"
+            "   WHERE r.tenant_id = :t AND r.account_id = :a AND r.status IN ('COMPLETED',"
+            " 'PARTIAL', 'BUDGET_EXCEEDED')"
+            "   AND EXISTS (SELECT 1 FROM coverage_rows x WHERE x.tenant_id = r.tenant_id"
+            "   AND x.run_id = r.id)"
             "   ORDER BY r.finished_at DESC NULLS LAST LIMIT 1)"
         ),
         cols=(
@@ -531,6 +896,8 @@ _SHOWN: dict[tuple[str, str], str] = {
 }
 # how an export column kind is shown when no entry above says otherwise
 _KIND_SHOWN = {"count": "num", "percent": "num", "url": "url", "code": "code", "text_long": "long"}
+# the export column kinds a link may not match on (``Col.match``): every other column is text
+_NOT_MATCHED = frozenset({"count", "percent", "url", "code", "text_long"})
 
 
 def _lit(value: str) -> str:
@@ -597,12 +964,12 @@ def chip_specs(table: str, columns: Any, rules: Any) -> list[tuple[str, str, str
 def file_sheet(key: str) -> Sheet:
     """The file-shaped sheet of one sheet key, built from the export configuration (the same
     source the files and ``views.tables`` read, so a column added to a file appears here)."""
-    from exports.config import load_export_config
+    from exports.config import default_export_config
     from views.tables import specs
 
     table = FILE_TABLES[key]
     spec = specs()[table]  # type: ignore[index]
-    rules = load_export_config().rules
+    rules = default_export_config().rules
     live = SHEETS.get(key)
     cols: list[Col] = []
     for c in spec.exported_columns:
@@ -612,12 +979,19 @@ def file_sheet(key: str) -> Sheet:
         sortable = c.kind not in ("text_long", "url")
         link_text = _link_text(rules, table, c.key) if c.kind == "url" else None
         cols.append(
-            Col(c.key, c.header, f"s._cells->'{c.key}'" if sortable else None, shown, link_text)
+            Col(
+                c.key,
+                c.header,
+                f"s._cells->'{c.key}'" if sortable else None,
+                shown,
+                link_text,
+                match=c.kind not in _NOT_MATCHED,
+            )
         )
     selected = ", ".join(f"coalesce(v.cells->>'{c.key}', '') AS \"{c.key}\"" for c in cols)
     base = (
         "SELECT v.position AS _id, v.position AS _pos, v.cells AS _cells, v.source_url AS link,"
-        f" {selected} FROM view_rows v WHERE v.run_id = CAST(:run AS uuid)"
+        f" {selected} FROM view_rows v WHERE v.tenant_id = :t AND v.run_id = CAST(:run AS uuid)"
         f" AND v.table_kind = {_lit(table)}"
     )
 
@@ -655,12 +1029,22 @@ async def delivered_run(session: Any, account_id: UUID) -> UUID | None:
     """The run of the account's newest delivered file (the file set the sheets match)."""
     found = await session.scalar(
         text(
-            "SELECT d.run_id FROM deliverables d WHERE d.account_id = :a AND d.run_id IS NOT NULL"
-            " ORDER BY d.built_at DESC LIMIT 1"
+            "SELECT d.run_id FROM deliverables d WHERE d.tenant_id = :t AND d.account_id = :a"
+            " AND d.run_id IS NOT NULL ORDER BY d.built_at DESC LIMIT 1"
         ),
-        {"a": account_id},
+        {"a": account_id, "t": await session_tenant(session)},
     )
     return UUID(str(found)) if found else None
+
+
+async def imported_run(session: Any, run: UUID) -> bool:
+    """Whether ``run`` is a file-import run: its delivered files are the uploaded workspace's own
+    (``documents.workspace_import.register_deliverables``), shown as they are and never
+    materialised, rebuilt or repaired (exact copy, 2026-11-05)."""
+    found = await session.scalar(
+        text("SELECT finished_reason = 'file_import' FROM account_runs WHERE id = :r"), {"r": run}
+    )
+    return bool(found)
 
 
 # the delivered file each client table is printed in (deliverables.kind)
@@ -678,9 +1062,10 @@ async def _materialised_under(session: Any, run: UUID) -> str | None:
     stored before the hash was recorded), None when they were never built."""
     found = await session.execute(
         text(
-            "SELECT coalesce(exclusion_hash, 'none') FROM view_materializations WHERE run_id = :r"
+            "SELECT coalesce(exclusion_hash, 'none') FROM view_materializations"
+            " WHERE tenant_id = :t AND run_id = :r"
         ),
-        {"r": run},
+        {"r": run, "t": await session_tenant(session)},
     )
     row = found.first()
     return str(row[0]) if row else None
@@ -711,13 +1096,14 @@ class _FilePrefetch:
 async def _prefetch(session: Any, run: UUID) -> _FilePrefetch:
     from views.materialize import current_exclusion_hash
 
+    tenant = await session_tenant(session)
     # tables made under another exclusion list than the tenant's current one are not shown
     ready = await session.scalar(
         text(
             "SELECT status = 'ready' AND coalesce(exclusion_hash, 'none') = :h"
-            " FROM view_materializations WHERE run_id = :r"
+            " FROM view_materializations WHERE tenant_id = :t AND run_id = :r"
         ),
-        {"r": run, "h": await current_exclusion_hash(session)},
+        {"r": run, "t": tenant, "h": await current_exclusion_hash(session)},
     )
     manifests: dict[str, Any] = {}
     first: dict[str, Any] = {}
@@ -727,9 +1113,9 @@ async def _prefetch(session: Any, run: UUID) -> _FilePrefetch:
             await session.execute(
                 text(
                     "SELECT DISTINCT ON (kind) kind, manifest_json FROM deliverables"
-                    " WHERE run_id = :r ORDER BY kind, version DESC"
+                    " WHERE tenant_id = :t AND run_id = :r ORDER BY kind, version DESC"
                 ),
-                {"r": run},
+                {"r": run, "t": tenant},
             )
         ).all():
             m = r.manifest_json
@@ -738,9 +1124,9 @@ async def _prefetch(session: Any, run: UUID) -> _FilePrefetch:
             await session.execute(
                 text(
                     "SELECT DISTINCT ON (table_kind) table_kind, cells FROM view_rows"
-                    " WHERE run_id = :r ORDER BY table_kind, position"
+                    " WHERE tenant_id = :t AND run_id = :r ORDER BY table_kind, position"
                 ),
-                {"r": run},
+                {"r": run, "t": tenant},
             )
         ).all():
             first[r.table_kind] = r.cells
@@ -749,10 +1135,10 @@ async def _prefetch(session: Any, run: UUID) -> _FilePrefetch:
             for r in (
                 await session.execute(
                     text(
-                        "SELECT table_kind, count(*) AS n FROM view_rows WHERE run_id = :r"
-                        " GROUP BY table_kind"
+                        "SELECT table_kind, count(*) AS n FROM view_rows WHERE tenant_id = :t"
+                        " AND run_id = :r GROUP BY table_kind"
                     ),
-                    {"r": run},
+                    {"r": run, "t": tenant},
                 )
             ).all()
         }
@@ -822,12 +1208,17 @@ class SheetNotFound(LookupError):
 
 
 class BadSheetQuery(ValueError):
-    """An unknown sort column, filter or direction."""
+    """An unknown sort column, filter, direction or match."""
+
+
+MATCH_MAX = 200
 
 
 @dataclass(frozen=True)
 class Query:
-    """A validated sheet request. ``run_id`` is the delivered run a file-shaped sheet reads."""
+    """A validated sheet request. ``run_id`` is the delivered run a file-shaped sheet reads.
+    ``match``: the rows whose cell in a matchable column (``Col.match``) contains the text, case
+    folded (an Ask citation's link, ``parse``)."""
 
     sheet: Sheet
     filter: Filter
@@ -836,6 +1227,51 @@ class Query:
     offset: int
     limit: int
     run_id: UUID | None = None
+    match: tuple[Col, str] | None = None
+
+
+def match_value(value: str | None) -> str | None:
+    """A match text as a link carries it, stripped; ``BadSheetQuery`` past ``MATCH_MAX``
+    characters or with a NUL; None when blank."""
+    if value is None:
+        return None
+    stripped = value.strip()
+    if not stripped:
+        return None
+    if len(stripped) > MATCH_MAX or "\x00" in stripped:
+        raise BadSheetQuery("bad match")
+    return stripped
+
+
+def parse_match(
+    cols: Sequence[Col], match_col: str | None, match: str | None
+) -> tuple[Col, str] | None:
+    """The validated ``(column, text)`` of a match: the column is a matchable column of the
+    sheet (``BadSheetQuery`` otherwise), the text is ``match_value``. None without both."""
+    value = match_value(match)
+    if match_col is None and value is None:
+        return None
+    col = next((c for c in cols if c.key == match_col and c.match), None)
+    if col is None or value is None:
+        raise BadSheetQuery("unknown match column")
+    return col, value
+
+
+def like_pattern(value: str) -> str:
+    """``value`` as a contains pattern for ILIKE (``%``, ``_`` and the escape character taken
+    literally)."""
+    escaped = value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
+
+
+def match_where(q: Query) -> str:
+    """The fixed SQL of the request's match over the row alias ``s`` (``true`` without one): the
+    column's own expression (a file-shaped sheet's text cell) ILIKE the bound ``:match``."""
+    if q.match is None:
+        return "true"
+    col = q.match[0]
+    expr = f's."{col.key}"' if q.sheet.table is not None else str(col.sort)
+    return f"CAST({expr} AS text) ILIKE :match ESCAPE '\\'"
 
 
 def parse(
@@ -847,10 +1283,13 @@ def parse(
     limit: int = 200,
     *,
     run_id: UUID | None = None,
+    match_col: str | None = None,
+    match: str | None = None,
 ) -> Query:
     """Validate a request against the sheet's allow-lists. With ``run_id`` (the account's
     delivered run, ``file_run``) a sheet the files print is the file-shaped one; the Platform
-    picture has no live form, so it is always file-shaped (and empty before a delivery)."""
+    picture has no live form, so it is always file-shaped (and empty before a delivery). A match
+    (``match_col`` and ``match``) names a matchable column of THAT sheet (``parse_match``)."""
     if sheet_key in FILE_TABLES and (run_id is not None or sheet_key not in SHEETS):
         sheet: Sheet | None = file_sheet(sheet_key)
     else:
@@ -870,6 +1309,7 @@ def parse(
         max(0, offset),
         max(1, min(limit, MAX_PAGE)),
         run_id if sheet.table else None,
+        parse_match(sheet.cols, match_col, match),
     )
 
 
@@ -901,16 +1341,19 @@ async def hidden_ids(
     rule = tenant_settings.ExclusionFilter.of((await tenant_settings.current(session)).settings)
     if not rule.people and not rule.companies:
         return []
+    tenant = await session_tenant(session)
     known = (
         await session.execute(
-            text("SELECT name, profile_url FROM people WHERE account_id = :a"), {"a": account_id}
+            text("SELECT name, profile_url FROM people WHERE tenant_id = :t AND account_id = :a"),
+            {"a": account_id, "t": tenant},
         )
     ).all()
     rule = with_known_names(rule, [(r.name, r.profile_url) for r in known])
     rows = (
         (
             await session.execute(
-                text(f"SELECT * FROM ({q.sheet.base}) b"), params(q, account_id, user_id, now)
+                text(f"SELECT * FROM ({q.sheet.base}) b"),
+                params(q, account_id, user_id, now, tenant_id=tenant),
             )
         )  # nosec B608 -- allow-listed sheet SQL; values are bound.
         .mappings()
@@ -927,15 +1370,40 @@ async def hidden_ids(
 
 
 def params(
-    q: Query, account_id: UUID, user_id: str, now: datetime, hide: Sequence[str] = ()
+    q: Query,
+    account_id: UUID,
+    user_id: str,
+    now: datetime,
+    hide: Sequence[str] = (),
+    *,
+    tenant_id: UUID,
 ) -> dict[str, Any]:
-    """The bound values of the sheet's SQL (``hide``: the ids ``hidden_ids`` found)."""
-    out: dict[str, Any] = {"a": account_id, "u": user_id, "now": now, "hide": list(hide)}
+    """The bound values of the sheet's SQL (``hide``: the ids ``hidden_ids`` found). Every sheet
+    states its tenant in its own SQL (``:t``, the session's tenant: ``db.session.session_tenant``)
+    on top of row level security: each row source read by account or run carries
+    ``tenant_id = :t``, and each lookup tied to such a row matches that row's ``tenant_id``."""
+    out: dict[str, Any] = {
+        "a": account_id,
+        "u": user_id,
+        "now": now,
+        "hide": list(hide),
+        "t": tenant_id,
+    }
     if q.sheet.key == "coverage" and q.sheet.table is None:
         out["tracker"] = tracker_labels()
     if q.sheet.table is not None:
         out["run"] = str(q.run_id) if q.run_id else None
+    if q.match is not None:
+        out["match"] = like_pattern(q.match[1])
     return out
+
+
+def match_out(q: Query) -> dict[str, str] | None:
+    """The request's match as the page echoes it (``{col, label, value}``), or None."""
+    if q.match is None:
+        return None
+    col, value = q.match
+    return {"col": col.key, "label": col.label, "value": value}
 
 
 def row_out(q: Query, n: int, r: Any, now: datetime) -> dict[str, Any]:
@@ -1131,18 +1599,25 @@ async def read(
 ) -> dict[str, Any]:
     """One page of the sheet (or the whole filtered sheet for an export) and the chip counts."""
     bound = params(
-        q, account_id, user_id, now, await hidden_ids(session, q, account_id, user_id, now)
+        q,
+        account_id,
+        user_id,
+        now,
+        await hidden_ids(session, q, account_id, user_id, now),
+        tenant_id=await session_tenant(session),
     )
     base = visible_base(q)
     counts_sql = ", ".join(
         f"count(*) FILTER (WHERE {f.where}) AS c{i}" for i, f in enumerate(q.sheet.filters)
     )
-    counts_query = f"SELECT {counts_sql} FROM ({base}) s"  # nosec B608 -- allow-listed sheet SQL; values are bound.
+    matched = match_where(q)
+    counts_query = f"SELECT {counts_sql} FROM ({base}) s WHERE {matched}"  # nosec B608 -- allow-listed sheet SQL; values are bound.
     counts = (await session.execute(text(counts_query), bound)).one()
     order = f"{q.sort.sort} {'DESC' if q.desc else 'ASC'} NULLS LAST, {q.sheet.tiebreak}"
     limit = MAX_EXPORT if export else q.limit
     offset = 0 if export else q.offset
     where = f"({q.filter.where}) AND ({q.sheet.export_where})" if export else q.filter.where
+    where = f"({where}) AND ({matched})"
     page_query = f"SELECT * FROM ({base}) s WHERE {where} ORDER BY {order}"  # nosec B608 -- allow-listed sheet SQL; values are bound.
     rows = (
         (
@@ -1175,6 +1650,7 @@ async def read(
         "filter": q.filter.key,
         "sort": q.sort.key,
         "dir": "desc" if q.desc else "asc",
+        "match": match_out(q),
         "total": total,
         "offset": offset,
         "rows": [row_out(q, offset + i + 1, r, now) for i, r in enumerate(rows)],

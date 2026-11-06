@@ -171,8 +171,10 @@ queue's tasks created with `dispatch_deadline = 1800s`.
 The worker's maximum cannot exceed the project's regional GPU quota (3 L4 without zonal
 redundancy by default; production needs a quota increase before 8).
 
-Queues never dispatch more than the worker can hold at its maximum: worker max x concurrency 4 =
-runs 2 + documents 1 + jobs 1 per instance.
+Queues never dispatch more than the worker can hold at its maximum: worker slots = worker max x
+concurrency, half to runs and a quarter each to documents and jobs (at least one each). The worker
+runs at concurrency 1 since ADR-0130 (2026-11-03, back to 4 after the event-loop test has been
+green for two releases), so staging's max 3 holds runs 1 + documents 1 + jobs 1.
 
 | Queue | Rate | Concurrent (staging / prod) | Attempts | Backoff |
 | --- | --- | --- | --- | --- |
@@ -186,7 +188,7 @@ Production at every maximum: (10 + 10 + 8 + 2 jobs) x 4 = 120 addresses, inside 
 ### Database connections
 
 Assumed per process (the stack sets `DB_POOL_SIZE=5`, `DB_MAX_OVERFLOW=5`): 10 for the engine,
-plus one checkpointer connection per in-flight run slice (worker concurrency 4 at most).
+plus one checkpointer connection per in-flight run slice (worker concurrency 1, ADR-0130).
 
 | | staging | production |
 | --- | --- | --- |

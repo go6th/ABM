@@ -1,6 +1,9 @@
 # Agent registry (D-95). One agent per step where a model is needed; build, gate and delivery are
-# code only. `model_tier` is a tier alias from config/model_routing.yaml (never a model id);
-# `task_kind` is the routed task kind (G11). `tools` is the typed tool allow-list the agent's
+# code only. `model_tier` is a tier of the routing table src/llm/route.py (never a model id);
+# `task_kind` is the routed task kind (G11). An optional `effort` (low, medium, high, xhigh,
+# max) is the agent's own effort; without one, extraction agents run at their task's configured
+# effort (models.yaml task_settings, low) and the planner-tier agents at the user's effort
+# (ADR-0114). None is set today. `tools` is the typed tool allow-list the agent's
 # ToolBox exposes (agents.contracts.ToolBox refuses anything else). Schemas are pydantic models in
 # agents.schemas (extra fields forbidden). The registry test (tests/agents/test_registry.py) fails
 # on a tool outside the list, an output field outside the schema, or an agent with no guard.

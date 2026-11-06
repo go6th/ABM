@@ -445,12 +445,12 @@ routes:
     body: {library_account_ids: ["00000000-0000-4000-8000-000000000009"]}
   POST /v1/research:
     probe: tenant
-    body: {request_id: "00000000-0000-4000-8000-000000000007", company_name: Probe Co, domain: probe-co.example, credits: 220}
+    body: {request_id: "00000000-0000-4000-8000-000000000007", company_name: Probe Co, domain: probe-co.example, credits: 220, confirm: true, confirm_again: true}
   GET /v1/accounts/{domain}/refresh: {probe: tenant, params: {domain: accounts.domain}}
   POST /v1/accounts/{domain}/refresh:
     probe: tenant
     params: {domain: accounts.domain}
-    body: {request_id: "00000000-0000-4000-8000-000000000003", scope: jobs, credits: 20}
+    body: {request_id: "00000000-0000-4000-8000-000000000003", scope: jobs, credits: 20, confirm: true, confirm_again: true}
   GET /v1/notifications: {probe: tenant}
   GET /v1/schedules: {probe: tenant}
   PUT /v1/schedules/{account_id}: {probe: tenant, params: {account_id: accounts.id}, body: {cadence: weekly}}
@@ -511,7 +511,7 @@ routes:
     query: {token: matrix-token-0000000000000000}
   POST /v1/research/resume:
     probe: tenant
-    body: {run_id: account_runs.id, request_id: "00000000-0000-4000-8000-000000000013"}
+    body: {run_id: account_runs.id, request_id: "00000000-0000-4000-8000-000000000013", confirm: true, confirm_again: true}
   POST /v1/research/{job_id}/stop: {probe: tenant, params: {job_id: research_jobs.id}}
   POST /v1/chat/ask:
     probe: tenant
@@ -562,7 +562,7 @@ routes:
   GET /v1/runs/{run_id}/spend/live: {probe: tenant, params: {run_id: account_runs.id}}
   GET /v1/runs/{run_id}/progress: {probe: tenant, params: {run_id: account_runs.id}}
   GET /v1/runs/{run_id}/events: {probe: tenant, params: {run_id: account_runs.id}}
-  POST /v1/runs: {probe: tenant, body: {domain: synthetic-b.example}, idempotent: true}
+  POST /v1/runs: {probe: tenant, body: {domain: synthetic-b.example, confirm: true, confirm_again: true}, idempotent: true}
   POST /v1/runs/{run_id}/approve: {probe: tenant, params: {run_id: account_runs.id}}
   POST /v1/runs/{run_id}/cancel: {probe: tenant, params: {run_id: account_runs.id}}
   POST /v1/runs/{run_id}/cap/approve:
@@ -717,6 +717,18 @@ routes:
   POST /operator/v1/console/clients/{tenant_id}/invite:
     probe: staff
     params: {tenant_id: owner}
+    allow_service_unavailable: true
+  GET /operator/v1/console/clients/{tenant_id}/people-consent:
+    probe: staff
+    params: {tenant_id: owner}
+  POST /operator/v1/console/clients/{tenant_id}/people-consent:
+    probe: staff
+    params: {tenant_id: owner}
+    body: {accept: false}
+  POST /operator/v1/console/clients/{tenant_id}/rebuild-files:
+    probe: staff
+    params: {tenant_id: owner}
+    body: {domain: "no-such-account.example"}
     allow_service_unavailable: true
   GET /operator/v1/console/runs/{tenant_id}/{run_id}:
     probe: staff

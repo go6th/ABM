@@ -32,7 +32,9 @@ from parity import rules
 
 TRUSTED_ORIGINS = ("profile", "people_search", "import")
 # origins that prove people data was collected with consent (an import is the user's own file)
-CONSENT_ORIGINS = ("profile", "people_search")
+# rows the people pipeline collected need the tenant's people data consent; a row of an uploaded
+# workspace is the owner's own list and stands without it (2026-11-05)
+CONSENT_ORIGINS = ("profile", "people_search", "import")
 # a stored title that says nothing: replaced by the descriptive text found next to the name
 GENERIC_TITLES = (
     "", "employee", "member", "professional", "staff", "team member", "linkedin member",
@@ -174,6 +176,8 @@ class _Person:
     last_verified: date | None
     note: str
     merged: list[str] = field(default_factory=list)
+    imported: bool = False
+    meets_seniority: str = ""
 
     def absorb(self, other: _Person) -> None:
         """Keep this row's fields; fill the empty ones from ``other``."""
@@ -190,9 +194,27 @@ class _Person:
         self.merged.append(other.key)
 
 
-def _level(title: str, stored: str) -> tuple[int, str]:
+_STORED_LEVELS: dict[str, int] = {
+    "c_level": 1, "evp": 1, "svp": 1, "vp": 2, "senior_director": 3, "director": 4,
+    "associate_director": 5, "head": 6, "senior_manager": 7, "manager": 8, "other": 9,
+}  # fmt: skip
+
+
+def _level(title: str, stored: str, *, trust_stored: bool = False) -> tuple[int, str]:
+    """The level number and label: the title's cue, else the stored level (a code such as
+    ``senior_director`` or a label). ``trust_stored``: the stored level wins over the title
+    (an uploaded workbook's own Level column, 2026-11-05)."""
     number, label = rules.level(title)
+    code = _STORED_LEVELS.get(fold(stored).replace(" ", "_"))
+    if trust_stored and stored and code:
+        return code, rules.LEVELS[code - 1]
+    if trust_stored and stored:
+        for i, known in enumerate(rules.LEVELS, start=1):
+            if fold(known) == fold(stored) or fold(stored).endswith(fold(known)):
+                return i, known
     if number == len(rules.LEVELS) and stored:
+        if code:
+            return code, rules.LEVELS[code - 1]
         for i, known in enumerate(rules.LEVELS, start=1):
             if fold(known) == fold(stored):
                 return i, known
@@ -273,14 +295,25 @@ def _build_people_rows(
             why = "marked excluded" if rec.excluded else "internal only"
             exclusions.append(core.Exclusion("people", rec.key, why, rec.name))
             continue
-        resolved = _resolve_name(rec.name, structured=True)
-        if resolved is None:
-            stats["dropped_invalid_name"] += 1
-            exclusions.append(
-                core.Exclusion("people", rec.key, "not a valid person name", rec.name)
-            )
-            continue
-        name, remainder = resolved
+        if rec.imported:
+            # a row of an uploaded workspace is the owner's own list: the name as reported
+            # (credentials, a nickname in brackets, a non-Latin script), no title exclusion
+            # and no seniority cut; the UCB import had dropped 1,255 of 1,620 rows and
+            # rewritten 20 names (2026-11-05)
+            name, remainder = " ".join(rec.name.split()), ""
+            if not name:
+                stats["dropped_invalid_name"] += 1
+                exclusions.append(core.Exclusion("people", rec.key, "empty name", rec.name))
+                continue
+        else:
+            resolved = _resolve_name(rec.name, structured=True)
+            if resolved is None:
+                stats["dropped_invalid_name"] += 1
+                exclusions.append(
+                    core.Exclusion("people", rec.key, "not a valid person name", rec.name)
+                )
+                continue
+            name, remainder = resolved
         title = _clean(rec.title)
         headline = _clean(rec.headline)
         if title.casefold() in GENERIC_TITLES:
@@ -292,7 +325,7 @@ def _build_people_rows(
                 core.Exclusion("people", rec.key, "employer is not the account", domain)
             )
             continue
-        hit = next((p for p, rx in title_rules if rx.search(title)), "")
+        hit = "" if rec.imported else next((p for p, rx in title_rules if rx.search(title)), "")
         if hit:
             stats["dropped_title_excluded"] += 1
             exclusions.append(core.Exclusion("people", rec.key, f"title excluded: {hit}", title))
@@ -305,7 +338,8 @@ def _build_people_rows(
                 location=_clean(rec.location), employer=_clean(rec.employer),
                 employer_domain=domain, found_by=_clean(rec.found_by),
                 former_si=_clean(rec.former_si), last_verified=rec.last_verified,
-                note=_clean(rec.note),
+                note=_clean(rec.note), imported=rec.imported,
+                meets_seniority=_clean(rec.meets_seniority),
             )
         )  # fmt: skip
 
@@ -314,8 +348,10 @@ def _build_people_rows(
             k
             for k in (
                 f"url:{_url_key(p.url)}" if p.url else "",
+                # an uploaded list is the owner's de-duplicated list: two rows with one name
+                # are two people unless they share a profile link (2026-11-05)
                 f"name:{norm_name(p.name)}|{_norm_employer(p.employer)}"
-                if norm_name(p.name)
+                if norm_name(p.name) and not p.imported
                 else "",
             )
             if k
@@ -335,11 +371,14 @@ def _build_people_rows(
 
     built: list[tuple[int, int, str, dict[str, str]]] = []
     for p in merged:
-        number, level_label = _level(p.title, p.level)
+        number, level_label = _level(p.title, p.level, trust_stored=p.imported)
         # "Meets seniority rule" is the level alone. A person below the rule stays in the list
         # only when the title names a lane platform (and says No); otherwise the row is dropped.
+        # An uploaded workbook's row keeps the workbook's own verdict and is never dropped.
         senior = rules.is_senior(number)
-        if not senior and not _names_platform(profile, p.title):
+        if p.imported and p.meets_seniority:
+            senior = p.meets_seniority.casefold().startswith("yes")
+        if not senior and not p.imported and not _names_platform(profile, p.title):
             stats["dropped_below_rule"] = stats.get("dropped_below_rule", 0) + 1
             exclusions.append(
                 core.Exclusion(
@@ -361,11 +400,14 @@ def _build_people_rows(
             if flag not in note:
                 note = f"{note}; {flag}" if note else flag
             stats["departed_flagged"] += 1
+        meets = "Yes" if senior else "No"
+        if p.imported and p.meets_seniority:
+            meets = p.meets_seniority  # "No (not current at the account)" stays as written
         row = {
             "Name": p.name,
             "Title as reported": p.title or core.NOT_FOUND,
             "Level": level_label,
-            "Meets seniority rule": "Yes" if senior else "No",
+            "Meets seniority rule": meets,
             "Lane": lane_text or core.NOT_FOUND,
             "Priority (A/B/C)": priority,
             "Former SI and consulting employers": p.former_si or core.NOT_FOUND,
@@ -376,6 +418,8 @@ def _build_people_rows(
             "Last verified": core.iso(p.last_verified),
             "Note": note or core.NOT_APPLICABLE,
         }
+        if p.imported:
+            row["__imported__"] = "yes"  # read by the statistics, never written to a sheet
         if rule is not None and not rule.counts_as_account:
             stats["non_account_entity"] += 1
         built.append((_PRIORITY_ORDER[priority], number, p.name.casefold(), row))
@@ -392,6 +436,11 @@ def _people_stats(
     counted = [r for r in real if r["Entity"] not in divested]
     stats["rows"] = len(real)
     stats["total"] = len(counted)
+    # the names an uploaded workbook carried, kept as the owner wrote them: the name check of
+    # the acceptance checks leaves them alone (credentials, nicknames, non-Latin scripts)
+    stats["imported_names"] = sorted(r["Name"] for r in real if r.get("__imported__") == "yes")
+    for r in rows:
+        r.pop("__imported__", None)
     stats["meets_seniority"] = sum(1 for r in counted if r["Meets seniority rule"] == "Yes")
     stats["priority_a_senior"] = sum(
         1 for r in counted if r["Priority (A/B/C)"] == "A" and r["Meets seniority rule"] == "Yes"

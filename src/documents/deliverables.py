@@ -47,8 +47,12 @@ from sqlalchemy import text
 
 from documents import repo
 from documents.extract import slug
+from documents.workspace import MemberRole, may_import, member_roles
+from obs.logging import log_context, logger
 from research_files.checks import _PII
 from research_files.parsers.tabular import MAX_URL_CHARS, safe_url
+
+_log = logger(__name__)
 
 IMPORT_VERSION = "deliverables-import-v1"
 PAGE = 500
@@ -64,7 +68,17 @@ NEVER_STORED = re.compile(r"(?i)\b(e-?mail|phone|mobile|address)\b")
 # fields that hold a web address: kept only when the cell is one (``safe_url``), up to its length
 URL_FIELDS = frozenset({"link", "second_link", "url"})
 # the longest value a field keeps; a free-text cell longer than this is cut
-FIELD_CHARS = {"meets_seniority": 40, "location": 200, "entity": 200}
+FIELD_CHARS = {
+    "meets_seniority": 40,
+    "location": 200,
+    "entity": 200,
+    "summary": 2000,
+    "sentences": 3000,
+    "description": 32000,
+    "former_si": 1000,
+    "technologies": 4000,
+    "locations": 2000,
+}
 DEFAULT_FIELD_CHARS = 500
 _DATE = re.compile(r"^\d{4}-\d{2}-\d{2}")
 _COLUMN_N = re.compile(r"^column (\d+)$")
@@ -88,7 +102,7 @@ KINDS: tuple[SheetKind, ...] = (
         ("title", "role", "job title"),
         (("status", "first seen", "requisition", "posted", "location"),),
         {
-            "lanes": ("lane families", "lanes", "lane", "platforms named"),
+            "lanes": ("lane families", "lanes", "lane", "platforms named", "platforms"),
             "location": ("location",),
             "posted": ("first seen", "posted", "date posted", "posted at"),
             "last_seen": ("last seen",),
@@ -99,6 +113,11 @@ KINDS: tuple[SheetKind, ...] = (
             "side": ("side of the company", "side"),
             "class": ("class",),
             "url": ("url", "link", "posting link", "posting url"),
+            # what only the workbook carries (workspace import phase 2): read in full, the
+            # platform sentences and the whole posting text
+            "summary": ("what the posting says (read)", "what the posting says", "summary"),
+            "sentences": ("platform sentences",),
+            "description": ("full description", "description"),
         },
     ),
     SheetKind(
@@ -106,8 +125,8 @@ KINDS: tuple[SheetKind, ...] = (
         ("name", "full name"),
         (("title as reported", "title", "role", "level", "priority", "linkedin link"),),
         {
-            "title": ("title as reported", "title", "role"),
-            "level": ("level",),
+            "title": ("title as reported", "title", "role", "position", "designation"),
+            "level": ("level", "job level"),
             "lane": ("lane",),
             "priority": ("priority",),
             "side": ("side of the company", "side"),
@@ -117,6 +136,12 @@ KINDS: tuple[SheetKind, ...] = (
             "location": ("location",),
             "note": ("note",),
             "found_by": ("found by",),
+            "former_si": (
+                "former si and consulting employers (firm, years)",
+                "former si and consulting employers (firm and years)",
+                "former si and consulting employers",
+                "former employers",
+            ),
         },
     ),
     SheetKind(
@@ -137,15 +162,24 @@ KINDS: tuple[SheetKind, ...] = (
             "function": ("business function", "function"),
             "lane": ("lane for this account", "lane"),
             "rank": ("rank",),
-            "sources": ("postings naming it", "postings confirming use", "postings", "sources"),
+            "sources": (
+                "postings naming it",
+                "postings confirming use",
+                "postings describing it as used",
+                "postings",
+                "sources",
+            ),
             "open_now": ("open now",),
             "last_seen": ("last seen",),
+            "in_stack": ("in confirmed stack",),
+            "checked": ("matches checked by reading",),
         },
     ),
     SheetKind(
         "tech",
         ("team",),
-        # the second names of each column are the Platform teams sheet of the 2026-10-26 zip
+        # the second names of each column are the Platform teams sheet of the 2026-10-26 zip;
+        # a plainer teams sheet names the platform and the postings of the last months
         (
             (
                 "team path",
@@ -153,14 +187,36 @@ KINDS: tuple[SheetKind, ...] = (
                 "lane platforms named",
                 "postings count",
                 "lane technologies named",
+                "platform",
+                "platforms",
+                "postings in the last 12 months",
             ),
         ),
         {
-            "function": ("team path", "job functions"),
-            "sources": ("postings since", "postings count"),
-            "lanes": ("lane platforms named", "lane technologies named"),
-            "technologies": ("most named technologies", "team technologies"),
-            "locations": ("top locations", "team locations"),
+            "function": ("team path", "job functions", "job functions (postings)"),
+            "sources": (
+                "postings since",
+                "postings count",
+                "jobs count",
+                "postings in the last 12 months",
+                "postings",
+            ),
+            "lanes": (
+                "lane platforms named",
+                "lane technologies named",
+                "lane technology (postings)",
+                "lane technology",
+                "platform",
+                "platforms",
+            ),
+            "technologies": (
+                "most named technologies",
+                "team technologies (postings)",
+                "team technologies",
+            ),
+            "locations": ("top locations", "team locations (postings)", "team locations"),
+            "first_activity": ("first activity",),
+            "last_activity": ("last activity",),
         },
         note="team",
     ),
@@ -172,8 +228,19 @@ def norm(column: str) -> str:
     return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9 ]+", " ", column.lower())).strip()
 
 
-def _find(columns: Sequence[str], alternatives: Sequence[str]) -> str | None:
-    """The first column that is, or starts with, one of the alternatives (exact first)."""
+# a column may carry this many words beyond an alternative's and still be read as it by the
+# word match ("Job Title" for "title", "Seniority level" for "level"); longer headers are
+# sentences of their own ("What the posting says (read)")
+WORD_MATCH_EXTRA = 1
+
+
+def _find(
+    columns: Sequence[str], alternatives: Sequence[str], *, words: bool = False
+) -> str | None:
+    """The first column that is, or starts with, one of the alternatives (exact first); with
+    ``words`` (a field, never the key or the columns that decide the sheet's kind: owner
+    2026-11-05, later packages rename a column a little) else the first column holding every
+    word of an alternative with at most ``WORD_MATCH_EXTRA`` more words."""
     normalised = [norm(c) for c in columns]
     for alt in alternatives:
         for col, n in zip(columns, normalised, strict=True):
@@ -183,7 +250,39 @@ def _find(columns: Sequence[str], alternatives: Sequence[str]) -> str | None:
         for col, n in zip(columns, normalised, strict=True):
             if n.startswith(alt + " ") or n.startswith(alt + "s"):
                 return col
+    if not words:
+        return None
+    for alt in alternatives:
+        want = alt.split()
+        for col, n in zip(columns, normalised, strict=True):
+            have = n.split()
+            if set(want) <= set(have) and len(have) <= len(want) + WORD_MATCH_EXTRA:
+                return col
     return None
+
+
+def field_columns(columns: Sequence[str], kind: SheetKind) -> dict[str, str]:
+    """The column each field of ``kind`` is read from. The name key and every field matched by
+    its own name (exact or prefix) claim their columns first; the word match then fills the
+    fields still open from the columns nobody claimed, so one column is never read as two
+    things ("Seniority level" cannot be both level and seniority, a key is never a field)."""
+    out: dict[str, str] = {}
+    key = _find(columns, kind.key)
+    claimed: set[str] = {key} if key else set()
+    for stored, alternatives in kind.fields.items():
+        col = _find(columns, alternatives)
+        if col is not None and col not in claimed:
+            out[stored] = col
+            claimed.add(col)
+    free = [c for c in columns if c not in claimed]
+    for stored, alternatives in kind.fields.items():
+        if stored in out or not free:
+            continue
+        col = _find(free, alternatives, words=True)
+        if col is not None:
+            out[stored] = col
+            free.remove(col)
+    return out
 
 
 def match(columns: Sequence[str]) -> SheetKind | None:
@@ -198,9 +297,7 @@ def match(columns: Sequence[str]) -> SheetKind | None:
             continue
         if not all(_find(columns, group) is not None for group in kind.required):
             continue
-        score = sum(
-            _find(columns, alternatives) is not None for alternatives in kind.fields.values()
-        )
+        score = len(field_columns(columns, kind))
         if score > best_score:
             best, best_score = kind, score
     return best
@@ -267,6 +364,8 @@ class SheetReader:
     tables: dict[str, _Table] = field(default_factory=dict)
     skipped: Counter[str] = field(default_factory=Counter)
     parts: dict[tuple[str, Any], list[Any]] = field(default_factory=dict)
+    # the zip members' workspace roles (``documents.workspace``); empty for a loose upload
+    roles: dict[str, MemberRole] = field(default_factory=dict)
 
     def read(self, passage: Any) -> list[Found]:
         """The structured rows one ``crm_row`` passage yields (none, one, or the rows a table
@@ -294,6 +393,11 @@ class SheetReader:
         """The structured rows one whole ``crm_row`` passage yields (none, one, or the rows a table
         held back while its header was still unknown)."""
         location = dict(passage.location or {})
+        if not may_import(self.roles, location.get("member")):
+            # a raw pull or build intermediate of a workspace package: its rows are stored
+            # as a table, never imported as the account's postings, people or technologies
+            self.skipped["rows_not_deliverable"] += 1
+            return []
         name = f"{location.get('member') or ''}/{location.get('table') or 'table'}"
         table = self.tables.setdefault(name, _Table())
         if table.gave_up or not passage.content:
@@ -349,8 +453,9 @@ class SheetReader:
             self.skipped[f"{kind.kind}_key_not_plausible"] += 1
             return None
         fields: dict[str, str] = {}
-        for stored, alternatives in kind.fields.items():
-            col = _find(list(record), alternatives)
+        columns = field_columns(list(record), kind)
+        for stored in kind.fields:
+            col = columns.get(stored)
             raw = (record.get(col) or "").strip() if col else ""
             if not raw or raw.lower() in ("n/a", "none", "-", "null"):
                 continue
@@ -431,7 +536,13 @@ def plausible_key(kind: str, value: str) -> bool:
         # the reference People List of 2026-10-27); a list of skills or schools does not look
         # like that
         name, *after = text.split(",")
-        return len(after) <= 2 or (len(name.split()) >= 2 and all(map(_credential, after)))
+        if len(after) <= 2 or (len(name.split()) >= 2 and all(map(_credential, after))):
+            return True
+        # the owner's lists carry credential strings the rule above does not know ("B.D.S,
+        # M.B.A, PMI-PMP®"): a two-word name followed by short tokens is a name (2026-11-05)
+        return (
+            len(name.split()) >= 2 and all(len(a.strip()) <= 24 for a in after) and len(text) <= 120
+        )
     if kind == "tech":
         return len(text) <= 120 and text.count(",") <= 3 and any(c.isalpha() for c in text)
     return True
@@ -450,15 +561,20 @@ def config_hash() -> str:
     return hashlib.sha256(IMPORT_VERSION.encode("utf-8")).hexdigest()
 
 
-async def import_document(txn: Any, tenant_id: UUID, doc: Any, *, now: datetime) -> Counter[str]:
+async def import_document(
+    txn: Any,
+    tenant_id: UUID,
+    doc: Any,
+    *,
+    now: datetime,
+    payloads: Any | None = None,
+    blobs: Any | None = None,
+    only_parts: frozenset[str] | None = None,
+) -> Counter[str]:
     """Read the document's row passages and record every recognised deliverable row as a fact
     (see the module docstring). Returns the counts: rows read per class, facts written per class,
-    rows skipped. A document bound to no account imports nothing."""
-    from account_intelligence.grading.ports import RunInfo
-    from account_intelligence.grading.repo import record_document_fact
-    from account_intelligence.runs import lifecycle
-    from documents.chunking import cite
-
+    rows skipped. A document bound to no account imports nothing. ``only_parts``: the sweep's retry
+    of the failed parts of a workspace import (``retry_import_parts``)."""
     counts: Counter[str] = Counter()
     if doc.account_id is None:
         return counts
@@ -471,8 +587,81 @@ async def import_document(txn: Any, tenant_id: UUID, doc: Any, *, now: datetime)
         if acct is None:
             return counts
     account_id = UUID(str(doc.account_id))
+    async with txn(tenant_id) as s:
+        # every member the zip listed (a short member whose passage was merged with its
+        # neighbours carries no ``member`` of its own), then the members the passages name
+        members = set(await repo.member_paths(s, UUID(str(doc.id))))
+        members.update(
+            str(r.member)
+            for r in await s.execute(
+                text(
+                    "SELECT DISTINCT location->>'member' AS member FROM document_passages"
+                    " WHERE document_id = :d AND location ? 'member'"
+                ),
+                {"d": doc.id},
+            )
+        )
+    roles = member_roles(sorted(members))
+    if roles:
+        # a workspace package: every row into its native table, once (phase 2), never as a
+        # private fact a second time
+        from documents.workspace_import import import_workspace
+
+        return await import_workspace(
+            txn, tenant_id, doc, roles, now=now, payloads=payloads, blobs=blobs,
+            only_parts=only_parts,
+        )  # fmt: skip
+    owner: str | None = None
+    async with txn(tenant_id) as s:
+        found_owner = (
+            await s.execute(
+                text("SELECT owner_user_id FROM documents WHERE tenant_id = :t AND id = :d"),
+                {"t": tenant_id, "d": doc.id},
+            )
+        ).scalar_one_or_none()
+        owner = str(found_owner) if found_owner else None
+    from documents import import_status
+
+    error: str | None = None
+    try:
+        counts = await _import_loose(txn, tenant_id, doc, account_id, acct, roles, now)
+    except Exception as failure:  # noqa: BLE001 - recorded on the run below, then raised again
+        error = f"{type(failure).__name__} ({error_code(failure)})"
+        raise
+    finally:
+        # a loose workbook has no parts: one run, ok or failed
+        try:
+            await import_status.record_loose(
+                txn,
+                tenant_id,
+                document_id=UUID(str(doc.id)),
+                account_id=account_id,
+                owner=owner,
+                error=error,
+            )
+        except Exception:  # noqa: BLE001 - never mask the import's own result
+            _log.warning("documents.import_status_failed")
+    return counts
+
+
+async def _import_loose(
+    txn: Any,
+    tenant_id: UUID,
+    doc: Any,
+    account_id: UUID,
+    acct: Any,
+    roles: dict[str, Any],
+    now: datetime,
+) -> Counter[str]:
+    """The rows of a loose workbook as private facts (``import_document``)."""
+    from account_intelligence.grading.ports import RunInfo
+    from account_intelligence.grading.repo import record_document_fact
+    from account_intelligence.runs import lifecycle
+    from documents.chunking import cite
+
+    counts: Counter[str] = Counter()
     info: RunInfo | None = None  # the import run exists only once a row was recognised
-    reader = SheetReader()
+    reader = SheetReader(roles=roles)
     cfg_hash = config_hash()
     after = -1
     # LOOP(import pages): cap=passages / PAGE pages; exit=a short page
@@ -516,20 +705,27 @@ async def import_document(txn: Any, tenant_id: UUID, doc: Any, *, now: datetime)
 def error_code(error: BaseException) -> str:
     """The database constraint or SQL state behind a failure, else the class name (for the log)."""
     orig = getattr(error, "orig", None)
+    cause = getattr(orig, "__cause__", None)  # the driver's own error under SQLAlchemy's wrapper
     for name in ("constraint_name", "sqlstate", "pgcode"):
-        value = getattr(orig, name, None) or getattr(error, name, None)
-        if value:
-            return str(value)
+        for holder in (orig, cause, error):
+            value = getattr(holder, name, None)
+            if value:
+                return str(value)
     return type(error).__name__
 
 
-async def backfill_imports(now: datetime, *, limit: int = 10) -> dict[str, int]:
+async def backfill_imports(
+    now: datetime, *, limit: int = 10, payloads: Any | None = None, blobs: Any | None = None
+) -> dict[str, int]:
     """Import the documents indexed before the import existed (or whose import failed): per
     client, up to ``limit`` indexed documents bound to an account and not yet marked are claimed
     (marked first, so two sweeps never read one document twice) and read as their owner; a
     document whose import fails is given back for the next pass. Returns the counts of
-    documents read and facts written."""
-    from account_intelligence.db.session import tenant_txn, untenanted_session
+    documents read and facts written. ``blobs`` and ``payloads`` are the document service's own
+    stores: without them a workspace zip's raw pulls, captured pages and posting texts are not
+    read again (UCB 2026-11-04: the retry of a failed import left them out)."""
+    from account_intelligence.db.session import tenant_txn
+    from account_intelligence.db.system_scope import untenanted_session
     from obs.logging import logger
 
     log = logger(__name__)
@@ -557,7 +753,12 @@ async def backfill_imports(now: datetime, *, limit: int = 10) -> dict[str, int]:
                     doc = await repo.get(s, UUID(str(row.id)))
                 if doc is None:
                     continue
-                counts = await import_document(as_owner, tenant, doc, now=now)
+                with log_context(
+                    tenant_id=tenant, account_id=doc.account_id, document_id=UUID(str(row.id))
+                ):
+                    counts = await import_document(
+                        as_owner, tenant, doc, now=now, payloads=payloads, blobs=blobs
+                    )
             except Exception as error:  # noqa: BLE001 - one document never stops the pass
                 log.warning(
                     "documents.import_failed",
@@ -573,3 +774,65 @@ async def backfill_imports(now: datetime, *, limit: int = 10) -> dict[str, int]:
             documents += 1
             facts += sum(v for k, v in counts.items() if k.endswith("_written"))
     return {"documents": documents, "facts": facts}
+
+
+async def retry_import_parts(
+    now: datetime, *, limit: int = 20, payloads: Any | None = None, blobs: Any | None = None
+) -> dict[str, int]:
+    """Try again the parts of workspace imports that failed or died, per client: only the parts
+    ``import_status.due_parts`` hands out (attempts left, wait over), never a part that
+    succeeded nor an upload whose import succeeded, each run as the document's owner. The step-5
+    analysis is never started from here (it belongs to indexing, once per document). Returns the
+    documents and parts tried."""
+    from account_intelligence.db.session import tenant_txn
+    from account_intelligence.db.system_scope import untenanted_session
+    from documents import import_status
+    from obs.logging import logger
+
+    log = logger(__name__)
+    async with untenanted_session() as plain:
+        tenants = [
+            UUID(str(r.tenant_id))
+            for r in await plain.execute(text("SELECT tenant_id FROM operator_tenant_overview()"))
+        ]
+    documents = parts = 0
+    # LOOP(import part retry clients): cap=every client once per pass, `limit` parts each;
+    # exit=last client
+    for tenant in tenants:
+        async with tenant_txn(tenant, system=True) as s:
+            due = await import_status.due_parts(s, tenant, now, limit)
+        # LOOP(import part retry documents): cap=the parts claimed above; exit=claims exhausted
+        for document_id, wanted in due.items():
+            async with tenant_txn(tenant, system=True) as s:
+                doc = await repo.get(s, document_id)
+            if doc is None or doc.account_id is None:
+                continue
+            # the import acts as the document's owner (documents are owned by their uploader)
+            owner = str(getattr(doc, "owner_user_id", None) or doc.uploaded_by)
+
+            def as_owner(tenant_id: UUID, owner: str = owner) -> Any:
+                """A tenant transaction acting as the import's owner (binds the loop's owner)."""
+                return tenant_txn(tenant_id, user=owner, system=True)
+
+            try:
+                with log_context(
+                    tenant_id=tenant, account_id=doc.account_id, document_id=document_id
+                ):
+                    await import_document(
+                        as_owner, tenant, doc, now=now, payloads=payloads, blobs=blobs,
+                        only_parts=wanted,
+                    )  # fmt: skip
+            except Exception as error:  # noqa: BLE001 - one document never stops the pass
+                log.warning(
+                    "documents.import_retry_failed",
+                    extra={
+                        "tenant_id": str(tenant),
+                        "document_id": str(document_id),
+                        "error_class": type(error).__name__,
+                        "error_code": error_code(error)[:80],
+                    },
+                )
+                continue
+            documents += 1
+            parts += len(wanted)
+    return {"documents": documents, "parts": parts}

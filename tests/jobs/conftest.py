@@ -23,7 +23,7 @@ FROZEN = Path(__file__).resolve().parents[1] / "fixtures/synthetic/jobs/config"
 
 def frozen_config() -> JobsConfig:
     """The frozen lane lexicon, rubric and caps the golden oracle was written against."""
-    return load_jobs_config(FROZEN)
+    return load_jobs_config(FROZEN, configured=True)
 
 
 def is_hostile(text: str) -> bool:

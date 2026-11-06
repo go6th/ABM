@@ -60,7 +60,7 @@ describe("Google Workspace operator authorization-code flow", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it("sets the staff cookie only after nonce and backend verification succeed", async () => {
+  it("stores an opaque console session, never the Google ID token, after nonce and backend verification", async () => {
     configure();
     const nonce = "expected-nonce";
     const token = "header." + Buffer.from(JSON.stringify({
@@ -74,7 +74,12 @@ describe("Google Workspace operator authorization-code flow", () => {
         staff_id: "google-subject",
         role: "operator",
         mfa_fresh: true,
-      }), { status: 200 }));
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        token: "ops_opaque-session-token-0123456789abcdefghijklmnopq",
+        expires_at: "2026-11-03T20:00:00Z",
+        idle_timeout_s: 1800,
+      }), { status: 201 }));
     vi.stubGlobal("fetch", fetch);
     const request = new NextRequest("https://staff.example.com/api/operator/callback?code=one-time-code&state=matching-state&iss=https%3A%2F%2Faccounts.google.com", {
       headers: { cookie: [
@@ -88,13 +93,42 @@ describe("Google Workspace operator authorization-code flow", () => {
     expect(response.status).toBe(303);
     expect(response.headers.get("location")).toBe("https://staff.example.com/operator/tenants");
     const sessionCookie = response.cookies.get(names.session);
-    expect(sessionCookie?.value).toBe(token);
+    expect(sessionCookie?.value).toBe("ops_opaque-session-token-0123456789abcdefghijklmnopq");
+    expect(sessionCookie?.value).not.toContain(token);
     expect(sessionCookie?.httpOnly).toBe(true);
     expect(sessionCookie?.secure).toBe(true);
-    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(sessionCookie?.sameSite).toBe("strict");
+    expect(sessionCookie?.expires).toEqual(new Date("2026-11-03T20:00:00Z"));
+    expect(fetch).toHaveBeenCalledTimes(3);
     expect(fetch.mock.calls[1]?.[1]).toMatchObject({
       headers: { Authorization: "Bearer " + token },
       cache: "no-store",
     });
+    // the ID token is traded once, server side, for the opaque session
+    expect(String(fetch.mock.calls[2]?.[0])).toBe("https://api.example.com/operator/v1/sessions");
+    expect(fetch.mock.calls[2]?.[1]).toMatchObject({
+      method: "POST",
+      headers: { Authorization: "Bearer " + token },
+      cache: "no-store",
+    });
+  });
+
+  it("sets no cookie when the session cannot be minted", async () => {
+    configure();
+    const nonce = "expected-nonce";
+    const token = "header." + Buffer.from(JSON.stringify({ nonce })).toString("base64url") + ".signature";
+    const names = operatorOAuthCookieNames(true);
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id_token: token }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ staff_id: "s", role: "operator", mfa_fresh: true }), { status: 200 }))
+      .mockResolvedValueOnce(new Response("{}", { status: 503 }));
+    vi.stubGlobal("fetch", fetch);
+    const request = new NextRequest("https://staff.example.com/api/operator/callback?code=c&state=s&iss=https%3A%2F%2Faccounts.google.com", {
+      headers: { cookie: [names.state + "=s", names.nonce + "=" + nonce, names.verifier + "=v"].join("; ") },
+    });
+    const response = await finishLogin(request);
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toContain("error=session_refused");
+    expect(response.cookies.get(names.session)?.value ?? "").toBe("");
   });
 });

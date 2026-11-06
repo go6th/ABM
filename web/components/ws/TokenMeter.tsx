@@ -4,7 +4,7 @@
 // bar that fills step by step in each step's colour against marks; and every step with its tokens
 // and share. Widths are SVG attributes because the page CSP forbids inline styles.
 import { useEffect, useState } from "react";
-import type { RunStatusView, TokenUse } from "@/lib/gen/api.gen";
+import type { ModelFallback, RunStatusView, TokenUse } from "@/lib/gen/api.gen";
 
 export const TOKENS_PER_MARK = 100_000;
 const MARK_STEPS = [100_000, 200_000, 250_000, 500_000, 1_000_000, 2_000_000, 2_500_000, 5_000_000, 10_000_000, 20_000_000, 50_000_000];
@@ -55,6 +55,28 @@ function pill(state: MeterState, at: { index: number; total: number } | null) {
     waiting: "Not started",
   }[state];
   return <span className={`tk-pill tk-pill-${state}`}><i aria-hidden="true" />{text}</span>;
+}
+
+function money(usd: number): string {
+  return `$${usd.toFixed(2)}`;
+}
+
+/** Why the bill differs from the estimate: steps whose chosen model (Kimi K3, Grok 4.5) could not
+ * return the required format and were served by the role's Claude model (ADR-0119). */
+function FallbackNote({ fallbacks }: { fallbacks: ModelFallback[] }) {
+  if (!fallbacks.length) return null;
+  const pairs = [...new Set(fallbacks.map((f) => `${f.from_model} to ${f.to_model}`))].join(", ");
+  const n = fallbacks.length;
+  const extra = fallbacks.reduce((a, f) => a + (f.extra_usd ?? 0), 0);
+  const discarded = fallbacks.reduce((a, f) => a + (f.discarded_usd ?? 0), 0);
+  const priced = fallbacks.some((f) => f.extra_usd != null);
+  return (
+    <p className="tk-note" role="note" aria-label="Model fallbacks">
+      {`${n} step${n === 1 ? "" : "s"} moved from ${pairs}: the chosen model could not return the required format.`}
+      {priced ? ` That cost ${money(extra)} more than the estimate.` : " The extra cost is counted when the step ends."}
+      {discarded ? ` The model cost includes ${money(discarded)} of discarded replies.` : ""}
+    </p>
+  );
 }
 
 export function TokenMeter({ run, steps = [], at = null, status }: {
@@ -171,6 +193,7 @@ export function TokenMeter({ run, steps = [], at = null, status }: {
           ) : null}
         </>
       )}
+      <FallbackNote fallbacks={use.fallbacks ?? []} />
     </section>
   );
 }

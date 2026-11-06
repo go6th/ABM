@@ -127,6 +127,9 @@ class PersonRow(_Row):
     # every search that found the person
     role_lane: str = ""
     found_via: tuple[FoundVia, ...] = ()
+    # known only from an internal-only provider (ADR-0025 narrowed 2026-11-06): listed in the
+    # People List and the web tables, left out of the workspace zip
+    internal: bool = False
 
 
 class PeopleCounts(_Row):

@@ -17,6 +17,10 @@
 # V-FILES-1): PUT from the web origin only, with Content-Range, Range and Content-Type allowed and
 # exposed (a 308 answer carries the committed Range).
 #
+# The upload quarantine bucket (2026-11-04, ingestion hardening PR4): its own bucket, objects deleted
+# after 1 day whatever happens (scanned and copied out, rejected, or abandoned). The old
+# quarantine/ prefix rule on the data bucket stays for objects written before this change.
+#
 # The audit archive bucket (FIX_PROMPT 5.6, "applies on deploy"): 7-year retention policy, locked
 # only when the owner sets archive_lock = true (locking is irreversible).
 
@@ -51,6 +55,16 @@ variable "archive_writers" {
 variable "archive_lock" {
   type        = bool
   description = "Lock the archive retention policy (irreversible: the bucket cannot be deleted for 7 years)."
+}
+variable "quarantine_creators" {
+  type        = map(string)
+  default     = {}
+  description = "Workload name to service account email that opens upload sessions in the quarantine bucket and reads object metadata (the api)."
+}
+variable "quarantine_processors" {
+  type        = map(string)
+  default     = {}
+  description = "Workload name to service account email that reads, copies out and deletes quarantine objects (the worker)."
 }
 variable "labels" {
   type    = map(string)
@@ -149,6 +163,74 @@ resource "google_storage_bucket_iam_member" "objects" {
   member   = "serviceAccount:${each.value}"
 }
 
+resource "google_storage_bucket" "quarantine" {
+  # checkov:skip=CKV_GCP_62:object access is recorded by Cloud Audit Logs (docs/deploy/ARCHITECTURE.md)
+  # checkov:skip=CKV_GCP_78:objects live one day and are copied out after the scan; versioning would keep deleted copies
+  project                     = var.project_id
+  name                        = "${var.name}-quarantine"
+  location                    = var.region
+  uniform_bucket_level_access = true
+  public_access_prevention    = "enforced"
+  force_destroy               = false
+  labels                      = merge(var.labels, { purpose = "upload-quarantine" })
+  versioning {
+    enabled = false
+  }
+  encryption {
+    default_kms_key_name = var.kms_key_id
+  }
+  # the browser sends upload chunks straight here through a signed resumable session
+  cors {
+    origin = [var.web_origin]
+    method = ["PUT", "POST", "GET"]
+    # GCS uses one list for the request headers it permits and the response headers it exposes
+    response_header = ["Content-Type", "Content-Range", "x-goog-resumable", "x-goog-hash", "Range"]
+    max_age_seconds = 3600
+  }
+  lifecycle_rule {
+    condition {
+      age = 1
+    }
+    action {
+      type = "Delete"
+    }
+  }
+  lifecycle_rule {
+    condition {
+      age = 1
+    }
+    action {
+      type = "AbortIncompleteMultipartUpload"
+    }
+  }
+  depends_on = [google_kms_crypto_key_iam_member.gcs]
+}
+
+# objectUser, not objectCreator: when complete finds a size or checksum mismatch the api deletes the
+# object it just received (PR4 part B)
+resource "google_storage_bucket_iam_member" "quarantine_create" {
+  for_each = var.quarantine_creators
+  bucket   = google_storage_bucket.quarantine.name
+  role     = "roles/storage.objectUser"
+  member   = "serviceAccount:${each.value}"
+}
+
+resource "google_storage_bucket_iam_member" "quarantine_view" {
+  for_each = var.quarantine_creators
+  bucket   = google_storage_bucket.quarantine.name
+  role     = "roles/storage.objectViewer"
+  member   = "serviceAccount:${each.value}"
+}
+
+# the worker reads, deletes (and may write a rescan copy); its rights on the data bucket (objectUser)
+# already cover the copy into the documents bucket
+resource "google_storage_bucket_iam_member" "quarantine_process" {
+  for_each = var.quarantine_processors
+  bucket   = google_storage_bucket.quarantine.name
+  role     = "roles/storage.objectUser"
+  member   = "serviceAccount:${each.value}"
+}
+
 resource "google_storage_bucket" "audit_archive" {
   # checkov:skip=CKV_GCP_62:object access is recorded by Cloud Audit Logs
   # checkov:skip=CKV_GCP_78:a bucket retention policy and object versioning are mutually exclusive; the retention lock is the protection
@@ -191,6 +273,9 @@ resource "google_storage_bucket_iam_member" "archive_writer" {
 
 output "bucket" {
   value = google_storage_bucket.data.name
+}
+output "quarantine_bucket" {
+  value = google_storage_bucket.quarantine.name
 }
 output "archive_bucket" {
   value = google_storage_bucket.audit_archive.name

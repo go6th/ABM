@@ -61,11 +61,11 @@ ABM Generator/
 │   ├── exports/                Word, Excel and zip builders (the deliverable files).
 │   ├── documents/, research_files/, devstore/   Uploaded files: upload, scan, parse, index.
 │   ├── jobs/, people/, signals/, refresh/, alerts/   Pipelines and the refresh/alert engine.
-│   ├── spend/, metering/, governance/, unitcost/   Money: credit cap, usage, budgets, unit cost.
+│   ├── spend/, metering/, governance/   Money: credit cap, usage, budgets.
 │   ├── identity/, tenancy/, admin/, audit/, views/, connectors_client/, pilot/, crm_writeback/,
 │   │   opendoor/                Tenant plane, operator plane, audit, tables, client connectors.
 │   ├── llm/, verify/, evalgate/, parallel/, obs/   Model routing, verifiers, evals, scheduler, telemetry.
-│   └── crosscut/, datamodel/, contracts/, quality/, privacy/, security/, metrics/, registers/
+│   └── crosscut/, datamodel/
 │                               Roadmap section 11 cross-cutting checks (conformance as code).
 ├── config/                   Every rule the code reads as data (YAML): grading, agents, budgets,
 │                             telemetry, the owner's research skill archive… See config/README.md.

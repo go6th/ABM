@@ -68,7 +68,17 @@ ROLE_WORDS = frozenset(
         "hr",
     }
 )  # fmt: skip
-_NOT_NAME = _TITLE_WORDS | ROLE_WORDS
+# the words of a company's legal name: "Olympus Corporation" read as a person, and as the name of
+# a person off the list it was guarded, so every text naming the account's own parent was
+# withheld from the client files (staging 2026-11-06: 280 texts, all 22 job descriptions)
+ORG_WORDS = frozenset(
+    {
+        "corporation", "corp", "incorporated", "inc", "ltd", "limited", "llc", "llp", "plc",
+        "gmbh", "ag", "bv", "nv", "sa", "spa", "kk", "company", "holdings", "foundation",
+        "university", "institute", "hospital", "association", "society",
+    }
+)  # fmt: skip
+_NOT_NAME = _TITLE_WORDS | ROLE_WORDS | ORG_WORDS
 # lower-case surname particles ("Pieter van der Berg", "Maria de la Cruz", "Ahmed bin Zayed")
 _PARTICLES = frozenset(
     {

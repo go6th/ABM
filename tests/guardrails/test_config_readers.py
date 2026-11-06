@@ -24,10 +24,8 @@ READERS: frozenset[str] = frozenset(
         "account_intelligence.connectors.settings",
         "account_intelligence.grading.config",
         "account_intelligence.grading.judge",
-        "account_intelligence.model_routing",
         "account_intelligence.platform.llm",
         "account_intelligence.platform.prompt_cache",
-        "account_intelligence.rag.config",
         "account_intelligence.replica.credits",
         "account_intelligence.replica.isolation",
         "account_intelligence.replica.jobs",
@@ -44,7 +42,6 @@ READERS: frozenset[str] = frozenset(
         "alerts.rules",
         "audit.events",
         "connectors_client.scopes",
-        "contracts.monitor",
         "crm_writeback.service",
         "crosscut.conformance",
         "datamodel.pins",
@@ -61,8 +58,7 @@ READERS: frozenset[str] = frozenset(
         "identity.sessions",
         "jobs.config",
         "llm.choice",
-        "llm.config",
-        "llm.reply_cache",
+        "llm.cost",
         "metering.limits",
         "obs.alerts",
         "obs.catalog",
@@ -72,10 +68,6 @@ READERS: frozenset[str] = frozenset(
         "people.config",
         "people.technology",
         "pilot.feedback",
-        "privacy.dsar",
-        "privacy.minimise",
-        "privacy.retention",
-        "quality.regression",
         "refresh.policy",
         "research_files.config",
         "signals.score",
@@ -101,7 +93,8 @@ def _reads_yaml(tree: ast.AST) -> bool:
         func = node.func
         if (
             isinstance(func, ast.Attribute)
-            and func.attr == "safe_load"
+            # ``yaml.load(text, Loader=CSafeLoader)``: the safe loader in C reads YAML just the same
+            and func.attr in ("safe_load", "load")
             and isinstance(func.value, ast.Name)
             and func.value.id == "yaml"
         ):

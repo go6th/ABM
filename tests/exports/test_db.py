@@ -351,8 +351,10 @@ async def test_every_listed_posting_gets_a_source_code_though_no_fact_cites_it()
     exported_urls = {
         r[0]
         for r in fetch(
+            # every read posting in the window is listed (owner decision 2026-11-06), not only
+            # those naming a platform
             "SELECT url FROM job_postings WHERE run_id = %s AND full_text_read AND NOT hostile"
-            " AND cardinality(platforms) > 0 AND window_bucket <> 'out_of_window'",
+            " AND window_bucket <> 'out_of_window'",
             w.run,
         )
     }
@@ -381,7 +383,12 @@ async def test_the_counts_say_no_posting_was_left_out() -> None:
     assert not_listed == [0]
     ref_col = CFG.rules.workbooks.ref_column(CFG.rules.workbooks.jobs)
     sheet = book[CFG.rules.workbooks.jobs.sheet]
-    refs = [c.value for c in sheet[ref_col][1:] if c.value]
+    # ``ref_column`` is a column number; ``sheet[n]`` would read row n (the old form read an
+    # empty row while the file had fewer than 17 rows, and passed without checking anything)
+    from openpyxl.utils import get_column_letter
+
+    refs = [c.value for c in sheet[get_column_letter(ref_col)][1:] if c.value]
+    assert refs
     assert refs == [f"J-{n:04d}" for n in range(1, len(refs) + 1)]
 
 

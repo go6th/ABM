@@ -32,9 +32,12 @@ Tier = str  # strict | standard | minimal
 
 _GOV = {
     "us_ssn": _PII["us_ssn"],
+    # the label is a whole word and the identifier carries a digit: before, "Pankaj Kalambe"
+    # and "Tina Kimbell" (and every LinkedIn slug after "pan"/"tin") became [NATIONAL_ID_n]
+    # in an uploaded People List (UCB, 2026-11-05)
     "national_id": re.compile(
-        r"(?i)\b(?:passport|national id|nin|tax id|tin|ssn|aadhaar|pan)\s*(?:no\.?|number|#)?"
-        r"\s*[:#]?\s*([A-Z0-9][A-Z0-9 -]{5,18}[A-Z0-9])"
+        r"(?i)\b(?:passport|national id|nin|tax id|tin|ssn|aadhaar|pan)\b\s*(?:no\.?|number|#)?"
+        r"\s*[:#]?\s*([A-Z0-9](?=[A-Z0-9 -]*\d)[A-Z0-9 -]{5,18}[A-Z0-9])"
     ),
 }
 _BANK = {

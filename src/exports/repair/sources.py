@@ -444,6 +444,8 @@ def build_sources(
             ),
         }
         item = (_code_key(kept if kept != READ else ""), canon, row)
+        # a coded source is evidence whatever its address (the owner's register codes its
+        # careers pages); only an uncoded page read is a job page
         if row["Code"] == READ and is_job_page(canon, profile):
             jobs.append(item)
         else:

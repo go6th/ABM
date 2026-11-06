@@ -120,6 +120,13 @@ def _render(scheme: str, secret: Secret) -> str:
     return f"Bearer {secret.reveal()}" if scheme == "bearer" else secret.reveal()
 
 
+def _max_in_flight_claims() -> int:
+    """``config/parallel.yaml`` ``worker.max_in_flight_claims`` (cached loader)."""
+    from parallel.config import load_parallel_config
+
+    return load_parallel_config().max_in_flight_claims
+
+
 def build_runtime(
     config: ProvidersConfig,
     *,
@@ -183,6 +190,8 @@ def build_runtime(
         payload_exists=getattr(
             payloads, "exists", None
         ),  # a cache hit whose payload is gone is a miss
+        # open claim transactions per worker instance (config/parallel.yaml, ADR-0131)
+        max_in_flight_claims=_max_in_flight_claims(),
     )
     return ConnectorRuntime(
         config=config,

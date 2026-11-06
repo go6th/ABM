@@ -236,3 +236,41 @@ test("a long title wraps in its cell instead of widening the table", () => {
   const title = within(screen.getByRole("table")).getByText(/Senior Salesforce Marketing Cloud/).closest("td");
   expect(title?.className).toContain("wrap");
 });
+
+// --- a match from an Ask citation (owner, 2026-11-04) ----------------------------------------
+
+test("a matched sheet shows a removable chip and keeps the match on every link it builds", async () => {
+  const matched: Sheet = {
+    ...jobs,
+    total: 1,
+    filter: "all",
+    sort: "c1",
+    dir: "asc",
+    match: { col: "location", label: "Location", value: "San Francisco" },
+    filters: [{ key: "all", label: "All", count: 1 }, { key: "status_open", label: "Open", count: 1 }],
+  };
+  const fetched = vi.fn().mockResolvedValue(new Response(JSON.stringify({ n: 1, col: "c3", text: "whole", href: null, withheld: false }), { status: 200, headers: { "content-type": "application/json" } }));
+  vi.stubGlobal("fetch", fetched);
+  render(<SheetView sheet={matched} domain="synthetic.example" base="/accounts/synthetic.example/jobs" moreHref={null} />);
+  const m = "match_col=location&match=San+Francisco";
+  // the chip reads the column and the text; removing it opens the same view without the match
+  const chip = screen.getByRole("link", { name: "Remove the match Location: San Francisco" });
+  expect(chip.textContent).toContain("Location: San Francisco");
+  expect(chip.getAttribute("href")).toBe("/accounts/synthetic.example/jobs?filter=all&sort=c1&dir=asc");
+  // the chips, the sort headings and the downloads stay within the match
+  expect(screen.getByRole("link", { name: "Open · 1" }).getAttribute("href")).toBe(`/accounts/synthetic.example/jobs?filter=status_open&sort=c1&dir=asc&${m}`);
+  expect(screen.getByRole("link", { name: /^Title/ }).getAttribute("href")).toBe(`/accounts/synthetic.example/jobs?filter=all&sort=c1&dir=desc&${m}`);
+  expect(screen.getByRole("link", { name: "Download CSV" }).getAttribute("href")).toBe(`/v1/accounts/synthetic.example/sheets/jobs/csv?filter=all&sort=c1&dir=asc&${m}`);
+  expect(screen.getByRole("link", { name: "Download table as Excel" }).getAttribute("href")).toBe(`/v1/accounts/synthetic.example/sheets/jobs/xlsx?filter=all&sort=c1&dir=asc&${m}`);
+  // a cut cell is fetched under the same match (the row number counts within it)
+  fireEvent.click(screen.getByRole("button", { name: /Show the whole Full description cell of row 1/ }));
+  await waitFor(() => expect(fetched).toHaveBeenCalled());
+  expect(String(fetched.mock.calls[0]![0])).toContain(`/cell?filter=all&sort=c1&dir=asc&${m}&n=1&col=c3`);
+  vi.unstubAllGlobals();
+});
+
+test("a sheet without a match has no match chip and no match in its links", () => {
+  render(<SheetView sheet={{ ...jobs, match: null }} domain="synthetic.example" base="/accounts/synthetic.example/jobs" moreHref={null} />);
+  expect(screen.queryByRole("link", { name: /Remove the match/ })).toBeNull();
+  expect(screen.getByRole("link", { name: "Download CSV" }).getAttribute("href")).not.toContain("match");
+});

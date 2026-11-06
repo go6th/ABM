@@ -2,7 +2,10 @@
 
 ::
 
-    setup -> extract -> tracker -> internal_file -> gate -> deliver -> finish
+    setup -> extract -> tracker -> summarise -> internal_file -> gate -> deliver -> finish
+
+(``extract`` and ``summarise`` may pause at ``token_gate``, the token guard of the research graph,
+and resume at the node they paused.)
 
 * ``setup``: the run's documents must all be indexed and bound to the run's account.
 * ``extract``: facts from the run's passages (``documents.extract``: rows by code, prose by the
@@ -14,6 +17,9 @@
   ledger record carrying the number of facts found; a row without such facts is Not done
   ``not_in_uploaded_data`` (``source_unavailable`` when the model could not read the prose);
   a row that needs public sources is Not done ``not_searched_file_only``.
+* ``summarise``: one model call writes the account page's one-minute version, hypotheses,
+  cautions and first-call questions from the extracted facts (``documents.summarise``), stored
+  as private report sections of the run; a reply that does not fit is counted, not stored.
 * ``internal_file``: the Internal Only Word file, labelled "Internal: from your uploaded
   material", stored apart from client files.
 * ``gate``: the pre-delivery gate (``documents.gate``); a failure ends the run PARTIAL
@@ -37,8 +43,10 @@ from typing import Annotated, Any, TypedDict, cast
 from uuid import UUID
 
 from langgraph.graph import END, START, StateGraph
+from langgraph.types import interrupt
 from sqlalchemy import text
 
+from account_intelligence.connectors.spend_guard import TokenGuardReached
 from account_intelligence.workflow.state import merge_maps, sum_counters
 from account_intelligence.workflow.transitions import RunStatus
 from documents import extract as ex
@@ -61,6 +69,11 @@ class FileState(TypedDict, total=False):
     error_code: str | None
     model_error: str | None
     settled: bool
+    # the token guard (the research graph's pattern): the model node it paused, the node to re-run
+    # once the user continued, and how many times the user was asked
+    token_pause_node: str | None
+    token_resume_node: str | None
+    token_pauses: int
     counters: Annotated[dict[str, int], sum_counters]
     exits: Annotated[dict[str, str], merge_maps]
 
@@ -71,10 +84,8 @@ PASSAGE_PAGE = 2000  # passages read and extracted per page (a file of any size)
 def _model_failure(error: BaseException) -> str | None:
     from account_intelligence.platform.ports import NotConfigured as PlatformNotConfigured
     from llm.errors import (
-        AdapterNotConfigured,
         AuthFailed,
         ContentRefused,
-        DataClassRefused,
         ModelUnavailable,
         ProviderCreditsExhausted,
     )
@@ -83,10 +94,8 @@ def _model_failure(error: BaseException) -> str | None:
         (ProviderCreditsExhausted, "model_credits_exhausted"),
         (AuthFailed, "model_auth_failed"),
         (ModelUnavailable, "model_unavailable"),
-        (AdapterNotConfigured, "model_not_configured"),
         (PlatformNotConfigured, "model_not_configured"),
         (ContentRefused, "model_refused"),
-        (DataClassRefused, "model_data_class_refused"),
     ):
         if isinstance(error, cls):
             return code
@@ -112,8 +121,8 @@ def build_file_graph(deps: Any, documents: Any, cfg: InputModesConfig | None = N
         return {"outcome": "running", "exits": {"setup": "documents_ready"}}
 
     async def model_call(task_kind: str, system: str, user: str) -> Any:
-        """The run's recorded model call, marked private data."""
-        return await deps.model(task_kind, system, user, data_class="private")
+        """The run's recorded model call."""
+        return await deps.model(task_kind, system, user)
 
     async def extract(state: FileState) -> dict[str, Any]:
         """Facts from the passages, recorded as private Internal facts with citations."""
@@ -248,6 +257,36 @@ def build_file_graph(deps: Any, documents: Any, cfg: InputModesConfig | None = N
             "exits": {"tracker": "all_rows"},
         }
 
+    async def summarise(state: FileState) -> dict[str, Any]:
+        """The written summary of the extracted facts, as the run's private report sections."""
+        from agents.production.state import import_sections
+        from documents import summarise as sm
+
+        tenant, run, account = ids(state)
+        if state.get("model_error"):
+            return {"exits": {"summarise": "skipped"}}
+        async with deps.txn(tenant) as s:
+            found = await findings(s, run)
+            held = await s.scalar(
+                text("SELECT count(*) FROM report_sections WHERE run_id = :r"), {"r": run}
+            )
+        if not found or int(held or 0):
+            return {"exits": {"summarise": "skipped"}}
+        company = f"{state['account_name']} ({state['domain']})"
+        try:
+            reply = await sm.summarise(model_call, company, found)
+        except Exception as error:  # noqa: BLE001 - re-raised unless terminal
+            if _model_failure(error) is None:
+                raise
+            return {"counters": {"summary_failed": 1}, "exits": {"summarise": "failed"}}
+        if reply is None:
+            return {"counters": {"summary_invalid": 1}, "exits": {"summarise": "invalid"}}
+        async with deps.txn(tenant) as s:
+            written = await import_sections(
+                s, tenant, account, run, sm.sections_of(reply), visibility="private"
+            )
+        return {"counters": {"summary_sections": written}, "exits": {"summarise": "written"}}
+
     async def internal_file(state: FileState) -> dict[str, Any]:
         """The Internal Only Word file, stored apart from client files."""
         tenant, run, account = ids(state)
@@ -279,14 +318,66 @@ def build_file_graph(deps: Any, documents: Any, cfg: InputModesConfig | None = N
         outcome = state.get("outcome", "running")
         return {"settled": True, "outcome": "completed" if outcome == "running" else outcome}
 
+    def token_guarded(name: str, fn: Any) -> Any:
+        """A model node whose token guard pauses it at ``token_gate`` (which re-runs it once the
+        user continued; its model replies replay and its facts are idempotent)."""
+
+        async def guarded(state: FileState) -> dict[str, Any]:
+            """Run the node; a token guard stop becomes a pause at that node."""
+            try:
+                out: dict[str, Any] = await fn(state)
+                return out
+            except TokenGuardReached:
+                return {"token_pause_node": name}
+
+        guarded.__name__ = fn.__name__
+        return guarded
+
+    async def token_gate(state: FileState) -> dict[str, Any]:
+        """Pause and ask once the run's tokens reached ``token_guard_multiple`` times its estimate
+        (``connectors.spend_guard``, the same guard as every research run). Continuing raises the
+        guard by that multiple again and re-runs the paused node; stopping ends the run PARTIAL
+        ``token_guard_stopped`` with what it found."""
+        from account_intelligence.connectors import spend_guard
+
+        decision = interrupt(
+            {"awaiting": "cap", "reason": "tokens", "node": state.get("token_pause_node")}
+        )
+        pauses = state.get("token_pauses", 0) + 1
+        if not decision:
+            return {
+                "outcome": "failed",
+                "error_code": "token_guard_stopped",
+                "token_pause_node": None,
+                "token_pauses": pauses,
+            }
+        tenant, run, _ = ids(state)
+        async with deps.txn(tenant) as s:
+            await spend_guard.accept_tokens(s, run)
+        return {
+            "token_pause_node": None,
+            "token_resume_node": state.get("token_pause_node"),
+            "token_pauses": pauses,
+        }
+
+    def after_token_gate(state: FileState) -> str:
+        if state.get("outcome") == "failed":
+            return "finish"
+        return str(state.get("token_resume_node") or "finish")
+
+    def paused_or(target: str) -> Any:
+        return lambda s: "token_gate" if s.get("token_pause_node") else target
+
     def ok_or_finish(target: str) -> Any:
         return lambda s: "finish" if s.get("outcome") in ("failed", "partial") else target
 
     g: StateGraph[FileState] = StateGraph(FileState)
     for name, fn in (
         ("setup", setup),
-        ("extract", extract),
+        ("extract", token_guarded("extract", extract)),
         ("tracker", tracker),
+        ("summarise", token_guarded("summarise", summarise)),
+        ("token_gate", token_gate),
         ("internal_file", internal_file),
         ("gate", gate),
         ("deliver", deliver),
@@ -295,8 +386,11 @@ def build_file_graph(deps: Any, documents: Any, cfg: InputModesConfig | None = N
         g.add_node(name, cast(Any, fn))
     g.add_edge(START, "setup")
     g.add_conditional_edges("setup", ok_or_finish("extract"))
-    g.add_edge("extract", "tracker")
-    g.add_edge("tracker", "internal_file")
+    g.add_conditional_edges("extract", paused_or("tracker"))
+    g.add_edge("tracker", "summarise")
+    g.add_conditional_edges("summarise", paused_or("internal_file"))
+    g.add_conditional_edges("token_gate", after_token_gate)
+    g.add_edge("internal_file", "gate")
     g.add_edge("internal_file", "gate")
     g.add_conditional_edges("gate", ok_or_finish("deliver"))
     g.add_edge("deliver", "finish")

@@ -16,6 +16,9 @@ variables {
   web_origin         = "https://app.synthetic.test"
   archive_writers    = { worker = "worker@x.iam.gserviceaccount.com" }
   archive_lock       = false
+
+  quarantine_creators   = { api = "api@x.iam.gserviceaccount.com" }
+  quarantine_processors = { worker = "worker@x.iam.gserviceaccount.com" }
 }
 
 run "data_bucket" {
@@ -51,5 +54,37 @@ run "audit_archive" {
   assert {
     condition     = google_storage_bucket_iam_member.archive_writer["worker"].role == "roles/storage.objectCreator"
     error_message = "archive writers can create, never delete"
+  }
+}
+
+run "quarantine_bucket" {
+  command = plan
+  assert {
+    condition     = google_storage_bucket.quarantine.name == "ai-staging-quarantine" && google_storage_bucket.quarantine.public_access_prevention == "enforced" && google_storage_bucket.quarantine.uniform_bucket_level_access
+    error_message = "a separate private quarantine bucket"
+  }
+  assert {
+    condition     = !google_storage_bucket.quarantine.versioning[0].enabled
+    error_message = "no versioning: a deleted upload is gone"
+  }
+  assert {
+    condition     = toset(flatten([for r in google_storage_bucket.quarantine.lifecycle_rule : [for a in r.action : a.type]])) == toset(["Delete", "AbortIncompleteMultipartUpload"]) && alltrue(flatten([for r in google_storage_bucket.quarantine.lifecycle_rule : [for c in r.condition : c.age == 1]]))
+    error_message = "quarantine objects expire after 1 day"
+  }
+  assert {
+    condition     = google_storage_bucket.quarantine.cors[0].origin == tolist(["https://app.synthetic.test"]) && toset(google_storage_bucket.quarantine.cors[0].method) == toset(["PUT", "POST", "GET"])
+    error_message = "CORS for the web origin, PUT/POST/GET only"
+  }
+  assert {
+    condition     = toset(google_storage_bucket.quarantine.cors[0].response_header) == toset(["Content-Type", "Content-Range", "x-goog-resumable", "x-goog-hash", "Range"])
+    error_message = "resumable upload headers allowed, Range and x-goog-hash exposed"
+  }
+  assert {
+    condition     = google_storage_bucket_iam_member.quarantine_create["api"].role == "roles/storage.objectUser" && google_storage_bucket_iam_member.quarantine_view["api"].role == "roles/storage.objectViewer" && google_storage_bucket_iam_member.quarantine_process["worker"].role == "roles/storage.objectUser"
+    error_message = "api creates and reads metadata; worker reads and deletes"
+  }
+  assert {
+    condition     = google_storage_bucket.data.lifecycle_rule != null && contains(flatten([for r in google_storage_bucket.data.lifecycle_rule : [for c in r.condition : coalesce(c.matches_prefix, [])]]), "quarantine/")
+    error_message = "the old quarantine/ prefix rule stays on the data bucket"
   }
 }

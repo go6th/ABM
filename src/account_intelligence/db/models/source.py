@@ -89,10 +89,15 @@ class Source(UuidPkMixin, TimestampMixin, Base):
         Index("ix_sources_last_seen_run_id", "last_seen_run_id"),
         Index("ix_sources_first_seen_account_run_id", "first_seen_account_run_id"),
         Index("ix_sources_last_seen_account_run_id", "last_seen_account_run_id"),
+        Index("ix_sources_tenant_owner", "tenant_id", "owner_user_id"),
     )
 
     tenant_id: Mapped[UUID] = mapped_column(
         ForeignKey("tenants.id"), server_default=text("app_tenant()")
+    )
+    # private workspaces (migration 0063): the acting user's row unless the code says otherwise
+    owner_user_id: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("app_user()")
     )
     account_id: Mapped[UUID]
     source_code: Mapped[str] = mapped_column(Text)

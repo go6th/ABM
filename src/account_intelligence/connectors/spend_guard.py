@@ -88,7 +88,13 @@ class Limits:
     stall_after_s: int
 
 
-DEFAULTS = Limits(Decimal("25.00"), 3, 1800)
+# a running run with no progress this long is stalled: the explicit platform default (ADR-0132),
+# the same value as migration 0067's column default; one run slice is 1650 s
+# (config/workflow_v1.yaml) and a long model wait beats the heartbeat every 300 s, so a live run
+# never reads stalled. Shown on the operator Defaults page next to the current value.
+STALL_AFTER_S_DEFAULT = 1800
+
+DEFAULTS = Limits(Decimal("25.00"), 3, STALL_AFTER_S_DEFAULT)
 
 
 async def limits(s: Any) -> Limits:

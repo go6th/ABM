@@ -24,7 +24,6 @@ def test_every_config_file_validates_through_one_loader() -> None:
         "grading.yaml",
         "providers.yaml",
         "models.yaml",
-        "billing.yaml",
     ):
         assert len(hashes[name]) == 64, name
     spec = load_output_spec()

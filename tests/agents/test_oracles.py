@@ -60,7 +60,9 @@ async def test_sparse_account(make) -> None:  # type: ignore[no-untyped-def]
         **{k: "consent_required" for k in PEOPLE_ROWS},
         **{k: "no_internal_access" for k in INTERNAL_ROWS},
     }
-    assert state["outcome"] == "partial" and h.delivery.released
+    # the graph ran to the end and never votes on the terminal status (ADR-0128): the open rows
+    # are the tracker's to judge, once, when the run finishes (runs.lifecycle.finish)
+    assert state["outcome"] == "completed" and h.delivery.released
 
 
 async def test_tangled_account(make) -> None:  # type: ignore[no-untyped-def]
@@ -78,6 +80,11 @@ async def test_tangled_account(make) -> None:  # type: ignore[no-untyped-def]
     assert state["counters"]["targeted_pulls"] == 1
     assert state["exits"]["sense_check"] == "second_pass_recorded"
     assert h.records.sense_saves == 1
+    # the last round's proposal is left over, not "not approved within the credit limit": the
+    # follow-up already ran in the first round and nobody declined anything (staging 2026-11-05)
+    assert state["counters"]["sense_left_over"] == 1
+    row = h.tracker.rows_by_run[record.run_id]["leadership_changes"]
+    assert row.reason != "pull_not_approved"
 
 
 async def test_a_deep_run_keeps_following_up_until_its_rounds_are_used(make) -> None:  # type: ignore[no-untyped-def]

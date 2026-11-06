@@ -27,21 +27,24 @@ from documents.config import load_config
 
 @lru_cache(maxsize=1)
 def _extraction_price() -> tuple[str | None, float, float]:
+    from llm.cost import price_of
+
     data = yaml.safe_load((CONFIG_DIR / "models.yaml").read_text())
-    arm = data.get("arms", {}).get(data.get("active_arm") or "automatic", {})
+    arm = data.get("arms", {}).get(data.get("active_arm"), {})
     profile = data.get("profiles", {}).get(arm.get("routes", {}).get("extraction", ""), {})
-    return (
-        profile.get("model"),
-        float(profile.get("input_usd_per_mtok") or 0),
-        float(profile.get("output_usd_per_mtok") or 0),
-    )
+    model = profile.get("model")
+    # the one price table (``llm.cost``); an unpriced model shows no model cost
+    price = price_of(str(model)) if model else None
+    if price is None:
+        return model, 0.0, 0.0
+    return model, float(price.input), float(price.output)
 
 
 async def estimate(
     s: Any, document_ids: Sequence[UUID], enrich: bool, cap_usd: float
 ) -> dict[str, Any]:
     """See the module docstring (documents of this tenant only; others are not counted)."""
-    from llm.tasks import require
+    from llm.route import require
 
     cfg = load_config()
     rows = (

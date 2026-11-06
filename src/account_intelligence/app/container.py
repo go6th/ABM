@@ -27,7 +27,13 @@ from sqlalchemy import text
 
 from account_intelligence.config import CONFIG_DIR
 from account_intelligence.db.session import tenant_txn
-from account_intelligence.dev_limits import dev_uncapped, research_uncapped
+from account_intelligence.dev_limits import (
+    breadth_follows_source,
+    caps_lifted,
+    dev_uncapped,
+    research_uncapped,
+)
+from account_intelligence.platform.checkpoint import checkpoint_target
 from account_intelligence.platform.fake_model import FakeModel, load_scenario
 from account_intelligence.platform.hermetic import (
     EnvSecrets,
@@ -65,6 +71,25 @@ HERMETIC_TYPES = (
     FakeModel,
 )
 FAKE_MODEL_DIR = CONFIG_DIR / "hermetic" / "fake_model"
+
+
+def warn_if_uncapped(env: Mapping[str, str] | None = None) -> bool:
+    """Log ``research.caps_off`` (WARNING) naming every lifted cap when a process outside the
+    dev and test profiles starts with the research caps off (ADR-0106). Returns whether it
+    warned. Lives here, at the edge: ``dev_limits`` stays free of observability (O1)."""
+    from obs.logging import logger
+
+    e = os.environ if env is None else env
+    if e.get("APP_ENV", "dev") in ("dev", "test"):
+        return False
+    lifted = caps_lifted(e)
+    if not lifted:
+        return False
+    logger("account_intelligence.dev_limits").warning(
+        "research.caps_off",
+        extra={"caps_off": ",".join(lifted), "count": len(lifted), "reason": "RESEARCH_CAPS=off"},
+    )
+    return True
 
 
 class RuntimeMisconfigured(RuntimeError):
@@ -108,7 +133,8 @@ class Container:
     spec: WorkflowSpec
     limits: RunLimits
     slices: SliceSettings
-    checkpoint_dsn: str
+    # a psycopg URL (local profiles) or ``platform.checkpoint.CheckpointIam`` (cloud, ADR-0125)
+    checkpoint_dsn: Any
     connectors: Any | None = None
     task_audience: str = ""
     task_service_account: str = ""
@@ -127,8 +153,6 @@ class Container:
     upload_store: Any = field(default_factory=lambda: _unconfigured("upload_store"))
     scanner: Any = field(default_factory=lambda: _unconfigured("scanner"))
     upload_parser: Any = field(default_factory=lambda: _unconfigured("upload_parser"))
-    # model routing (D-48): a factory deps -> llm.port.Router; None keeps the legacy LlmPort path
-    router: Any | None = None
     # research cache: model reply log and cross-run reuse (``llm.reply_cache``); None logs nothing
     reply_cache: Any | None = None
     # uploaded documents for input mode "file" (``documents.service.DocumentService``)
@@ -178,7 +202,6 @@ class Container:
             dev_auto_approve=self.dev_auto_approve,
             extra_allowed_hosts=frozenset(h for h in hosts if h),
             run_input=dict(row.run_input or {}),
-            router=self.router,
             reply_cache=self.reply_cache,
             # the user's research and analysis models, recorded when the run was created; a run
             # from before the model choice has none and keeps the configured routes
@@ -207,9 +230,9 @@ def build_connectors(
         config = uncapped_config(config)
     rate_store = None
     if redis_url:
-        import redis.asyncio as redis
+        from account_intelligence.platform.redis_url import redis_from_url
 
-        rate_store = RedisRateStore(redis.Redis.from_url(redis_url))
+        rate_store = RedisRateStore(redis_from_url(redis_url, env))
     runtime = build_runtime(
         config,
         txn=tenant_txn,
@@ -357,42 +380,6 @@ def with_model_choice(
     return llm
 
 
-def router_factory(client: Any, access: str) -> Any:
-    """``deps -> Router`` over one SDK client for the configured access path (D-19). Only the
-    candidates whose ``adapter`` equals ``access`` can be served; any other candidate fails with
-    ``AdapterNotConfigured`` (never silently sent through another path)."""
-    from llm.adapters.anthropic_api import AnthropicAdapter
-    from llm.config import load_routing_config, with_model_split
-    from llm.health import PgHealth
-    from llm.port import Router
-    from llm.record import PgCallStore
-
-    cfg = load_routing_config()
-    if cfg.benchmark_report is None:
-        raise RuntimeMisconfigured(
-            "MODEL_ROUTER=on needs a routing config backed by a benchmark report (D-51)"
-        )
-    adapters = {access: AnthropicAdapter(client)}
-    clock = _WallClock()
-
-    def make(deps: Any) -> Any:
-        return Router(
-            with_model_split(cfg, getattr(deps, "model_split", "split")),
-            adapters,
-            PgCallStore(deps.txn, deps.tenant_id, deps.run_id),
-            PgHealth(
-                deps.txn,
-                deps.tenant_id,
-                cfg.health_threshold,
-                cfg.health_window_s,
-                cfg.health_cooldown_s,
-            ),
-            clock.now,
-        )
-
-    return make
-
-
 class _WallClock:
     """Wall time and an asyncio sleep for the governor's leases and bounded waits."""
 
@@ -479,6 +466,8 @@ def build_container(env: Mapping[str, str] | None = None) -> Container:
     refusals = deployment_refusals(env)  # L13: dev/test on Cloud Run, DEVSTORE_* in the cloud
     if refusals:
         raise RuntimeMisconfigured("; ".join(refusals))
+    # a cloud process with the research caps off says so at startup, naming every lifted cap
+    warn_if_uncapped(env)
     spec = load_spec()
     if app_env in CLOUD_ENVS:
         container = _cloud(env, app_env, spec)
@@ -561,17 +550,44 @@ def build_container(env: Mapping[str, str] | None = None) -> Container:
     )
     container.extras["maildrive_apps"] = maildrive_apps(env)
     blobs = local_blob_store(env.get("PAYLOAD_DIR"))
-    container.documents = document_service(blobs, container.scheduler, clock, env, app_env)
+    container.documents = document_service(
+        blobs,
+        container.scheduler,
+        clock,
+        env,
+        app_env,
+        payloads=container.payloads,
+        quarantine=local_quarantine_store(env.get("QUARANTINE_DIR")),
+    )
+    container.documents.analysis = _auto_analysis(container)
     # the pre-delivery gate for both input modes (``documents.gate``): without it no run could
     # ever complete (audit F1)
     container.gate = delivery_gate(payloads, container.documents)
     return container
 
 
+def _auto_analysis(container: Any) -> Any:
+    """The upload's own model analysis (``app.auto_analysis``) bound to this container."""
+    from account_intelligence.app.auto_analysis import start
+
+    async def analyse(tenant_id: UUID, document_id: UUID) -> UUID | None:
+        """Start the file-mode run of one indexed document."""
+        return await start(container, tenant_id, document_id)
+
+    return analyse
+
+
 def document_service(
-    blobs: Any, scheduler: Any, clock: Any, env: Mapping[str, str], app_env: str
+    blobs: Any,
+    scheduler: Any,
+    clock: Any,
+    env: Mapping[str, str],
+    app_env: str,
+    payloads: Any | None = None,
+    quarantine: Any | None = None,
 ) -> Any:
-    """Uploaded documents (input mode "file"): quarantine, scan, sandboxed parse, index."""
+    """Uploaded documents (input mode "file"): quarantine, scan, sandboxed parse, index.
+    ``quarantine`` is the quarantine bucket's store (None: quarantine is a prefix of ``blobs``)."""
     from documents.config import load_config
     from documents.embed import HashingEmbedder
     from documents.scan import scanner_for
@@ -580,7 +596,7 @@ def document_service(
     cfg = load_config()
     scanner = scanner_for(
         app_env,
-        env.get("DOCUMENT_SCANNER", "signature"),
+        env.get("DOCUMENT_SCANNER", "clamd"),
         env.get("CLAMD_HOST"),
         int(env.get("CLAMD_PORT", "3310")),
     )
@@ -606,6 +622,8 @@ def document_service(
         parts_per_request=1 if app_env in CLOUD_ENVS else None,
         index_seconds_per_request=600.0 if app_env in CLOUD_ENVS else None,
         semantic=semantic,
+        payloads=payloads,
+        quarantine=quarantine,
     )
 
 
@@ -626,6 +644,20 @@ def local_blob_store(payload_dir: str | None) -> Any:
     root = Path(payload_dir) / "files" if payload_dir else Path(tempfile.mkdtemp(prefix="rf-"))
     root.mkdir(parents=True, exist_ok=True)
     return LocalBlobStore(root)
+
+
+def local_quarantine_store(quarantine_dir: str | None) -> Any | None:
+    """A separate quarantine directory when ``QUARANTINE_DIR`` names one (a local directory is the
+    local "bucket"; the development object store serves one root, so the compose files leave it
+    unset and quarantine stays a prefix of the documents store). None without one."""
+    if not quarantine_dir:
+        return None
+    from pathlib import Path
+
+    from research_files.blobstore import LocalBlobStore
+
+    Path(quarantine_dir).mkdir(parents=True, exist_ok=True)
+    return LocalBlobStore(quarantine_dir)
 
 
 def hermetic_fake_model(env: Mapping[str, str]) -> FakeModel:
@@ -706,23 +738,16 @@ def _cloud(env: Mapping[str, str], app_env: str, spec: WorkflowSpec) -> Containe
     if xai_key:
         mark_set_up("XAI_API_KEY")
     llm = with_model_choice(llm, env, moonshot_key, xai_key)
-    # D-48: the router is switched on with MODEL_ROUTER=on once config/model_routing.yaml names
-    # candidates for this access path (V-LLM-2: the Vertex model id format is unverified)
-    client = getattr(llm, "client", None)
-    router = (
-        router_factory(client, access)
-        if env.get("MODEL_ROUTER") == "on" and client is not None
-        else None
-    )
     connectors, retry = build_connectors(env, payloads, _require(env, "REDIS_URL"))
-    if research_uncapped(env):
+    if breadth_follows_source(env):
         from dataclasses import replace
 
         from account_intelligence.connectors.paginate import PageLimits
         from account_intelligence.dev_limits import UNCAPPED
 
-        # caps off: every page a provider has; repeated cursors and the slice ceiling still
-        # stop a loop (the slice length and the run lease stay as configured)
+        # every page a provider has, however large the company (dev_limits.breadth_follows_source);
+        # repeated cursors and identical pages, the slice length and the no-progress cut-off
+        # still stop a loop
         size = connectors.config.defaults.pagination.max_bytes * 100
         connectors = replace(connectors, page_limits_override=PageLimits(UNCAPPED, UNCAPPED, size))
     clock = SystemClock()
@@ -740,8 +765,7 @@ def _cloud(env: Mapping[str, str], app_env: str, spec: WorkflowSpec) -> Containe
         spec=spec,
         limits=_limits(spec, env),
         slices=_slices(spec),
-        checkpoint_dsn=_require(env, "CHECKPOINT_DATABASE_URL"),
-        router=router,
+        checkpoint_dsn=checkpoint_target(env),
         task_audience=_require(env, "TASKS_AUDIENCE"),
         task_service_account=_require(env, "TASKS_SERVICE_ACCOUNT"),
         verify_task_token=verify_task_token,
@@ -758,7 +782,21 @@ def _cloud(env: Mapping[str, str], app_env: str, spec: WorkflowSpec) -> Containe
         # the instance's memory first (Cloud Run has no disk)
         raise RuntimeMisconfigured("BLOB_MOUNT_DIR is required for the worker in the cloud")
     built.extras["maildrive_apps"] = maildrive_apps(env)
-    built.documents = document_service(blobs, scheduler, clock, env, app_env)
+    quarantine_bucket = env.get("QUARANTINE_BUCKET")
+    built.documents = document_service(
+        blobs,
+        scheduler,
+        clock,
+        env,
+        app_env,
+        payloads=getattr(built, "payloads", None),
+        # uploads wait in their own bucket (one-day delete rule); unset: a prefix of the documents
+        # bucket, as before (Terraform sets it on the api and the worker)
+        quarantine=GcsBlobStore(gcs.Client(project=project), quarantine_bucket)
+        if quarantine_bucket
+        else None,
+    )
+    built.documents.analysis = _auto_analysis(built)
     built.gate = delivery_gate(built.payloads, built.documents)
     built.tenant_plane = _with_cloud_objects(
         built.tenant_plane,
@@ -767,6 +805,13 @@ def _cloud(env: Mapping[str, str], app_env: str, spec: WorkflowSpec) -> Containe
         built.documents,
     )
     return built
+
+
+def needs_checkpointer(service_role: str) -> bool:
+    """Only the processes that run research slices open a checkpointer: the worker (and the
+    jobs, which run worker commands, and ``all`` in dev). The api never does, so it is given no
+    checkpoint database at all (ADR-0125)."""
+    return service_role in ("worker", "job", "all")
 
 
 def assert_gcp_runtime(container: Container) -> None:
@@ -786,5 +831,5 @@ def assert_gcp_runtime(container: Container) -> None:
         raise RuntimeMisconfigured("worker task authentication is not configured")
     if container.connectors is None or container.extras.get("retry_policy") is None:
         raise RuntimeMisconfigured("the connector runtime and the node RetryPolicy are not wired")
-    if not container.checkpoint_dsn:
+    if not container.checkpoint_dsn and needs_checkpointer(os.environ.get("SERVICE_ROLE", "all")):
         raise NotConfigured("checkpoint database is not configured")

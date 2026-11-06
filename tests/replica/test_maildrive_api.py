@@ -364,7 +364,8 @@ async def test_turning_the_feature_off_purges_every_users_connections(
 async def test_the_scheduled_sync_and_idle_expiry_purge_instead_of_syncing(
     world: dict[str, Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from account_intelligence.db.session import set_system, set_user_scope, tenant_txn
+    from account_intelligence.db.session import set_user_scope, tenant_txn
+    from account_intelligence.db.system_scope import set_system
     from account_intelligence.replica import access
     from connectors_client import lifecycle
 

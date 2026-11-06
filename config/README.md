@@ -24,12 +24,11 @@ request without a rebuild.
 | `workflow_v1.yaml` | Workflow v1: the 13 stages, dependencies, tool categories | `account_intelligence/workflow/spec.py` |
 | `research_scopes.yaml`, `research_input_modes.yaml`, `research_cache.yaml`, `research_files.yaml` | Refresh scopes; the two input modes (company, file); what a run may reuse from earlier runs; file parser limits | `replica/jobs.py`, `documents/config.py`, `connectors/cache.py`, `research_files/config.py` |
 | `providers.yaml`, `connectors.yaml` | INTERNAL: the data providers (the only place a vendor name may live) and the client connectors | `connectors/settings.py`, `connectors_client/*` |
-| `model_routing.yaml`, `models.yaml`, `chat_models.yaml` | Model routing ladder (a change needs a recorded decision), model prices, the public chat catalogue | `llm/*`, `platform/llm.py`, `chat/registry.py` |
+| `models.yaml`, `chat_models.yaml` | Every model id and price, routes and knobs (`models.yaml`); the chat allow-list and chat limits, prices read from `models.yaml` (`chat_models.yaml`) | `llm/*`, `platform/llm.py`, `chat/registry.py` |
 | `people_rubric.yaml`, `people_scope.yaml`, `people_sources.yaml`, `posting_rubric.yaml`, `job_lanes.yaml`, `jobs_v1.yaml`, `lanes.yaml` | People and job pipelines: rubrics, scope, lanes, caps | `people/config.py`, `jobs/config.py` |
 | `output_spec.yaml`, `export_rules.yaml`, `export_theme.yaml`, `client_output_denylist.txt` | The deliverable set and quality gate, export content rules, the one style table, patterns that may never reach a client file | `exports/config.py`, `safety/client_output.py` |
-| `verify.yaml`, `evals.yaml`, `regression.yaml` | Verifier agents, the eval gate thresholds, the regression policy | `verify/config.py`, `evalgate/config.py`, `quality/regression.py` |
+| `verify.yaml`, `evals.yaml` | Verifier agents, the eval gate thresholds | `verify/config.py`, `evalgate/config.py` |
 | `parallel.yaml` | Unit types, dependencies and fan-out for parallel execution | `parallel/config.py` |
-| `rag.yaml` | Retrieval thresholds and caps | `account_intelligence/rag/config.py` |
 
 ## Money and limits
 
@@ -37,7 +36,6 @@ request without a rebuild.
 | --- | --- | --- |
 | `credits.yaml` | Research credits: estimates, the pool, what a run costs the client | `replica/credits.py` |
 | `spend.yaml` | Credit cap v1 rules | `spend/config.py` |
-| `billing.yaml`, `pricing.yaml` | Settlement rules; the proposed model price catalogue (evidence for the unit-cost requirement) | `config_files.py`; `crosscut` evidence |
 | `budgets.yaml` | The monthly monitoring allowance and throttle ladder | `governance/monitoring_budget.py` |
 | `plans.yaml`, `tenant_settings.yaml`, `rate_limits.yaml` | Plan limits, tenant setting bounds, per-user money and compute limits | `metering/limits.py`, `tenancy/settings.py`, `identity/rate_limit.py` |
 
@@ -56,8 +54,8 @@ request without a rebuild.
 
 | File | What it decides | Loaded by |
 | --- | --- | --- |
-| `refresh.yaml`, `shelf_life.yaml`, `scoring.yaml` | Refresh engine, shelf life per signal type, significance scoring | `refresh/*`, `signals/score.py` |
-| `alert_rules.yaml`, `alerts_extra.yaml` | Alert rules and noise control | `alerts/rules.py` |
+| `refresh.yaml`, `shelf_life.yaml`, `scoring.yaml` | Refresh engine, shelf life per signal type, significance scoring (NOT WIRED, ADR-0134) | `refresh/*`, `signals/score.py` |
+| `alert_rules.yaml`, `alerts_extra.yaml` | Alert rules and noise control (NOT WIRED, ADR-0134) | `alerts/rules.py` |
 
 ## Telemetry
 
@@ -68,11 +66,15 @@ request without a rebuild.
 
 ## Roadmap section 11 evidence
 
-`section11_spec.yaml` lists every cross-cutting requirement with its proof. The files it names
-exist for that reason and are read by the conformance checker (`src/crosscut/conformance.py`),
-not by the running application: `claims.yaml`, `messaging_rules.yaml`, `risk_register.yaml`,
-`secrets_rotation.yaml`, `soc2_controls.yaml`, `data_model_spec.yaml`, `drift.yaml`,
-`minimisation_map.yaml`, `retention.yaml`, `dsar.yaml`.
+`section11_spec.yaml` lists every cross-cutting requirement with its proof (read by
+`src/crosscut/conformance.py`). Since ADR-0136 this folder holds only files `src/` loads
+(`tests/guardrails/test_every_config_file_is_loaded.py`). The registers no code reads moved to
+`docs/registers/`: `claims.yaml`, `messaging_rules.yaml`, `risk_register.yaml`,
+`secrets_rotation.yaml`, `soc2_controls.yaml`, `pricing.yaml`, `billing.yaml` (its settlement
+rule never matched the code), `retention.yaml`, `minimisation_map.yaml` and
+`data_model_spec.yaml` (the oracle of `tests/crosscut/test_x1_datamodel.py`). `drift.yaml`,
+`dsar.yaml`, `regression.yaml` and `rag.yaml` belonged to parked code and moved with it to
+`unwanted-things/dead-code-2026-11/config/`.
 
 ## Hermetic fixtures
 

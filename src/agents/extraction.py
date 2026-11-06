@@ -43,7 +43,13 @@ from typing import Literal
 from agents.config import SkillConfig
 from agents.contracts import AgentContract, BudgetMeter
 from agents.errors import OutputRejected
-from agents.guards import DropDecision, evidence_problem, lead_drop_decision, quoted
+from agents.guards import (
+    DropDecision,
+    evidence_problem,
+    lead_drop_decision,
+    quoted,
+    reanchor_quotes,
+)
 from agents.lanes import infer_lane
 from agents.people_names import NAMED_PERSON_ATTRIBUTES, names_a_person
 from agents.ports import AgentModel, GradingCandidate, RunContext
@@ -71,6 +77,9 @@ class ExtractionResult:
     people: list[PersonCandidate] = field(default_factory=list)
     lead_drops: dict[str, DropDecision] = field(default_factory=dict)
     drops: Counter[str] = field(default_factory=Counter)
+    # what was mended rather than dropped (``quote_reanchored``: a quote replaced by the
+    # payload's own sentence that carries the value)
+    repairs: Counter[str] = field(default_factory=Counter)
 
 
 def _origin(
@@ -121,6 +130,10 @@ async def extract(
     lanes = tuple(allowed_lanes) if allowed_lanes is not None else cfg.lanes
     merged: dict[tuple[str, str, str], GradingCandidate] = {}
     for c in out.candidates:
+        evidence, mended = reanchor_quotes(c.value, c.evidence, given)
+        if mended:
+            c = c.model_copy(update={"evidence": evidence})
+            result.repairs["quote_reanchored"] += mended
         problem, row = _place(c, given, rows, cfg)
         if problem:
             result.drops[problem] += 1

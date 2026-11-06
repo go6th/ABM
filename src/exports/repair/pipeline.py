@@ -65,7 +65,7 @@ def repair_tables(profile: WorkspaceProfile, inp: RepairInput) -> dict[str, Repa
     tables: dict[str, RepairedTable] = {}
     jobs = build_jobs(profile, inp.jobs)
     tables["jobs"] = jobs
-    tables["tech"] = build_tech(profile, inp.tech, jobs.stats.get("resolved", []))
+    tables["tech"] = build_tech(profile, inp.tech, jobs.stats.get("resolved", []), inp.teams)
     tables["people"] = build_people(profile, inp.people, inp.leadership)
     from exports.repair.news import build_news
 
@@ -138,6 +138,11 @@ def repair(
     proven = (
         [r["Article ID"] for r in news.main.rows if r.get("Published") != UNKNOWN] if news else []
     )
+    # a posting of an uploaded workbook carries the owner's own dates: a Posted equal to the
+    # research day is the owner's record, not the collection day
+    jobs = tables.get("jobs")
+    resolved = jobs.stats.get("resolved", []) if jobs else []
+    proven += [p.posting_id for p in resolved if getattr(p, "imported", False)]
     results = CK.run_checks(profile, tables, inp, zip_bytes, allowed=proven)
     report = RP.build_report(
         profile,

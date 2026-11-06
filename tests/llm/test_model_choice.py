@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from typing import Any
+
+import pytest
+
 from llm.choice import NOT_ENABLED, NOT_SET_UP, RunModels, availability, catalogue
 
 # model ids live only in config (R1): the three choices in their configured order
@@ -56,6 +60,61 @@ def test_the_judge_never_equals_the_research_model() -> None:
         both = RunModels(model, model)
         assert both.for_tier("judge") != both.for_tier("extractor")
     assert RunModels(KIMI, KIMI).for_tier("judge") in (OPUS, FABLE)
+
+
+def _one_claude_model() -> Any:
+    """The catalogue with one Claude model only: no independent judge is possible."""
+    import dataclasses
+
+    cat = catalogue()
+    return dataclasses.replace(
+        cat, models=tuple(m for m in cat.models if m.provider != "anthropic" or m.id == OPUS)
+    )
+
+
+def test_with_no_other_claude_model_the_judge_is_refused_never_shared() -> None:
+    from llm.choice import independent_judge
+    from llm.route import JudgeNotIndependent
+
+    assert independent_judge(OPUS) != OPUS
+    with pytest.raises(JudgeNotIndependent):
+        independent_judge(OPUS, _one_claude_model())
+
+
+def test_a_route_served_judge_on_the_extractors_model_is_replaced(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """G12 without a stored choice (a run from before the model choice): when the routes put
+    the judge on the extractor's model, the judge runs on another Claude model; it used to run
+    on the same model, and grading capped every claim silently."""
+    from dataclasses import replace
+    from uuid import uuid4
+
+    import llm.choice as choice
+    from account_intelligence.platform.llm import load_routes
+    from account_intelligence.workflow.deps import RunDeps
+    from llm.route import JudgeNotIndependent
+
+    routes = dict(load_routes())
+    routes["judge"] = replace(routes["judge"], model=routes["extractor"].model)
+
+    class Port:
+        def __init__(self) -> None:
+            self.routes = routes
+
+        async def complete_as(self, *a: Any, **k: Any) -> Any:
+            raise AssertionError("no call")
+
+    deps = RunDeps(
+        tenant_id=uuid4(), run_id=uuid4(), account_id=uuid4(), domain="x.example",
+        txn=None, llm=Port(), payloads=None, clock=None, spec=None, models=None,
+    )  # type: ignore[arg-type]  # fmt: skip
+    judge = deps.chosen_model("judge")
+    assert judge is not None and judge != routes["extractor"].model
+    deps.ensure_independent_judge()  # the run may start
+    monkeypatch.setattr(choice, "catalogue", lambda *a: _one_claude_model())
+    with pytest.raises(JudgeNotIndependent):
+        deps.ensure_independent_judge()
 
 
 def test_a_model_is_greyed_out_with_the_reason() -> None:

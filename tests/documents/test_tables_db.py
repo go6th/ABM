@@ -244,7 +244,8 @@ async def test_reingest_tables_queues_pre_store_documents_once(
     """A document ingested before the table store (crm_row passages, no table record) is reset
     and queued once; a document already in the store is left alone; a second run queues
     nothing."""
-    from account_intelligence.db.session import tenant_txn, untenanted_session
+    from account_intelligence.db.session import tenant_txn
+    from account_intelligence.db.system_scope import untenanted_session
     from documents.tables_reingest import reingest_tables
 
     account = _make_account(tenant_a, f"holdings-{uuid4().hex[:6]}.example")
@@ -357,7 +358,7 @@ async def test_reindex_requeues_the_workspace_indexed_documents_only(
     """``reindex --workspace`` resets and queues every indexed document of that client — with a
     table store record and without preference — and no other client's; a queued read rebuilds
     the document as the current pipeline writes it."""
-    from account_intelligence.db.session import untenanted_session
+    from account_intelligence.db.system_scope import untenanted_session
     from documents.reindex import reindex_documents
 
     account = _make_account(tenant_a, f"holdings-{uuid4().hex[:6]}.example")

@@ -34,15 +34,21 @@ def _sha(text: str) -> str:
 Passage = tuple[str, dict[str, Any], str]  # kind, location, content
 
 
-def _upload(tenant: UUID, user: str, name: str, passages: list[Passage] | None = None) -> UUID:
+def _upload(
+    tenant: UUID,
+    user: str,
+    name: str,
+    passages: list[Passage] | None = None,
+    domain: str = "highmark.example",
+) -> UUID:
     """A parsed and indexed document, as the documents pipeline leaves it: a spreadsheet of
-    three row passages unless ``passages`` says otherwise."""
+    three row passages unless ``passages`` says otherwise, on the ``domain`` account."""
     doc = uuid4()
     rows = passages or [("crm_row", {"row": i}, line) for i, line in enumerate(LINES, start=1)]
     with psycopg.connect(ADMIN_DSN, autocommit=True) as c:
         account = c.execute(
-            "SELECT id FROM accounts WHERE tenant_id = %s AND domain = 'highmark.example'",
-            (tenant,),
+            "SELECT id FROM accounts WHERE tenant_id = %s AND domain = %s",
+            (tenant, domain),
         ).fetchone()[0]
         c.execute(
             "INSERT INTO documents (id, tenant_id, account_id, name, declared_bytes, declared_type,"
@@ -201,3 +207,80 @@ async def test_closed_postings_are_read_only_when_asked(world: dict[str, Any]) -
     assert row.text == f"{title} (closed)" and row.meta.endswith(" · closed")
     assert row.extra["status"] == "closed"
     assert len(asked.jobs) == len(plain.jobs) + 1
+
+
+async def test_an_open_question_reads_the_account_summary_first(world: dict[str, Any]) -> None:
+    """Ask insight-answers plan, 2026-11-03: a budget question's best search hit is a release,
+    but an open question is built from the Account Summary's signal tables, so the summary member
+    goes whole first (named for its role) and the best hit's member second, in one budget."""
+    summary, release = "UCB_Account_Summary.docx", "data/releases/full-year-2025.md"
+    doc = _upload(
+        world["a"],
+        "priya-test",
+        "UCB_workspace.zip",
+        [
+            ("section", {"member": summary, "section": "Tier 1"}, "Tier 1: Veeva CRM migration"),
+            ("section", {"member": summary, "section": "Counts"}, "92 postings name a platform"),
+            ("section", {"member": release}, "Marketing and selling budget rose 20 percent"),
+        ],
+    )
+    question = "Marketing selling budget"
+    async with tenant_txn(world["a"]) as session:
+        ws = await A.load_workspace(session, "priya-test")
+        scope = {a.id for a in ws.accounts}
+        ws.passages = await A.passage_rows(session, ws, question, scope, None)
+        assert ws.passages[0].key == f"passage:{doc}:3"  # the release is the best hit
+        await A.take_whole_file(session, ws, 300_000, prefer_summary=True)
+    assert [r.key for r in ws.whole_files] == [f"whole:{doc}:summary", f"whole:{doc}"]
+    first, second = ws.whole_files
+    assert first.text == "Tier 1: Veeva CRM migration\n92 postings name a platform"
+    assert first.extra["member"] == summary and second.extra["member"] == release
+    assert not any(r.key.startswith(f"passage:{doc}:") for r in ws.passages)
+    # the budget holds the summary alone: the release stays as retrieved passages
+    async with tenant_txn(world["a"]) as session:
+        ws = await A.load_workspace(session, "priya-test")
+        ws.passages = await A.passage_rows(session, ws, question, scope, None)
+        size = len("Tier 1: Veeva CRM migration") + len("92 postings name a platform")
+        await A.take_whole_file(session, ws, size, prefer_summary=True)
+    assert [r.key for r in ws.whole_files] == [f"whole:{doc}:summary"]
+    assert [r.key for r in ws.passages] == [f"passage:{doc}:3"]
+
+
+async def test_the_summary_is_the_one_of_the_account_the_turn_is_about(
+    world: dict[str, Any],
+) -> None:
+    """Every workspace, any number of accounts: with two accounts each holding a summary, a
+    scoped turn reads its own account's summary and an unscoped one the best hit's account's;
+    another account's summary is never read."""
+    member = "Workspace_Account_Summary.docx"
+    one = _upload(
+        world["a"],
+        "priya-test",
+        "Highmark_workspace.zip",
+        [("section", {"member": member}, "Highmark Tier 1: ServiceNow ITAM rollout")],
+    )
+    two = _upload(
+        world["a"],
+        "priya-test",
+        "Cambia_workspace.zip",
+        [
+            ("section", {"member": member}, "Cambia Tier 1: Salesforce Health Cloud"),
+            ("section", {"member": "data/news.md"}, "Cambia digital budget doubles"),
+        ],
+        domain="cambiahealth.example",
+    )
+    async with tenant_txn(world["a"]) as session:
+        ws = await A.load_workspace(session, "priya-test")
+        highmark = next(a.id for a in ws.accounts if a.domain == "highmark.example")
+        scope = {a.id for a in ws.accounts}
+        # scoped to Highmark: its summary, though the question's best hit is a Cambia file
+        ws.passages = await A.passage_rows(session, ws, "Cambia digital budget", scope, None)
+        await A.take_whole_file(session, ws, 300_000, prefer_summary=True, accounts=[highmark])
+        assert ws.whole_files[0].key == f"whole:{one}:summary"
+        assert "Highmark Tier 1" in ws.whole_files[0].text
+        # unscoped: the best hit's account (Cambia)
+        ws.whole_files = []
+        ws.passages = await A.passage_rows(session, ws, "Cambia digital budget", scope, None)
+        await A.take_whole_file(session, ws, 300_000, prefer_summary=True)
+        assert ws.whole_files[0].key == f"whole:{two}:summary"
+        assert all("Highmark" not in r.text for r in ws.whole_files)

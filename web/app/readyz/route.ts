@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { apiOrigin } from "@/lib/api-origin";
+import { serverlessAuth } from "@/lib/serverless-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,6 +12,7 @@ export async function GET(): Promise<NextResponse> {
   }
   try {
     const response = await fetch(new URL("/readyz", origin), {
+      headers: await serverlessAuth(origin),
       cache: "no-store",
       signal: AbortSignal.timeout(2_000),
       redirect: "error",

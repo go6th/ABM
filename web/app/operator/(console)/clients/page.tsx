@@ -3,7 +3,6 @@
 // last activity and status; each row opens Client detail. Add client asks for the name and the
 // first user's email and shows an invite link to copy; nothing is sent automatically.
 import Link from "next/link";
-import { ChevronRight } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { useState } from "react";
 import { ApiError } from "@/lib/api";
@@ -110,7 +109,7 @@ export default function Clients() {
               </span>
               <span>{lastActive(c.last_active_at)}</span>
               <span><Pill tone={clientTone(c.status)} small>{c.status}</Pill></span>
-              <ChevronRight className="chev" size={16} aria-hidden="true" />
+              <ChevronRight />
             </Link>
           );
         })}
@@ -118,5 +117,15 @@ export default function Clients() {
       </div>
       <p className="mut xs-text">Client names are shown only here, in the admin console. Clients never see each other.</p>
     </div>
+  );
+}
+
+/** The row's "open" chevron (inline: the one icon lucide-react supplied, fix prompt B task 5). */
+function ChevronRight() {
+  return (
+    <svg className="chev" width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+      <path d="m9 18 6-6-6-6" />
+    </svg>
   );
 }

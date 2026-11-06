@@ -35,7 +35,7 @@ async def test_a_task_kind_marked_not_cacheable_is_always_asked(
 ) -> None:
     from dataclasses import replace
 
-    import llm.tasks as tasks
+    import llm.route as tasks
 
     # every configured kind is replayable since 2026-10-20 (the re-reads were the last ones,
     # token review item 11); the mechanism is checked on a kind marked not cacheable here

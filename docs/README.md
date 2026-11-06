@@ -8,7 +8,9 @@ The folder map of the whole repository is `../PROJECT_STRUCTURE.md`.
 
 | Document | What it is |
 | --- | --- |
-| [guide/](guide/README.md) | **the plain-language project guide**: what it is, how a research runs step by step, which code does what, the config map, running and releasing it, and the known problems |
+| [handover/](handover/README.md) | **start here: the handover set (2026-11-03)**, written from the code with a file:line reference for every statement: architecture and planes, request path and auth, the research run lifecycle, model routing, spend and caps, data and isolation, documents and the sandbox, exports and the gate, ops, known gaps |
+| [registers/](registers/) | registers no code reads (claims, messaging rules, pricing, risks, SOC 2 controls, secret rotation, retention, minimisation map, data-model spec, billing proposal); cited by `config/section11_spec.yaml` (ADR-0136) |
+| guide/ | **superseded** by handover/: pages 1 to 6 (a 29 October snapshot, wrong in many places) were parked in `unwanted-things/docs-guide-2026-10-29/` |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | the system as built: services, request flow, tenancy and private workspaces, where data lives |
 | [workspace-how-it-works.md](workspace-how-it-works.md) | the workspace end to end, in full detail: ingest, the document/table store, the Ask tool loop, and the one model layer every surface reads |
 | [product-overview.md](product-overview.md) | the product: problem, workflow, grading, refresh, billing, where the source documents disagree |

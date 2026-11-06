@@ -20,6 +20,7 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy import CheckConstraint, ForeignKey, Index, Text, UniqueConstraint, text
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
 
 from account_intelligence.db.base import Base, TimestampMixin, UuidPkMixin
@@ -44,6 +45,16 @@ class Account(UuidPkMixin, TimestampMixin, Base):
         UniqueConstraint("tenant_id", "id"),  # target of composite tenant-scoped FKs
         CheckConstraint(DOMAIN_SHAPE_CHECK, name="domain_shape"),
         Index("ix_accounts_tenant_id_name", "tenant_id", "name"),
+        Index("ix_accounts_tenant_added_by", "tenant_id", "added_by"),
+        Index("ix_accounts_tenant_owner", "tenant_id", "owner_user_id"),
+        Index(
+            "ix_accounts_next_refresh",
+            "next_refresh_at",
+            postgresql_where=text("next_refresh_at IS NOT NULL"),
+        ),
+        Index(
+            "ix_accounts_live", "tenant_id", "domain", postgresql_where=text("deleted_at IS NULL")
+        ),
     )
 
     # Defaults to the transaction's tenant context; RLS WITH CHECK rejects any other value.
@@ -69,3 +80,17 @@ class Account(UuidPkMixin, TimestampMixin, Base):
         JSONB, nullable=False, server_default=text("'{}'::jsonb")
     )
     refresh_cadence: Mapped[str | None] = mapped_column(Text)
+    # the workspace columns of migration 0053 (replica): who added the account, how it entered
+    # the workspace, its lanes, the scheduled refresh and the soft delete
+    added_by: Mapped[str | None] = mapped_column(Text)
+    origin: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'research'"))
+    lanes: Mapped[list[str]] = mapped_column(
+        ARRAY(Text), nullable=False, server_default=text("'{}'::text[]")
+    )
+    next_refresh_at: Mapped[datetime | None]
+    refresh_scope: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'full'"))
+    library_account_id: Mapped[UUID | None]
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        comment="When the user removed the account from the workspace; NULL while it is listed."
+    )
+    deleted_by: Mapped[str | None] = mapped_column(Text)

@@ -24,6 +24,7 @@ from account_intelligence.api import contract as C
 from account_intelligence.api.audit_log import audit_action
 from account_intelligence.api.auth import Identity
 from account_intelligence.api.errors import APIProblem
+from account_intelligence.api.flags import behind_flag
 from account_intelligence.api.guard import authorize
 from account_intelligence.api.policy import register, tenant_route
 from account_intelligence.api.tenant_plane import plane_of
@@ -112,6 +113,7 @@ def _refused(e: writeback.WriteRefused) -> APIProblem:
 
 
 @router.post("/{crm}/enable", response_model=C.CrmToggle)
+@behind_flag("crm")
 async def enable(
     crm: Crm, request: Request, ident: Identity = Depends(authorize)
 ) -> dict[str, Any]:
@@ -130,6 +132,7 @@ async def enable(
 
 
 @router.post("/{crm}/revoke", response_model=C.CrmToggle)
+@behind_flag("crm")
 async def revoke(
     crm: Crm, request: Request, ident: Identity = Depends(authorize)
 ) -> dict[str, Any]:
@@ -148,6 +151,7 @@ async def revoke(
 
 
 @router.post("/{crm}/mappings", response_model=C.CrmMapping, status_code=201)
+@behind_flag("crm")
 async def confirm(
     crm: Crm, body: MappingBody, request: Request, ident: Identity = Depends(authorize)
 ) -> dict[str, Any]:
@@ -190,6 +194,7 @@ async def _draft(s: Any, crm: str, body: Target) -> tuple[UUID, Any]:
 
 
 @router.post("/{crm}/preview", response_model=C.CrmPreview)
+@behind_flag("crm")
 async def preview(
     crm: Crm, body: Target, request: Request, ident: Identity = Depends(authorize)
 ) -> dict[str, Any]:
@@ -213,6 +218,7 @@ async def preview(
 
 
 @router.post("/{crm}/writes", response_model=C.CrmWriteRequested, status_code=201)
+@behind_flag("crm")
 async def request_write(
     crm: Crm, body: Target, request: Request, ident: Identity = Depends(authorize)
 ) -> dict[str, Any]:
@@ -241,6 +247,7 @@ async def request_write(
 
 
 @router.post("/{crm}/writes/approve", response_model=C.CrmApproved)
+@behind_flag("crm")
 async def approve(
     crm: Crm, body: Approval, request: Request, ident: Identity = Depends(authorize)
 ) -> dict[str, Any]:
@@ -275,6 +282,7 @@ async def approve(
 
 
 @router.get("/{crm}/writes", response_model=C.CrmWrites)
+@behind_flag("crm")
 async def writes(
     crm: Crm, request: Request, ident: Identity = Depends(authorize)
 ) -> dict[str, Any]:

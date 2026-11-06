@@ -31,7 +31,12 @@ from account_intelligence.grading.engine import (
     normaliser_for,
     score_value,
 )
-from account_intelligence.grading.errors import GradingError, SchemaViolation, require_aware
+from account_intelligence.grading.errors import (
+    GradingError,
+    SchemaViolation,
+    ValueNotInSentence,
+    require_aware,
+)
 from account_intelligence.grading.judge import (
     Judged,
     apply_support_verdict,
@@ -65,6 +70,7 @@ from account_intelligence.grading.spans import (
     check_hostile,
     normalise_value,
     normalise_ws,
+    reanchor_sentence,
     sanitise,
     value_support,
     verify_span,
@@ -150,6 +156,10 @@ def _parse(raw: str | Mapping[str, Any]) -> ProposedSourced | ProposedSynthesis 
         raise _Drop("schema_violation") from error
 
 
+# the flag on a claim whose supporting sentence the engine re-anchored (``reanchor_sentence``)
+REANCHORED = "sentence_reanchored"
+
+
 @dataclass
 class _Sourced:
     proposal: ProposedSourced
@@ -205,7 +215,17 @@ def _check_sourced(
         url, candidates = verify_url(item.url, inputs.sources)
         source = verify_span(item.supporting_sentence, candidates, cfg)
         sentence = normalise_ws(item.supporting_sentence)
-        value_support(p.value, sentence, norm_kind)
+        try:
+            value_support(p.value, sentence, norm_kind)
+        except ValueNotInSentence:
+            # the value sits one sentence over, or the model paraphrased the sentence that holds
+            # it: the stored text's own sentence stands in (verbatim, in bounds, carries the
+            # value), flagged; when the text has no such sentence the claim is dropped as before
+            repaired = reanchor_sentence(p.value, sentence, source.text, norm_kind, cfg)
+            if repaired is None:
+                raise
+            sentence = repaired
+            out.flags.add(REANCHORED)
         profile = profile_for(source, run, cfg)
         when, kind = _evidence_date(source, profile.live_state)
         require_aware(when, "evidence date")
@@ -575,6 +595,7 @@ async def grade_claims(
         leads=dict(sorted(out_leads.items())),
     )
     obs.record_batch(result.grade_counts, result.drop_counts)
+    obs.record_repairs(sum(1 for s in sourced if REANCHORED in s.flags))
     return result
 
 

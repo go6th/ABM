@@ -43,6 +43,7 @@ from exports.repair.core import (
     JOBS_COLUMNS,
     NOT_APPLICABLE,
     NOT_FOUND,
+    OUTSIDE_LANES_CLASS,
     OUTSIDE_WINDOW,
     UNKNOWN,
     Exclusion,
@@ -118,6 +119,7 @@ class ResolvedPosting:
     outside_window: bool
     source_kind: str
     urls: tuple[str, ...] = ()
+    imported: bool = False  # a row of an uploaded workbook (dates given by the owner's sheet)
 
     @property
     def is_open(self) -> bool:
@@ -163,10 +165,68 @@ def _is_platform_title(title: str, platforms: Platforms, extra: frozenset[str]) 
     return any(entry.regex.fullmatch(text) for entry in platforms.ranking)
 
 
+OUTSIDE_LANES = "Outside the lanes"
+# generic vendor spellings of the ranking platforms, so a stored "Microsoft Power BI" is the
+# dictionary's "Power BI" (never an account's own names)
+_PLATFORM_SPELLINGS: dict[str, tuple[str, ...]] = {
+    "Power BI": ("microsoft power bi", "powerbi", "power bi"),
+    "Microsoft Azure": ("azure", "ms azure", "microsoft azure"),
+    "Amazon Web Services": ("aws", "amazon aws", "amazon web services"),
+    "Google Cloud": ("gcp", "google cloud platform", "google cloud"),
+    "Salesforce": ("sfdc", "salesforce.com", "salesforce crm", "salesforce"),
+    "Microsoft Dynamics 365": (
+        "dynamics 365",
+        "d365",
+        "microsoft dynamics",
+        "microsoft dynamics 365",
+    ),
+    "Qlik": ("qlik sense", "qlikview", "qlik"),
+    "SAP": ("sap s/4hana", "s/4hana", "sap erp", "sap"),
+}
+
+
 def _lane_of(platforms: Platforms) -> dict[str, str]:
-    """Platform name -> the lane label it files under (the ranking lane, else its own name)."""
+    """Platform name -> the lane label it files under: a lane platform under its lane, a ranking
+    platform under its ranking lane, a ranking platform with no lane under ``Outside the
+    lanes``. Every dictionary platform is listed (Power BI, Snowflake and SAS were dropped from
+    "Platforms named" when only the six lanes counted, UCB 2026-11-05)."""
     ranking = {entry.name: entry.lane for entry in platforms.ranking}
-    return {lane.name: ranking.get(lane.name) or lane.name for lane in platforms.lanes}
+    out = {lane.name: ranking.get(lane.name) or lane.name for lane in platforms.lanes}
+    for entry in platforms.ranking:
+        out.setdefault(entry.name, entry.lane or OUTSIDE_LANES)
+    return out
+
+
+def _spellings(platforms: Platforms) -> dict[str, str]:
+    """Folded stored spelling -> dictionary name, for the platforms a stored row names."""
+    out: dict[str, str] = {}
+    for name in [*(lane.name for lane in platforms.lanes), *(e.name for e in platforms.ranking)]:
+        out.setdefault(fold(name), name)
+        for variant in _PLATFORM_SPELLINGS.get(name, ()):
+            out.setdefault(fold(variant), name)
+    return out
+
+
+def _ranking_matches(
+    title: str, description: str, platforms: Platforms, skip: frozenset[str]
+) -> dict[str, list[str]]:
+    """The ranking platforms (outside the six lanes too) named in the posting text, each with
+    its sentences, in dictionary order."""
+    from parity.rules import TITLE_ONLY, platform_sentences
+
+    text = f"{title or ''} {description or ''}"
+    lanes = {lane.name for lane in platforms.lanes}
+    found: dict[str, list[str]] = {}
+    for entry in platforms.ranking:
+        if entry.name in lanes or entry.name in skip or not entry.regex.search(text):
+            continue
+        if entry.regex.search(description or ""):
+            found[entry.name] = platform_sentences(
+                description, entry.regex.pattern, entry.regex.flags
+            )
+        else:
+            found[entry.name] = [TITLE_ONLY]
+    return found
 
 
 # ---------------------------------------------------------------- title from the URL
@@ -333,6 +393,8 @@ def _resolve(
     lane_by_fold = {fold(n): n for n in lane_of}
     extra = out_of_scope_names(profile)
     exclusions: list[Exclusion] = []
+    spellings = _spellings(platforms)
+    lane_names = {lane.name for lane in platforms.lanes}
     groups: dict[str, list[tuple[JobRecord, str]]] = defaultdict(list)
     for rec in records:
         url = (rec.url or "").strip() or next((u.strip() for u in rec.other_urls if u.strip()), "")
@@ -356,13 +418,16 @@ def _resolve(
             (r.description.strip() for r in recs), key=len, default=""
         )
         found = match_platforms(title, description, platforms, skip)
+        found.update(_ranking_matches(title, description, platforms, skip))
         names = list(found)
         for rec in recs:
             for stored in rec.stored_platforms:
-                canon = lane_by_fold.get(fold(stored))
+                canon = lane_by_fold.get(fold(stored)) or spellings.get(fold(stored))
                 if canon and canon not in skip and canon not in names:
                     names.append(canon)
         order = {lane.name: i for i, lane in enumerate(platforms.lanes)}
+        for i, entry in enumerate(platforms.ranking):
+            order.setdefault(entry.name, len(platforms.lanes) + i)
         names.sort(key=lambda n: order.get(n, len(order)))
         lanes: list[str] = []
         for name in names:
@@ -371,7 +436,13 @@ def _resolve(
                 lanes.append(lane)
         stored = _stored_class(recs)
         decision = (stored, "") if stored else None
-        cls = classify(decision, found)[0] if names else NOT_APPLICABLE
+        in_lanes = any(n in lane_names for n in names)
+        if not names:
+            cls = NOT_APPLICABLE
+        elif stored or in_lanes:
+            cls = classify(decision, {n: found[n] for n in names if n in found})[0]
+        else:
+            cls = OUTSIDE_LANES_CLASS
         first_seen = _earliest([r.first_seen for r in recs])
         posted = _earliest([r.posted_at for r in recs])
         requisition = next((r.requisition_id.strip() for r in recs if r.requisition_id.strip()), "")
@@ -419,6 +490,7 @@ def _resolve(
                 outside_window=outside,
                 source_kind=kind,
                 urls=tuple(urls),
+                imported=any(r.imported for r in recs),
             )
         )
     out.sort(
@@ -484,6 +556,12 @@ def build_jobs(profile: WorkspaceProfile, records: list[JobRecord]) -> RepairedT
         for lane in platforms.lanes
         if lane.name not in skip
     }
+    oos = out_of_scope_names(profile)
+    for entry in platforms.ranking:
+        if fold(entry.name) not in oos:
+            per_platform.setdefault(
+                entry.name, {"postings": 0, "open": 0, "build": 0, "admin": 0, "tool": 0, "user": 0}
+            )
     classes = {label: key for label, key in CLASS_KEYS.items()}
     platform_postings = account_platform = outside = 0
     for p in postings:
@@ -521,6 +599,12 @@ def build_jobs(profile: WorkspaceProfile, records: list[JobRecord]) -> RepairedT
             key = classes.get(p.posting_class)
             if key:
                 slot[key] += 1
+    # a dictionary platform no posting names is not a row of the statistics
+    per_platform = {
+        k: v
+        for k, v in per_platform.items()
+        if v["postings"] or k in {lane.name for lane in platforms.lanes}
+    }
     stats: dict[str, Any] = {
         "resolved": postings,
         "rows_in": len(records),

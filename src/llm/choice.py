@@ -2,15 +2,20 @@
 
 Two roles, from the ``choices`` block of ``config/models.yaml``:
 
-* **research**: planning, pulling, extraction and classification (tiers planner, extractor,
-  classifier); default Claude Opus 5.5;
-* **analysis**: Ask, file analysis, the sense check, distilling, synthesis, narrative and the
-  judge (tiers synthesis, narrative, judge); default Claude Fable 5.1.
+* **research**: planning (which also runs the sense check and distill, ADR-0116), pulling,
+  extraction and classification (tiers planner, extractor, classifier); default Claude Opus 5.5;
+* **analysis**: Ask, synthesis, narrative and the judge (tiers synthesis, narrative, judge);
+  default Claude Opus 5.5 (while the role keeps its default, the judge's route is Claude
+  Fable 5.1).
 
-``RunModels.for_tier`` keeps the judge independent of the generator (G12): when both roles name
-the same model, the judge uses the other Claude model. ``availability`` says why a model cannot
-be chosen ("Not set up" without its provider key, "Not enabled for your workspace" when the
-platform has not enabled it or the client is not allowed it), so a choice never fails at Send.
+Which tier belongs to which role is ``llm.route.TIERS`` (the one routing table). The effort a
+user picks serves the judgment tiers of its role; extraction and classification keep their
+configured effort (``llm.route``). ``RunModels.for_tier`` keeps the judge independent of the
+generator (G12): when both roles name the same model, the judge uses another Claude model, and
+``independent_judge`` raises ``JudgeNotIndependent`` when there is none (the run then fails at
+its start, before any paid call, ADR-0118). ``availability`` says why a model cannot be chosen
+("Not set up" without its provider key, "Not enabled for your workspace" when the platform has
+not enabled it or the client is not allowed it), so a choice never fails at Send.
 
 GUARANTEE(test_the_judge_never_equals_the_research_model)
 """
@@ -94,10 +99,12 @@ def catalogue(path: str | None = None) -> Catalogue:
                 features=tuple(str(f) for f in entry.get("features", [])),
             )
         )
+    from llm.route import TIERS
+
     cat = Catalogue(
         models=tuple(models),
-        research_tiers=frozenset(raw["research_tiers"]),
-        analysis_tiers=frozenset(raw["analysis_tiers"]),
+        research_tiers=frozenset(str(t) for t, r in TIERS.items() if r.role == "research"),
+        analysis_tiers=frozenset(str(t) for t, r in TIERS.items() if r.role == "analysis"),
         default_research=str(raw["defaults"]["research"]),
         default_analysis=str(raw["defaults"]["analysis"]),
         needs_client_permission=frozenset(raw.get("needs_client_permission", [])),
@@ -130,7 +137,13 @@ class RunModels:
     analysis_effort: str | None = None
 
     def effort_for_tier(self, tier: str, cat: Catalogue | None = None) -> str | None:
-        """The effort the user chose for the role this tier belongs to (None: not chosen)."""
+        """The effort the user chose for the role this tier belongs to (None: not chosen, or a
+        tier the user's effort never serves: extraction and classification keep their task's
+        configured effort, ``llm.route.TIERS``)."""
+        from llm.route import user_effort_applies
+
+        if not user_effort_applies(tier):
+            return None
         cat = cat or catalogue()
         return self.research_effort if tier in cat.research_tiers else self.analysis_effort
 
@@ -143,9 +156,15 @@ class RunModels:
             return independent_judge(self.research, cat)
         return self.analysis
 
-    def fell_back(self, step: str, from_model: str, to_model: str, reason: str) -> None:
-        """Record one step served by a different model than chosen."""
-        self.fallbacks.append({"step": step, "from": from_model, "to": to_model, "reason": reason})
+    def fell_back(
+        self, step: str, from_model: str, to_model: str, reason: str, **costs: str
+    ) -> dict[str, str]:
+        """Record one step served by a different model than chosen; ``costs`` are its billing
+        facts (``discarded_usd``, ``extra_usd``: decimal strings). Returns the entry, so the
+        extra cost can be added once the fallback calls are paid."""
+        entry = {"step": step, "from": from_model, "to": to_model, "reason": reason, **costs}
+        self.fallbacks.append(entry)
+        return entry
 
     def as_json(self) -> dict[str, Any]:
         """What the run row and the answer record store (the efforts only once chosen)."""
@@ -180,12 +199,35 @@ def _effort(value: Any, cat: Catalogue) -> str | None:
 
 
 def independent_judge(generator: str, cat: Catalogue | None = None) -> str:
-    """A Claude model other than ``generator`` for the judge (G12)."""
+    """A Claude model of the allow-list other than ``generator`` for the judge (G12);
+    ``JudgeNotIndependent`` when there is none (never a judge on the generator's model)."""
+    from llm.route import JudgeNotIndependent
+
     cat = cat or catalogue()
     for model in cat.models:
         if model.provider == "anthropic" and model.id != generator:
             return model.id
-    raise ValueError("no independent judge model is configured")
+    raise JudgeNotIndependent("no Claude model other than the generator's is configured")
+
+
+@lru_cache(maxsize=2)
+def models_document(path: str | None = None) -> dict[str, Any]:
+    """``config/models.yaml`` as parsed, read once (for policies kept in other modules, such as
+    ``llm.data_class``, so the file has one reader). Callers must not mutate it."""
+    doc: dict[str, Any] = yaml.safe_load(Path(path or CONFIG_DIR / "models.yaml").read_text())
+    return doc
+
+
+@lru_cache(maxsize=2)
+def task_efforts(path: str | None = None) -> dict[str, str]:
+    """The configured effort of each ``models.yaml`` task (``task_settings``): the default
+    effort of every tier routed to it (``llm.route``)."""
+    doc: dict[str, Any] = yaml.safe_load(Path(path or CONFIG_DIR / "models.yaml").read_text())
+    return {
+        str(task): str(knobs["effort"])
+        for task, knobs in (doc.get("task_settings") or {}).items()
+        if (knobs or {}).get("effort") is not None
+    }
 
 
 def claude_default(role: str, cat: Catalogue | None = None) -> str:

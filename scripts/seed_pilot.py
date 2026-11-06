@@ -42,7 +42,8 @@ def plan_tenants(counts: tuple[int, int]) -> list[dict[str, Any]]:
 
 async def seed(counts: tuple[int, int], now: datetime) -> list[dict[str, Any]]:
     """Provision and fill the tenants; returns their ids and domains."""
-    from account_intelligence.db.session import tenant_txn, untenanted_session
+    from account_intelligence.db.session import tenant_txn
+    from account_intelligence.db.system_scope import untenanted_session
     from account_intelligence.runs.lifecycle import add_account
     from admin import quotas, tenants
     from metering import events, limits

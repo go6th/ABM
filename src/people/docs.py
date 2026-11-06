@@ -166,7 +166,10 @@ def render_counts() -> str:
 
 def main(argv: list[str]) -> int:
     """Write the documents, or with ``--check`` report whether they are current."""
-    wanted = {RUBRIC: render_rubric(load_people_config()), COUNTS: render_counts()}
+    wanted = {
+        RUBRIC: render_rubric(load_people_config(configured=True)),
+        COUNTS: render_counts(),
+    }
     if "--check" in argv:
         stale = [
             str(p.relative_to(ROOT))

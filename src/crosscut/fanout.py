@@ -39,17 +39,21 @@ class _Raised:
 async def _settle(
     items: Sequence[T], call: Callable[[T], Awaitable[R | None]], limit: int
 ) -> list[R | None]:
-    """Every call finished (none cancelled for a sibling), then the first failure raised."""
-    gate = asyncio.Semaphore(max(1, limit))
+    """Every call finished (none cancelled for a sibling), then the first failure raised. At most
+    ``limit`` workers take the items in order: a task per item (thousands for a grading batch)
+    made the event loop create and schedule them all in one step (2026-11-04)."""
+    settled: list[R | None | _Raised] = [None] * len(items)
+    position = iter(range(len(items)))
 
-    async def one(item: T) -> R | None | _Raised:
-        async with gate:
+    async def worker() -> None:
+        # LOOP(fan-out worker): cap=len(items) calls shared by the workers; exit=no item left
+        for i in position:
             try:
-                return await call(item)
+                settled[i] = await call(items[i])
             except Exception as error:  # noqa: BLE001 - re-raised below, once all calls are done
-                return _Raised(error)
+                settled[i] = _Raised(error)
 
-    settled = await asyncio.gather(*(one(i) for i in items))
+    await asyncio.gather(*(worker() for _ in range(min(max(1, limit), len(items)))))
     for outcome in settled:
         if isinstance(outcome, _Raised):
             raise outcome.error

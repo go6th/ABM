@@ -114,6 +114,80 @@ function SuspendClient({ tenantId, name, suspended, onDone }: { tenantId: string
   );
 }
 
+/** People data consent (G8): research finds people only while it is granted. A client admin
+ *  grants it in the app; until the client's SSO with multi-factor sign-in is connected no admin
+ *  can sign in, so an operator records it here at the client's request (named in the record). */
+function PeopleConsent({ tenantId, name }: { tenantId: string; name: string }) {
+  const state = useOperatorApi("GET /operator/v1/console/clients/{tenant_id}/people-consent", { params: { tenant_id: tenantId } });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const consent = state.data;
+  const set = async (accept: boolean) => {
+    const ask = accept
+      ? `Record people data consent for ${name}? Only do this when the client has agreed to the consent text. Their next research finds people.`
+      : `Withdraw people data consent for ${name}? No new people research runs after this.`;
+    if (!window.confirm(ask)) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await operatorRequest("POST /operator/v1/console/clients/{tenant_id}/people-consent", { params: { tenant_id: tenantId }, body: { accept } });
+      state.reload();
+    } catch (cause) {
+      setError(cause instanceof ApiError && cause.detail ? cause.detail : "That did not work. Try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <section className="card pad stack-14" aria-labelledby="consent-title">
+      <h2 id="consent-title" className="lbl">PEOPLE DATA CONSENT</h2>
+      {!consent ? <p className="sm-text mut">{state.error ? "Could not load the consent." : "Loading"}</p> : <>
+        <p className="sm-text">{consent.current ? "Granted" : consent.granted ? "Granted for an older text: ask again" : "Not granted: research finds no people"}</p>
+        {consent.granted_at ? <p className="xs-text mut">{consent.revoked_at ? "Withdrawn" : "Recorded"} {new Date(consent.revoked_at ?? consent.granted_at).toLocaleString()} by {consent.granted_by}</p> : null}
+        <details><summary className="xs-text">Consent text ({consent.text_version})</summary><p className="xs-text mut">{consent.text}</p></details>
+        {error ? <p className="sm-text bad-text" role="alert">{error}</p> : null}
+        <button type="button" className={consent.current ? "btn block" : "btn primary block"} disabled={busy} onClick={() => void set(!consent.current)}>{busy ? "Working" : consent.current ? "Withdraw consent" : "Record consent"}</button>
+      </>}
+    </section>
+  );
+}
+
+/** Rebuild files: one account's files and web tables built again from its newest delivered run
+ *  (stored rows only: no search, no model call, no credit), after a fix to the build rules. */
+function RebuildFiles({ tenantId }: { tenantId: string }) {
+  const [domain, setDomain] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const run = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    setError(null);
+    setDone(null);
+    try {
+      const out = await operatorRequest("POST /operator/v1/console/clients/{tenant_id}/rebuild-files", { params: { tenant_id: tenantId }, body: { domain: domain.trim().toLowerCase() } });
+      const rows = Object.entries(out.rows).filter(([, n]) => n > 0).map(([k, n]) => `${k} ${n}`).join(", ");
+      setDone(out.status === "complete" ? `Rebuilt ${out.files.length} files. Table rows: ${rows || "none"}.` : `The build was refused (${out.reason ?? "unknown"}); the old files stay.`);
+    } catch (cause) {
+      setError(cause instanceof ApiError && cause.status === 422
+        ? "Enter the full domain, for example olympusamerica.com."
+        : cause instanceof ApiError && cause.detail ? cause.detail : "The files could not be rebuilt. Try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <form className="card pad stack-14" onSubmit={(e) => void run(e)} aria-labelledby="rebuild-title">
+      <h2 id="rebuild-title" className="lbl">REBUILD FILES</h2>
+      <p className="xs-text mut">Builds an account&apos;s files and web tables again from its last research. No new research and no credits.</p>
+      <div className="field"><label htmlFor="rebuild-domain">Account domain</label><input id="rebuild-domain" className="input" required maxLength={253} placeholder="example.com" value={domain} onChange={(e) => setDomain(e.target.value)} /></div>
+      {error ? <p className="sm-text bad-text" role="alert">{error}</p> : null}
+      {done ? <p className="sm-text" role="status">{done}</p> : null}
+      <button type="submit" className="btn block" disabled={busy}>{busy ? "Rebuilding (a minute or two)" : "Rebuild files"}</button>
+    </form>
+  );
+}
+
 function Editor({ detail, reload }: { detail: ConsoleClientDetail; reload: () => void }) {
   const [s, setS] = useState<ConsoleClientSettings>(detail.settings);
   const [lib, setLib] = useState<Set<string>>(new Set(detail.library.filter((a) => a.published).map((a) => a.library_account_id)));
@@ -253,6 +327,8 @@ function Editor({ detail, reload }: { detail: ConsoleClientDetail; reload: () =>
           <Link className="btn block" href="/operator/users">See users</Link>
           <Pill tone={pill.tone} small>{pill.text}</Pill>
         </section>
+        <PeopleConsent tenantId={c.tenant_id} name={c.name} />
+        <RebuildFiles tenantId={c.tenant_id} />
         <SuspendClient tenantId={c.tenant_id} name={c.name} suspended={detail.suspended ?? false} onDone={reload} />
       </div>
     </div>

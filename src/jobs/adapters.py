@@ -85,8 +85,13 @@ class ConnectorPostingSource(_Calls):
         deps: Any,
         careers_host: str | None,
         blocked_hosts: Iterable[str] = (),
+        *,
+        careers_page_unverified: bool = False,
     ) -> None:
         super().__init__(deps)
+        # the research chose a careers page but it could not be verified (no ledger read of it,
+        # a constructed address): an internal miss, never "the company has no careers site"
+        self.careers_page_unverified = careers_page_unverified
         # a verified host is often "www.<domain>"; search filters take the bare lowercase host
         host = (careers_host or "").strip().lower().removeprefix("www.")
         self.careers_host = host or None
@@ -114,7 +119,11 @@ class ConnectorPostingSource(_Calls):
     async def search_board(self, lane: str, keyword: str) -> SourceBatch:
         """One live board search for a lane keyword on the verified careers host."""
         if not self.careers_host:
-            raise SourceUnavailable("careers_host_not_verified")
+            raise SourceUnavailable(
+                "careers_host_unresolved"
+                if self.careers_page_unverified
+                else "careers_host_not_verified"
+            )
         result = await self.call(
             Operation.WEB_SEARCH,
             WebSearchArgs(queries=(f"{keyword} jobs",), include_domains=(self.careers_host,)),
@@ -265,6 +274,7 @@ class TrackerEvidence:
         expected_calls: int,
         cap_hit: bool,
         not_attempted_reason: str | None,
+        partial_reason: str | None = None,
     ) -> None:
         """Report one owned row to the tracker (statuses are derived there)."""
         async with self.deps.txn(self.deps.tenant_id) as session:
@@ -280,6 +290,7 @@ class TrackerEvidence:
                 stage="jobs",
                 expected_calls=expected_calls,
                 cap_hit=cap_hit,
+                partial_reason=ReasonCode(partial_reason) if partial_reason else None,
             )
 
 

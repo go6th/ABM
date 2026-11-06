@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { apiOrigin } from "@/lib/api-origin";
+import { serverlessAuth } from "@/lib/serverless-auth";
 import { isSameOriginRouteRequest } from "@/lib/same-origin";
 import { tenantCookies } from "@/lib/tenant-cookies";
 
@@ -17,8 +18,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const cookie = tenantCookies(request.headers.get("cookie") ?? "");
   try {
     if (!origin) throw new Error("no API configured");
+    const iam = await serverlessAuth(origin);
     const session = await fetch(new URL("/v1/sso/session", origin), {
-      headers: { cookie, accept: "application/json" },
+      headers: { ...iam, cookie, accept: "application/json" },
       cache: "no-store",
       redirect: "error",
     });
@@ -27,7 +29,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       if (typeof body.csrf_token === "string") {
         await fetch(new URL("/v1/sso/logout", origin), {
           method: "POST",
-          headers: { cookie, origin: request.headers.get("origin") ?? "", "x-csrf-token": body.csrf_token, accept: "application/json" },
+          headers: { ...iam, cookie, origin: request.headers.get("origin") ?? "", "x-csrf-token": body.csrf_token, accept: "application/json" },
           cache: "no-store",
           redirect: "error",
         });

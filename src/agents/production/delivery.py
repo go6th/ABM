@@ -20,6 +20,7 @@ GUARANTEE(test_builder_adapter_reads_member_texts_for_the_name_scan)
 
 from __future__ import annotations
 
+import asyncio
 import io
 import zipfile
 from collections.abc import Mapping, Sequence
@@ -88,7 +89,9 @@ class ExportBuilderPort:
             found = await findings(s, ctx.run_id)
             lines = await tracker_lines(s, ctx.run_id)
         label = INTERNAL_LABEL if docs else COMPANY_INTERNAL_LABEL
-        data = build(
+        # python-docx rendering off the event loop (ADR-0130, docs/audits/event-loop.md)
+        data = await asyncio.to_thread(
+            build,
             account=ctx.account_name,
             as_of=date.fromisoformat(self.deps.clock.now().date().isoformat()),
             documents=[(d.name, int(d.passages)) for d in docs],
@@ -117,7 +120,7 @@ class ExportBuilderPort:
             raise KeyError("deliverable not found for this tenant")
         data = await self.deps.payloads.get(str(key))
         try:
-            return member_texts(data)
+            return await asyncio.to_thread(member_texts, data)  # unzip off the loop (ADR-0130)
         except zipfile.BadZipFile:
             return (data.decode("utf-8", "ignore"),)
 
@@ -158,11 +161,17 @@ class NoteDelivery:
     deps: RunDeps
 
     async def release(
-        self, ctx: RunContext, file_ids: Sequence[str], withheld: Sequence[str] = ()
+        self,
+        ctx: RunContext,
+        file_ids: Sequence[str],
+        withheld: Sequence[str] = (),
+        found: Mapping[str, int] | None = None,
     ) -> None:
         """Write the delivery note once (leak-scanned); files are already stored by the builder.
         A file kind the gate held back is recorded in the note; the workspace listing reads the
-        stored gate verdict and leaves such a file out (``replica.workspace.deliverables``)."""
+        stored gate verdict and leaves such a file out (``replica.workspace.deliverables``).
+        ``found`` carries the run's counts into the note (until 2026-11-06 the note was written
+        with no counters and read "0 claims graded, 0 postings" on every agent run)."""
         from account_intelligence.workflow.stages.core import deliver
 
         state: Any = {
@@ -171,7 +180,7 @@ class NoteDelivery:
                 "gate": "passed" if not withheld else "withheld:" + ",".join(withheld),
                 "withheld": list(withheld),
             },
-            "counters": {},
+            "counters": dict(found or {}),
         }
         await deliver(self.deps, state)
 

@@ -8,8 +8,7 @@
   (a run that requires a credit cap needs ``/cap/approve`` first, ``api.routes.spend``).
 * ``POST /v1/runs/{id}/cancel``: ends the run CANCELED and settles the spend so far.
 * ``mode`` (D-102): ``full`` (default when absent), ``pull`` (Phase 1 only) or ``build`` (Phase 2
-  only, with ``parent_run_id``); ``GET /v1/runs/pull-option`` says whether Phase 2 only may be
-  offered.
+  only, with ``parent_run_id``).
 No endpoint accepts a tenant id, and none sends outreach.
 """
 
@@ -45,7 +44,7 @@ from account_intelligence.runs.lifecycle import (
     RunStateConflict,
 )
 from account_intelligence.workflow.transitions import RunStatus
-from agents.adapters import build_parent, pull_option, run_mode_columns
+from agents.adapters import build_parent, run_mode_columns
 from agents.config import skill_config
 from agents.errors import InvalidMode
 from agents.modes import RunMode, RunPlan, plan_run, resolve_mode
@@ -395,18 +394,6 @@ async def list_runs(
         if len(rows) > limit
         else None,
     }
-
-
-@router.get("/pull-option", response_model=C.PullOption, response_model_exclude_unset=True)
-async def get_pull_option(
-    domain: str,
-    ident: Identity = Depends(require_role("admin", "seller", "viewer")),
-) -> dict[str, Any]:
-    """Whether "Phase 2 only" may be offered for the account, with the pull's date and coverage
-    (work item 2). Counts only; no content, provider or cost."""
-    async with tenant_txn(ident.tenant_id) as s:
-        option = await pull_option(s, domain.strip().lower().rstrip("."))
-    return {"available": option is not None, **(option or {})}
 
 
 async def _tracker_for(container: Any, session: Any) -> Any:

@@ -764,6 +764,11 @@ export const ConnectorStarted = z.object({
 }).strict();
 export type ConnectorStarted = z.infer<typeof ConnectorStarted>;
 
+export const ConsentChange = z.object({
+  "accept": z.boolean(),
+}).strict();
+export type ConsentChange = z.infer<typeof ConsentChange>;
+
 export const ConsoleAdmin = z.object({
   "email": z.string(),
   "role": z.string(),
@@ -1513,6 +1518,15 @@ export const FileInput = z.object({
   "enrich_public": z.boolean().optional(),
 }).strict();
 export type FileInput = z.infer<typeof FileInput>;
+
+export const FilesRebuilt = z.object({
+  "files": z.array(z.string()),
+  "reason": z.string().nullable(),
+  "rows": z.record(z.string(), z.number().int()),
+  "run_id": z.string(),
+  "status": z.string(),
+}).strict();
+export type FilesRebuilt = z.infer<typeof FilesRebuilt>;
 
 export const Filter = z.object({
   "column": z.string(),
@@ -2359,6 +2373,11 @@ export const Reason = z.object({
   "reason_code": z.string(),
 }).strict();
 export type Reason = z.infer<typeof Reason>;
+
+export const RebuildFiles = z.object({
+  "domain": z.string(),
+}).strict();
+export type RebuildFiles = z.infer<typeof RebuildFiles>;
 
 export const Reconcile = z.object({
   "drift_micros": z.number().int(),
@@ -3779,6 +3798,9 @@ export const operations = {
   "GET /operator/v1/console/clients/{tenant_id}": { method: "GET", path: "/operator/v1/console/clients/{tenant_id}", plane: "operator", status: 200, request: null, requestRequired: false, response: ConsoleClientDetail },
   "PUT /operator/v1/console/clients/{tenant_id}": { method: "PUT", path: "/operator/v1/console/clients/{tenant_id}", plane: "operator", status: 200, request: ClientChange, requestRequired: true, response: ConsoleClientDetail },
   "POST /operator/v1/console/clients/{tenant_id}/invite": { method: "POST", path: "/operator/v1/console/clients/{tenant_id}/invite", plane: "operator", status: 200, request: null, requestRequired: false, response: ClientInvite },
+  "GET /operator/v1/console/clients/{tenant_id}/people-consent": { method: "GET", path: "/operator/v1/console/clients/{tenant_id}/people-consent", plane: "operator", status: 200, request: null, requestRequired: false, response: PeopleConsent },
+  "POST /operator/v1/console/clients/{tenant_id}/people-consent": { method: "POST", path: "/operator/v1/console/clients/{tenant_id}/people-consent", plane: "operator", status: 200, request: ConsentChange, requestRequired: true, response: PeopleConsent },
+  "POST /operator/v1/console/clients/{tenant_id}/rebuild-files": { method: "POST", path: "/operator/v1/console/clients/{tenant_id}/rebuild-files", plane: "operator", status: 200, request: RebuildFiles, requestRequired: true, response: FilesRebuilt },
   "POST /operator/v1/console/clients/{tenant_id}/users": { method: "POST", path: "/operator/v1/console/clients/{tenant_id}/users", plane: "operator", status: 201, request: NewClientUser, requestRequired: true, response: TeamInvite },
   "GET /operator/v1/console/defaults": { method: "GET", path: "/operator/v1/console/defaults", plane: "operator", status: 200, request: null, requestRequired: false, response: ConsoleDefaults },
   "PUT /operator/v1/console/defaults": { method: "PUT", path: "/operator/v1/console/defaults", plane: "operator", status: 200, request: DefaultsChange, requestRequired: true, response: ConsoleDefaults },

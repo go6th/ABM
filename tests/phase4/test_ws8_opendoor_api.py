@@ -15,6 +15,8 @@ import pytest
 from account_intelligence.db.session import tenant_txn
 from opendoor import api as od
 from opendoor import events
+from tests.conftest import ADMIN_DSN
+from tests.fakes.flags import enable_flags
 from tests.phase3.conftest import (  # noqa: F401  (fixtures)
     Browser,
     Plane,
@@ -107,6 +109,7 @@ async def _signed_in(
     plane: Plane, browser: Browser, name: str, role: str = "admin"
 ) -> tuple[UUID, UUID, str]:
     t, a = tenant_with_account(name, f"{name}.example")
+    enable_flags(ADMIN_DSN, [t])  # the CRM and monitoring routes are gated (api/flags.py)
     slug = f"acme-{uid()}"
     add_oidc_connection(t, plane, slug)
     add_member(t, f"{slug}:root", role)

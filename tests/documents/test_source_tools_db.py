@@ -96,3 +96,73 @@ async def test_the_prose_tools_search_and_read_cited_text(tenant_a: UUID, tmp_pa
         jobs_id,
     )
     assert row_meta and row_meta[0][0].get("ingested_at")  # row passages keep cells + stamp
+
+
+def _zip_with_members(
+    tenant: UUID, account: UUID, user: str, members: list[tuple[str, str]]
+) -> UUID:
+    """An indexed workspace zip whose passages each belong to a member: (member, text) pairs."""
+    import hashlib
+    import json
+
+    doc = uuid4()
+    sha = hashlib.sha256(doc.bytes).hexdigest()
+    admin(
+        "INSERT INTO documents (id, tenant_id, account_id, name, declared_bytes, declared_type,"
+        " quarantine_key, object_key, sha256, status, passages, uploaded_by, upload_expires_at,"
+        " owner_user_id) VALUES (%s, %s, %s, 'Acme_workspace.zip', 1000, 'application/zip',"
+        " 'q/x', 'o/x', %s, 'indexed', %s, %s, now(), %s)",
+        doc,
+        tenant,
+        account,
+        sha,
+        len(members),
+        user,
+        user,
+    )
+    for seq, (member, line) in enumerate(members, start=1):
+        admin(
+            "INSERT INTO document_passages (tenant_id, account_id, document_id, seq, kind,"
+            " location, content, content_sha256, token_count, owner_user_id)"
+            " VALUES (%s, %s, %s, %s, 'section', %s, %s, %s, 12, %s)",
+            tenant,
+            account,
+            doc,
+            seq,
+            json.dumps({"member": member}),
+            line,
+            hashlib.sha256(line.encode()).hexdigest(),
+            user,
+        )
+    return doc
+
+
+async def test_a_member_filter_finds_a_small_file_inside_a_large_zip(tenant_a: UUID) -> None:
+    """2026-11-03 (UCB): a member filter ran after a top-50 search of the whole zip, so the one
+    Account Summary passage lost to 60 release passages and the filtered search came back empty.
+    The filter now narrows the retrieval itself; a document filter naming a file inside the zip
+    searches that member. Any workspace, any member name."""
+    account = _make_account(tenant_a, f"acme-{uuid4().hex[:6]}.example")
+    summary = "Acme_workspace/Acme_Account_Summary.docx"
+    doc = _zip_with_members(
+        tenant_a,
+        account,
+        "user-1",
+        [(f"data/releases/r{i}.md", f"budget budget release number {i}") for i in range(60)]
+        + [(summary, "Tier 1 budget signal: CRM program with system integrators")],
+    )
+    async with tenant_txn(tenant_a, user="user-1") as s:
+        for f in (
+            {"field": "member", "op": "eq", "value": summary},
+            {"field": "member", "op": "icontains", "value": "account_summary"},
+            {"field": "document", "op": "eq", "value": "Acme_Account_Summary.docx"},
+            {"field": "document", "op": "icontains", "value": "Account_Summary"},
+        ):
+            hits = await S.search(s, "budget", [account], None, 5, [f])
+            assert [p["text"] for p in hits["passages"]] == [
+                "Tier 1 budget signal: CRM program with system integrators"
+            ], f
+            assert hits["passages"][0]["chunk_id"] == f"{doc}:61"
+        # a name that is neither a document nor a member still finds nothing
+        none = [{"field": "document", "op": "eq", "value": "Missing.docx"}]
+        assert (await S.search(s, "budget", [account], None, 5, none))["passages"] == []

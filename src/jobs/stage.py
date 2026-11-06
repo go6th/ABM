@@ -85,6 +85,7 @@ async def run_jobs(
             expected_calls=evidence.expected_calls,
             cap_hit=evidence.cap_hit,
             not_attempted_reason=evidence.not_attempted_reason,
+            partial_reason=evidence.partial_reason,
         )
     await grading.submit_claims(result.claims)
     return replace(result, calls_made=calls)

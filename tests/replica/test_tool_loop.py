@@ -17,6 +17,8 @@ from uuid import uuid4
 import pytest
 
 from account_intelligence.chat.service import (
+    FINAL_ANSWER_NOTE,
+    MAX_RENDER_NUDGES,
     MAX_TOOL_ROUNDS,
     AnthropicChatProvider,
     ChatMessage,
@@ -38,6 +40,19 @@ class _ToolUse:
     name: str
     input: dict[str, Any]
     type: str = "tool_use"
+
+
+@dataclass
+class _Thinking:
+    thinking: str
+    signature: str
+    type: str = "thinking"
+
+
+@dataclass
+class _Redacted:
+    data: str
+    type: str = "redacted_thinking"
 
 
 @dataclass
@@ -372,7 +387,9 @@ async def test_run_python_joins_the_offer_only_for_a_flagged_tenant() -> None:
         "render_answer",
     ]
     on = AccessTools(lambda: None, [], [], run_python=True)  # type: ignore[arg-type]
-    assert "run_python" not in [t["name"] for t in on.offered("prose")]
+    # 2026-11-03: a flagged tenant's code tool is on every route (a prose turn computes over
+    # its searches and page reads too); an unflagged tenant still never sees it
+    assert [t["name"] for t in on.offered("prose")][-1] == "run_python"
     assert [t["name"] for t in on.offered("mixed")] == [
         "list_sources",
         "describe_table",
@@ -460,3 +477,95 @@ async def test_nudges_stop_after_two_and_a_budget_overrun_only_runs_render_answe
     assert ran == ["query_table"] * MAX_TOOL_ROUNDS + ["render_answer"]
     over = client.requests[MAX_TOOL_ROUNDS + 1]["messages"][-1]["content"]
     assert any("tool_budget_used" in str(b.get("content")) for b in over if "content" in b)
+
+
+async def _drain(client: _Client, tools: list[dict[str, Any]], **kw: Any) -> list[Any]:
+    async def run_tool(name: str, payload: dict[str, Any]) -> Any:
+        return {"ok": True, "terminal": True} if name == "render_answer" else {"rows": []}
+
+    return [
+        e
+        async for e in AnthropicChatProvider(client).stream(
+            _model(), [ChatMessage("user", "q")], 100, tools=tools, run_tool=run_tool, **kw
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_thinking_blocks_go_back_unchanged_and_the_prefix_never_changes() -> None:
+    """Sonnet deep-thinking plan step 1: a round's thinking blocks (plain and redacted) go back
+    unchanged and in their place, so the next round continues the same reasoning; the system
+    prompt and the tool list are byte-identical on every round (a change invalidates them)."""
+    client = _Client(
+        [
+            _Final(
+                [
+                    _Thinking("Read the Account Summary first.", "sig-1"),
+                    _Redacted("opaque"),
+                    _Text("Checking."),
+                    _ToolUse("t1", "query_table", {"table": "Jobs"}),
+                ],
+                "tool_use",
+            ),
+            _Final([_Text("Done [R1].")], "end_turn"),
+        ]
+    )
+    await _drain(client, [{"name": "query_table"}], system="rules")
+    echoed = client.requests[1]["messages"][1]
+    assert echoed["role"] == "assistant"
+    assert echoed["content"][:2] == [
+        {"thinking": "Read the Account Summary first.", "signature": "sig-1", "type": "thinking"},
+        {"data": "opaque", "type": "redacted_thinking"},
+    ]
+    assert [b["type"] for b in echoed["content"]] == [
+        "thinking",
+        "redacted_thinking",
+        "text",
+        "tool_use",
+    ]
+    first, second = client.requests
+    assert first["system"] == second["system"] and first["tools"] == second["tools"]
+
+
+@pytest.mark.asyncio
+async def test_a_model_that_never_renders_gets_one_answer_only_round() -> None:
+    """Staging 2026-11-02: two Fable replies kept searching past every round and nudge and were
+    discarded. Now one last round keeps the tools unchanged, sets tool_choice none and asks for
+    the answer as text; that text is the answer."""
+    calls = MAX_TOOL_ROUNDS + MAX_RENDER_NUDGES + 1
+    client = _Client(
+        [_Final([_ToolUse(f"t{i}", "query_table", {})], "tool_use") for i in range(calls)]
+        + [_Final([_Text("Three insights [R1].")], "end_turn")]
+    )
+    events = await _drain(client, _RENDER_TOOLS)
+    last = client.requests[-1]
+    assert len(client.requests) == calls + 1
+    assert last["tool_choice"] == {"type": "none"}
+    assert last["tools"] == client.requests[0]["tools"]
+    assert all("tool_choice" not in r for r in client.requests[:-1])
+    note = last["messages"][-1]["content"][-1]
+    assert note == {"type": "text", "text": FINAL_ANSWER_NOTE}
+    tail = "".join(e.text for e in events if e.kind == "text")
+    assert tail.endswith("Three insights [R1].") and events[-1].kind == "usage"
+
+
+@pytest.mark.asyncio
+async def test_the_turn_round_limit_replaces_the_default() -> None:
+    endless = [_Final([_ToolUse(f"t{i}", "query_table", {})], "tool_use") for i in range(9)]
+    client = _Client(endless)
+    events = await _drain(client, [{"name": "query_table"}], max_tool_rounds=2)
+    assert sum(1 for e in events if e.kind == "tool") == 2 and len(client.requests) == 3
+
+
+@pytest.mark.asyncio
+async def test_a_summarized_display_is_requested_and_its_summaries_are_yielded() -> None:
+    client = _Client(
+        [_Final([_Thinking("I start from the signals table.", "s"), _Text("A [R1].")], "end_turn")]
+    )
+    events = await _drain(client, _RENDER_TOOLS[:1], thinking_display="summarized")
+    assert client.requests[0]["thinking"] == {"type": "adaptive", "display": "summarized"}
+    assert [e.text for e in events if e.kind == "thinking"] == ["I start from the signals table."]
+    plain = _Client([_Final([_Thinking("", "s"), _Text("A [R1].")], "end_turn")])
+    events = await _drain(plain, _RENDER_TOOLS[:1])
+    assert "thinking" not in plain.requests[0]
+    assert not [e for e in events if e.kind == "thinking"]

@@ -37,7 +37,8 @@ async def run(args: argparse.Namespace) -> str:
     from account_intelligence.archive import LinkArchive
     from account_intelligence.archive_backfill import Report, backfill_account
     from account_intelligence.archive_facts import Account
-    from account_intelligence.db.session import tenant_txn, untenanted_session
+    from account_intelligence.db.session import tenant_txn
+    from account_intelligence.db.system_scope import untenanted_session
     from admin import tenants
 
     payloads = build_container().payloads

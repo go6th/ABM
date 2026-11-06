@@ -158,3 +158,51 @@ def get_or_create_source(
     session.add(source)
     session.flush()
     return source
+
+
+def import_source(
+    session: Session,
+    *,
+    account_id: UUID,
+    account_run_id: UUID,
+    url: str,
+    kind: SourceKind,
+    title: str | None,
+    publisher: str | None = None,
+    published_at: date | None = None,
+    alias: str | None = None,
+    how_retrieved: str | None = None,
+    what_it_supports: str | None = None,
+) -> Source:
+    """A source of an uploaded workspace's register (phase 3, 2026-11-03): the account's source
+    for ``url`` through ``get_or_create_source`` (the one allocator of codes), then the register's
+    own columns on it: the file's code as an alias (``S12`` in the workspace's numbering, so a
+    citation in imported prose resolves to the registry's code), how it was retrieved and what
+    it supports. A register row the registry already holds keeps its code and gains the alias."""
+    source = get_or_create_source(
+        session,
+        account_id=account_id,
+        account_run_id=account_run_id,
+        url=url,
+        kind=kind,
+        title=title,
+        publisher=publisher,
+        published_at=published_at,
+    )
+    session.execute(
+        text(
+            "UPDATE sources SET aliases = CASE WHEN CAST(:alias AS text) IS NULL"
+            " OR CAST(:alias AS text) = ANY(aliases) THEN aliases"
+            " ELSE array_append(aliases, CAST(:alias AS text)) END,"
+            " how_retrieved = coalesce(CAST(:how AS text), how_retrieved),"
+            " what_it_supports = coalesce(CAST(:what AS text), what_it_supports),"
+            " updated_at = now() WHERE id = :id"
+        ),
+        {
+            "id": source.id,
+            "alias": (alias or "")[:40] or None,
+            "how": (how_retrieved or "")[:500] or None,
+            "what": (what_it_supports or "")[:2000] or None,
+        },
+    )
+    return source

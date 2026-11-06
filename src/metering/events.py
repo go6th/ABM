@@ -1,19 +1,24 @@
 """Usage events (MT1): insert-only, one row per (kind, subject) through the unique idempotency
 key, written in the caller's transaction (the action and its usage commit together). A retried or
 replayed action adds nothing: ``run_settled`` is recorded once per run whatever the settlement
-path does again. The one writer of ``usage_events``.
+path does again. The one writer of ``usage_events``. A ``model_fallback`` event (migration 0100,
+ADR-0119) carries a ``detail`` object: both model ids and what the fallback cost.
 
 GUARANTEE(test_usage_events_are_idempotent_and_settlement_emits_once)
 """
 
 from __future__ import annotations
 
+import json
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any, Literal
 
 from sqlalchemy import text
 
-Kind = Literal["account_added", "run_started", "run_settled", "refresh_run", "export_created"]
+Kind = Literal[
+    "account_added", "run_started", "run_settled", "refresh_run", "export_created", "model_fallback"
+]
 
 
 def period_of(at: datetime) -> str:
@@ -21,14 +26,22 @@ def period_of(at: datetime) -> str:
     return at.astimezone(UTC).strftime("%Y-%m")
 
 
-async def record(s: Any, kind: Kind, subject_id: object, at: datetime, units: int = 1) -> bool:
+async def record(
+    s: Any,
+    kind: Kind,
+    subject_id: object,
+    at: datetime,
+    units: int = 1,
+    *,
+    detail: Mapping[str, Any] | None = None,
+) -> bool:
     """One usage event; False when this (kind, subject) was already recorded."""
     subject = str(subject_id)
     row = (
         await s.execute(
             text(
-                "INSERT INTO usage_events (kind, subject_id, idempotency_key, units, period, at)"
-                " VALUES (:k, :s, :key, :u, :p, :at)"
+                "INSERT INTO usage_events (kind, subject_id, idempotency_key, units, period, at,"
+                " detail) VALUES (:k, :s, :key, :u, :p, :at, CAST(:d AS jsonb))"
                 " ON CONFLICT (tenant_id, idempotency_key) DO NOTHING RETURNING id"
             ),
             {
@@ -38,6 +51,7 @@ async def record(s: Any, kind: Kind, subject_id: object, at: datetime, units: in
                 "u": units,
                 "p": period_of(at),
                 "at": at,
+                "d": json.dumps(dict(detail)) if detail is not None else None,
             },
         )
     ).first()

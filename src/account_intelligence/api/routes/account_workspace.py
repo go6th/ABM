@@ -163,6 +163,10 @@ async def _delivered_tables(request: Request, ident: Identity, account_id: UUID)
     await refresh_stale_files(request, ident, account_id)
     async with tenant_txn(ident.tenant_id) as s:
         run = await SH.delivered_run(s, account_id)
+        # an uploaded workspace's files are shown as they are: nothing to materialise (and a
+        # materialisation row would take Ask's native tables away, research_tables)
+        if run is not None and await SH.imported_run(s, run):
+            return
     if run is None:
         return
     try:
@@ -214,8 +218,9 @@ async def _read_book(
     builder_only: bool = False,
 ) -> tuple[FT.Book, FT.Delivered] | None:
     """The workbook ``found`` read back (``file_tabs.book_of``); see ``_book``."""
-    if found is None or (builder_only and found.rows is None):
-        # a file without the builder's row count is never the files' table (builder_main)
+    if found is None or (builder_only and found.rows is None and not found.imported):
+        # a file without the builder's row count is never the files' table (builder_main),
+        # except an uploaded workspace's own file, shown by its own main sheet (exact copy)
         return None
     payloads = request.app.state.container.payloads
     book = await FT.book_of(payloads, ident.tenant_id, found, FT.main_sheet_of(sheet))
@@ -254,9 +259,23 @@ def _grid_query(
     offset: int,
     limit: int,
     filter: str | None = None,
+    match_col: str | None = None,
+    match: str | None = None,
 ) -> SH.Query:
     try:
-        return FT.grid_query(main, SH.SHEETS[sheet], sort, dir, offset, limit, filter)  # type: ignore[no-any-return]
+        try:
+            return FT.grid_query(  # type: ignore[no-any-return]
+                main, SH.SHEETS[sheet], sort, dir, offset, limit, filter, match_col, match
+            )
+        except SH.BadSheetQuery:
+            if match_col is None and match is None:
+                raise
+            # a deep-dive link from an answer names a sheet column the delivered workbook's own
+            # table may not carry: the whole table opens rather than an error (an unknown sort
+            # or filter is still refused below)
+            return FT.grid_query(  # type: ignore[no-any-return]
+                main, SH.SHEETS[sheet], sort, dir, offset, limit, filter
+            )
     except SH.BadSheetQuery:
         raise APIProblem(
             422,
@@ -286,6 +305,7 @@ async def account_workspace(
             if (
                 run is not None
                 and not materialised
+                and not await SH.imported_run(s, run)
                 and (not await SH.is_materialised(s, run) or await W.stale_kinds(s, account_id))
             ):
                 missing = True
@@ -317,7 +337,12 @@ async def account_workspace(
             # the sheet shows the delivered file's own table (``_file_main``): its row count
             counts[key] = opened[sheet]
     counts["facts"] = delivered.get("facts", 0)
-    result: dict[str, Any] = _client_value({**out, "counts": counts, "latest_run": None})
+    # one text the client-output guard refuses is blanked and listed, as a sheet cell is: the
+    # whole screen was held back (422) for the 6th test account's own workspace, 2026-11-04
+    held: list[str] = []
+    result: dict[str, Any] = _withhold_leaks({**out, "counts": counts, "latest_run": None}, held)
+    if held:
+        log.warning("workspace.fields_withheld", extra={"count": len(held), "error_code": held[0]})
     log.info(
         "workspace.timing",
         extra={
@@ -433,16 +458,29 @@ async def download_deliverables(
             media_type=MEDIA.get(ext, "application/octet-stream"),
             headers={"Content-Disposition": f'attachment; filename="{r.filename}"'},
         )
-    buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
-        for r in sorted(rows, key=lambda r: r.filename):
-            archive.writestr(r.filename, await store.get(r.object_key))
+    members = [
+        (r.filename, await store.get(r.object_key)) for r in sorted(rows, key=lambda r: r.filename)
+    ]
+
+    def deflate() -> bytes:
+        """The zip bytes; compressing every file is CPU work, so it runs in a thread off the
+        event loop (ADR-0130)."""
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+            for filename, data in members:
+                archive.writestr(filename, data)
+        return buffer.getvalue()
+
     name = f"{domain.split('.')[0]}-files.zip"
     return Response(
-        buffer.getvalue(),
+        await asyncio.to_thread(deflate),
         media_type=MEDIA["zip"],
         headers={"Content-Disposition": f'attachment; filename="{name}"'},
     )
+
+
+# a sheet column key a link may match on (``sheets.Col.match``)
+MATCH_COL = r"^[a-z][a-z0-9_]*$"
 
 
 def _sheet_query(
@@ -453,9 +491,13 @@ def _sheet_query(
     offset: int,
     limit: int,
     run_id: UUID | None = None,
+    match_col: str | None = None,
+    match: str | None = None,
 ) -> SH.Query:
     try:
-        return SH.parse(sheet, filter, sort, dir, offset, limit, run_id=run_id)
+        return SH.parse(
+            sheet, filter, sort, dir, offset, limit, run_id=run_id, match_col=match_col, match=match
+        )
     except SH.SheetNotFound:
         raise HTTPException(404, "not found") from None
     except SH.BadSheetQuery:
@@ -489,6 +531,8 @@ async def account_sheet(
     filter: str | None = Query(default=None, max_length=40),
     sort: str | None = Query(default=None, max_length=40),
     dir: str | None = Query(default=None, max_length=4),
+    match_col: str | None = Query(default=None, max_length=40, pattern=MATCH_COL),
+    match: str | None = Query(default=None, max_length=SH.MATCH_MAX),
     offset: int = Query(default=0, ge=0, le=100_000),
     limit: int = Query(default=200, ge=1, le=SH.MAX_PAGE),
     ident: Identity = Depends(authorize),
@@ -504,10 +548,10 @@ async def account_sheet(
     delivered = await _book(request, ident, account_id, sheet, builder_only=run is None)
     main = _file_main(run, delivered, sheet)
     if main is not None:
-        q = _grid_query(main, sheet, sort, dir, offset, limit, filter)
+        q = _grid_query(main, sheet, sort, dir, offset, limit, filter, match_col, match)
         out = FT.grid_page(main, q)
     else:
-        q = _sheet_query(sheet, filter, sort, dir, offset, limit, run)
+        q = _sheet_query(sheet, filter, sort, dir, offset, limit, run, match_col, match)
         async with tenant_txn(ident.tenant_id) as s:
             out = await SH.read(s, q, account_id, ident.user_id, datetime.now(UTC))
     async with tenant_txn(ident.tenant_id) as s:
@@ -550,7 +594,8 @@ def _client_page(
     SH.cap_rows(rows)
     held = SH.scrub_rows(rows, extra_terms)
     if held:
-        log.info("sheet_cells_withheld", extra={"sheet": sheet, "cells": held})
+        # allow-listed fields only (config/telemetry/logs.yaml): the event arrived empty before
+        log.info("sheet_cells_withheld", extra={"kind": sheet, "count": held})
     rest = _client_value({k: v for k, v in response.items() if k != "rows"})
     return {**rest, "rows": rows}
 
@@ -565,6 +610,8 @@ async def account_sheet_cell(
     filter: str | None = Query(default=None, max_length=40),
     sort: str | None = Query(default=None, max_length=40),
     dir: str | None = Query(default=None, max_length=4),
+    match_col: str | None = Query(default=None, max_length=40, pattern=MATCH_COL),
+    match: str | None = Query(default=None, max_length=SH.MATCH_MAX),
     ident: Identity = Depends(authorize),
 ) -> dict[str, Any]:
     """One whole cell of a deep-dive table (the page shows a long cell cut to ``CELL_CAP``):
@@ -578,10 +625,10 @@ async def account_sheet_cell(
     main = _file_main(run, delivered, sheet)
     found: dict[str, Any] | None
     if main is not None:
-        q = _grid_query(main, sheet, sort, dir, n - 1, 1, filter)
+        q = _grid_query(main, sheet, sort, dir, n - 1, 1, filter, match_col, match)
         found = FT.grid_cell(main, q, n, col)
     else:
-        q = _sheet_query(sheet, filter, sort, dir, n - 1, 1, run)
+        q = _sheet_query(sheet, filter, sort, dir, n - 1, 1, run, match_col, match)
         if col not in {c.key for c in q.sheet.cols}:
             raise HTTPException(404, "not found")
         async with tenant_txn(ident.tenant_id) as s:
@@ -940,7 +987,10 @@ async def account_sheet_tab(
     blocks = FT.blocks_out(found)
     held = FT.scrub_blocks(blocks, await _forbidden_terms(ident, account_id))
     if held:
-        log.info("sheet_cells_withheld", extra={"sheet": sheet, "tab": found.key, "cells": held})
+        log.info(
+            "sheet_cells_withheld",
+            extra={"kind": sheet, "part": found.key, "count": held},
+        )
     result: dict[str, Any] = _client_value(
         {
             "key": sheet,
@@ -977,6 +1027,8 @@ async def account_sheet_xlsx(
     filter: str | None = Query(default=None, max_length=40),
     sort: str | None = Query(default=None, max_length=40),
     dir: str | None = Query(default=None, max_length=4),
+    match_col: str | None = Query(default=None, max_length=40, pattern=MATCH_COL),
+    match: str | None = Query(default=None, max_length=SH.MATCH_MAX),
     ident: Identity = Depends(authorize),
 ) -> Response:
     """Every row of the filtered, sorted table as an Excel workbook (an audited export; a table
@@ -996,9 +1048,9 @@ async def account_sheet_xlsx(
     run = await _file_run(request, ident, account_id, sheet)
     main = await _export_main(request, ident, account_id, run, sheet)
     q = (
-        _grid_query(main, sheet, sort, dir, 0, SH.MAX_PAGE, filter)
+        _grid_query(main, sheet, sort, dir, 0, SH.MAX_PAGE, filter, match_col, match)
         if main is not None
-        else _sheet_query(sheet, filter, sort, dir, 0, SH.MAX_PAGE, run)
+        else _sheet_query(sheet, filter, sort, dir, 0, SH.MAX_PAGE, run, match_col, match)
     )
     fd, tmp = tempfile.mkstemp(prefix="sheet-", suffix=".xlsx")
     os.close(fd)
@@ -1049,6 +1101,8 @@ async def account_sheet_csv(
     filter: str | None = Query(default=None, max_length=40),
     sort: str | None = Query(default=None, max_length=40),
     dir: str | None = Query(default=None, max_length=4),
+    match_col: str | None = Query(default=None, max_length=40, pattern=MATCH_COL),
+    match: str | None = Query(default=None, max_length=SH.MATCH_MAX),
     ident: Identity = Depends(authorize),
 ) -> Response:
     """Every row of the filtered, sorted table as CSV, streamed (an audited export)."""
@@ -1062,9 +1116,9 @@ async def account_sheet_csv(
     run = await _file_run(request, ident, account_id, sheet)
     main = await _export_main(request, ident, account_id, run, sheet)
     q = (
-        _grid_query(main, sheet, sort, dir, 0, SH.MAX_PAGE, filter)
+        _grid_query(main, sheet, sort, dir, 0, SH.MAX_PAGE, filter, match_col, match)
         if main is not None
-        else _sheet_query(sheet, filter, sort, dir, 0, SH.MAX_PAGE, run)
+        else _sheet_query(sheet, filter, sort, dir, 0, SH.MAX_PAGE, run, match_col, match)
     )
     async with tenant_txn(ident.tenant_id) as s:
         name = await _account_name(s, account_id)

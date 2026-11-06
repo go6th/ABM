@@ -17,6 +17,7 @@ archive:
   companion: references/session-environment.md
   package: abm-account-research-v1.11-session-installed.zip
   note: "The package payload is installed unchanged; the companion document is kept separately alongside it."
+  ask_rules: {value: config/skill/ask-answers.md, source: "platform file, 2026-11-03: Ask-only open-question and reading rules from the owner's cleaned memory; not part of the package, never read by research runs"}
 guide:
   path: {value: docs/sources/ABM_Skill_Readers_Guide_v2.docx, source: "operator supplied 2026-10-08"}
   sources:

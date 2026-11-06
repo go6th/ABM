@@ -392,6 +392,13 @@ def test_rate_limits_and_readiness_read_the_one_redis_setting() -> None:
     terraform = (ROOT / "infra" / "stack" / "main.tf").read_text()
     assert "REDIS_URL" in compose and "REDIS_URL" in terraform
     assert "REDIS_HOST" not in compose + terraform
+    # ADR-0125: REDIS_PINNED_HOST is no second connection setting, only the IP REDIS_URL must name
+    readers = [
+        str(p.relative_to(ROOT))
+        for p in (ROOT / "src").rglob("*.py")
+        if '"REDIS_PINNED_HOST"' in p.read_text()
+    ]
+    assert readers == ["src/account_intelligence/platform/redis_url.py"]
 
 
 def test_readiness_needs_the_schema_revision_of_the_code() -> None:

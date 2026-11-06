@@ -2,7 +2,7 @@
 
 # The standing file set
 
-Rules status: **proposal** (D-24); rules hash `cf5c3a5f7fa6a84752cc4d515483ef09222779ee5fc2675133b6ab3c9f3e5e58` (covers
+Rules status: **proposal** (D-24); rules hash `0f7325f2bda9cda96ff0fa81e9cddb67ba104d7ad449cbca5b2b9d98e9c6beb2` (covers
 `export_rules.yaml`, `lanes.yaml` and `output_spec.yaml`).
 
 | Kind | File name | Format |
@@ -163,7 +163,7 @@ Platform dictionary: 31 platforms; out-of-scope platforms masked: 3 (mask `[plat
 Status: proposal. Members in order: RESTORE.md (built from the run), MANIFEST.json,
 then the folders `deliverables/`, `data/`, `build/`, `notes/`: the five deliverables,
 the render data of each file under `build/`, and the run's own records
-(`data/entity_lock.json`, `data/web_searches.json`, `data/techstack_detections.json`, `build/urls.json`, `notes/pull_log.md`, `notes/pass1.md`, `notes/sense_check.md`), each built from stored
+(`data/company_record.json`, `data/subsidiary_domains.json`, `data/entity_lock.json`, `data/news_events.json`, `data/jobs_12mo.json`, `data/live_postings_index.json`, `data/techstack_detections.json`, `data/techstack_confirmed.json`, `data/teams.json`, `data/people_grid.txt`, `data/web_searches.json`, `data/releases_index.json`, `data/site_map_news.txt`, `data/derived/postings.json`, `data/derived/people.json`, `data/derived/stats.json`, `data/derived/captured_urls.txt`, `build/urls.json`, `notes/README.md`, `notes/pull_log.md`, `notes/pass1.md`, `notes/sense_check.md`), each built from stored
 rows only and required by the zip check. Raw payloads:
 excluded (neutral-name copy enabled: False); organisation-provider payloads never.
 Caps: 2100 members, 104857600 bytes per member, 524288000 bytes in total, names up to 120 characters.

@@ -35,6 +35,13 @@ def batch_span(run_id: UUID, size: int) -> Iterator[trace.Span]:
         yield span
 
 
+def record_repairs(count: int) -> None:
+    """How many claims of a batch kept their value only because the engine re-anchored the
+    supporting sentence (``pipeline.REANCHORED``); nothing is logged for none."""
+    if count:
+        _logger.info("grading.repaired", extra={"count": count})
+
+
 def record_batch(grades: Mapping[str, int], drops: Mapping[str, int]) -> None:
     """Grade and drop counters (no tenant label)."""
     for grade, n in grades.items():

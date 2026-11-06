@@ -17,6 +17,12 @@ from tests.replica.test_resume_research import _db, _run
 pytestmark = [pytest.mark.requires_postgres, pytest.mark.asyncio]
 
 
+@pytest.fixture(autouse=True)
+def _automatic_starts_on(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These tests exercise the automatic starter itself (off unless the switch is on)."""
+    monkeypatch.setenv("RESEARCH_AUTOMATIC_STARTS", "on")
+
+
 def _job(
     tenant: UUID,
     run: UUID,
@@ -88,7 +94,8 @@ def _owners(tenant: UUID, user: str, world: dict[str, Any]) -> Any:
 async def test_a_stalled_research_is_continued_by_the_sweep_once(
     world: dict[str, Any], started: list[tuple[UUID, UUID]]
 ) -> None:
-    from account_intelligence.db.session import SessionLocal, set_system, tenant_txn
+    from account_intelligence.db.session import SessionLocal, tenant_txn
+    from account_intelligence.db.system_scope import set_system
     from account_intelligence.replica.auto_resume import auto_request_id, auto_resume_pass
     from account_intelligence.runs.sweeper import mark_stalled
 
@@ -126,7 +133,8 @@ async def test_a_stalled_research_is_continued_by_the_sweep_once(
 async def test_automatic_continuations_are_bounded(
     world: dict[str, Any], started: list[tuple[UUID, UUID]]
 ) -> None:
-    from account_intelligence.db.session import SessionLocal, set_system, tenant_txn
+    from account_intelligence.db.session import SessionLocal, tenant_txn
+    from account_intelligence.db.system_scope import set_system
     from account_intelligence.replica.auto_resume import (
         MAX_AUTO_RESUMES,
         auto_request_id,
@@ -165,7 +173,7 @@ async def test_automatic_continuations_are_bounded(
 async def test_stops_the_owner_must_fix_and_old_stops_are_not_continued(
     world: dict[str, Any], started: list[tuple[UUID, UUID]]
 ) -> None:
-    from account_intelligence.db.session import set_system
+    from account_intelligence.db.system_scope import set_system
     from account_intelligence.replica.auto_resume import auto_resume_pass
 
     tenant, user = world["a"], f"fix-{uuid4().hex[:6]}"
@@ -189,7 +197,8 @@ async def test_stops_the_owner_must_fix_and_old_stops_are_not_continued(
 async def test_a_run_the_worker_lost_is_continued_and_a_live_lease_is_respected(
     world: dict[str, Any], started: list[tuple[UUID, UUID]]
 ) -> None:
-    from account_intelligence.db.session import SessionLocal, set_system, tenant_txn
+    from account_intelligence.db.session import SessionLocal, tenant_txn
+    from account_intelligence.db.system_scope import set_system
     from account_intelligence.replica.auto_resume import auto_resume_pass
     from account_intelligence.runs.sweeper import mark_stalled
 
@@ -230,7 +239,7 @@ async def test_a_dropped_connection_or_a_provider_outage_that_ended_a_run_is_con
     outlasts the retries ends the run with its class, which a fresh attempt mends. A provider
     outage (429, 5xx, timeout, open breaker) is continued the same way, like
     ``model_unavailable``. A refusal the owner must fix and a slice ceiling are not."""
-    from account_intelligence.db.session import set_system
+    from account_intelligence.db.system_scope import set_system
     from account_intelligence.replica.auto_resume import (
         INFRASTRUCTURE_STOPS,
         PROVIDER_OUTAGE_STOPS,
@@ -274,7 +283,7 @@ async def test_a_provider_outage_is_bounded_per_chain_and_by_the_window(
 ) -> None:
     """The owner's rule of 2026-10-30: the outage continuation keeps MAX_AUTO_RESUMES per chain
     and the 24 h window, exactly like ``model_unavailable``."""
-    from account_intelligence.db.session import set_system
+    from account_intelligence.db.system_scope import set_system
     from account_intelligence.replica.auto_resume import (
         MAX_AUTO_RESUMES,
         auto_request_id,

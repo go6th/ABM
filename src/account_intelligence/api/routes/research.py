@@ -38,6 +38,7 @@ from account_intelligence.api.errors import APIProblem, require_confirmed_twice
 from account_intelligence.api.guard import authorize
 from account_intelligence.api.policy import register, tenant_route
 from account_intelligence.api.ratelimit import limit_user
+from account_intelligence.api.research_gaps import research_gaps
 from account_intelligence.api.routes.limits import limit_reached
 from account_intelligence.api.routes.model_choice import refused
 from account_intelligence.db.session import bound_waits, tenant_txn
@@ -81,7 +82,8 @@ async def _estimate(s: Any, user_id: str, now: datetime) -> dict[str, Any]:
 async def research_estimate(ident: Identity = Depends(authorize)) -> dict[str, Any]:
     """What researching a new company would cost, before anything is confirmed."""
     async with tenant_txn(ident.tenant_id) as s:
-        return await _estimate(s, ident.user_id, datetime.now(UTC))
+        estimate = await _estimate(s, ident.user_id, datetime.now(UTC))
+    return {**estimate, "gaps": await research_gaps(ident.tenant_id)}
 
 
 class ResearchBody(BaseModel):

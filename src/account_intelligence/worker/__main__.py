@@ -51,7 +51,8 @@ def _check(command: str, settings: Any = None, workspace: UUID | None = None) ->
     from datetime import UTC, datetime
 
     from account_intelligence.config import get_settings
-    from account_intelligence.db.session import session_factory, tenant_txn, untenanted_session
+    from account_intelligence.db.session import session_factory, tenant_txn
+    from account_intelligence.db.system_scope import untenanted_session
     from account_intelligence.worker import nightly
 
     settings = settings or get_settings()
@@ -145,7 +146,7 @@ def main(argv: list[str] | None = None) -> int:
         print(str(exc), file=sys.stderr)
         return 2
     configure_logging(settings.log_level, service="worker")
-    from account_intelligence.db.session import set_system
+    from account_intelligence.db.system_scope import set_system
 
     set_system()  # a command is a system job (private workspaces, migration 0063)
     if command is not None:

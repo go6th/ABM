@@ -117,10 +117,9 @@ jobs:
           violations="$(psql "$ADMIN_DSN" -v ON_ERROR_STOP=1 -tA -f "$skill/scripts/check_rls_catalog.sql")"
           if [[ -n "$violations" ]]; then printf '%s\n' "$violations" >&2; exit 1; fi
           uv run --frozen python scripts/gen_isolation_matrix.py --check --dsn "$ADMIN_DSN"
-      - name: Generated documents are current (environment registry, routing governance)
+      - name: Generated documents are current (environment registry)
         run: |
           uv run --frozen python scripts/gen_env_docs.py --check
-          uv run --frozen python scripts/check_routing_governance.py
       - name: Isolation first (hard gate), then all but evals (fuzz, backup/restore); coverage 94%
         env:
           PG_CONTAINER: ${{ job.services.postgres.id }}

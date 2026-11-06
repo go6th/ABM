@@ -236,9 +236,10 @@ def test_the_words_of_a_large_text_are_the_same_as_of_a_small_one(small_slice: i
 def test_the_index_holds_one_pattern_per_non_blank_term() -> None:
     index = PF.build_index(("Foo Bar", "  ", "Baz"))
     assert isinstance(index.patterns, tuple) and len(index.patterns) == 2
-    assert index.patterns[0].pattern == r"(?<!\w)Foo\ Bar(?!\w)"
+    assert index.patterns[0].pattern == r"(?<!\w)Foo\s+Bar(?!\w)"
     assert index.patterns[0].flags & re.IGNORECASE
     assert index.patterns[0].search("see foo bar now") is not None
+    assert index.patterns[0].search("see foo\xa0bar now") is not None
     assert index.patterns[0].search("see foobar now") is None
     assert index.patterns[1].search("x BAZ.") is not None
     assert index.patterns[1].search("xbaz") is None

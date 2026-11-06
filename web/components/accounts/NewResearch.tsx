@@ -2,8 +2,9 @@
 // New research as designed: Company name | Upload a file tabs. The company tab is the shared
 // ResearchCompany form. The file tab: "Add files" or "Connect Google Drive", the file list
 // (Uploading, Scanning, Reading, Ready, Failed). When the files name one company they are attached
-// to it (its account is created when needed; owner decision 2026-10-14), with "Change"; "We found
-// more than one company. Which is this about?" when the files name several. The Also
+// to it (its account is created when needed; owner decision 2026-10-14), with "Change"; otherwise
+// "Which company is this file for?" with just a company name and website (no list of detected
+// companies; owner decision 2026-11-06), prefilled with the one the files name most. The Also
 // check public sources switch (off by default), what it uses (a file analysis is one chat; with
 // public sources also one research; owner decision 2026-10-14) and Analyze file, which asks "this
 // analysis will use about N tokens (about $X). Proceed?" first (owner decision 2026-10-21).
@@ -11,7 +12,7 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError, newIdempotencyKey } from "@/lib/api";
-import { DOMAIN_RE, allIndexed, cleanDomain, detectedCompany, needingCompany, type CompanyCandidate } from "@/lib/documents";
+import { DOMAIN_RE, allIndexed, cleanDomain, detectedCompany, isSettled, needingCompany, type CompanyCandidate } from "@/lib/documents";
 import type { CompanyConfirmed, DocumentStatus, ResearchEstimate, RunCreated, RunStatusView } from "@/lib/gen/api.gen";
 import { LimitNote, LimitReached, limitReached, useMyLimits } from "@/components/Limits";
 import { CONFIRMED_TWICE, UsageProceed } from "@/components/UsageProceed";
@@ -29,18 +30,13 @@ function startError(error: unknown): string {
 
 function CompanyChoice({ docs, onConfirmed }: { docs: DocumentStatus[]; onConfirmed: (accountId: string, company: Company) => void }) {
   const detected = detectedCompany(docs);
-  const options: CompanyCandidate[] = detected.candidates.length ? detected.candidates : detected.company ? [detected.company] : [];
-  const [pick, setPick] = useState<number>(0);
-  const [name, setName] = useState(options[0]?.name ?? "");
-  const [site, setSite] = useState(options[0]?.domain ?? "");
+  // prefilled with the company the files name most; the user can edit either field
+  const first: CompanyCandidate | null = detected.candidates[0] ?? detected.company ?? null;
+  const [name, setName] = useState(first?.name ?? "");
+  const [site, setSite] = useState(cleanDomain(first?.domain ?? ""));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const domain = cleanDomain(site);
-  const choose = (i: number) => {
-    setPick(i);
-    setName(options[i]?.name ?? "");
-    setSite(options[i]?.domain ?? "");
-  };
   const inFlight = useRef(false);
   const confirm = async () => {
     if (inFlight.current) return;
@@ -57,33 +53,10 @@ function CompanyChoice({ docs, onConfirmed }: { docs: DocumentStatus[]; onConfir
       inFlight.current = false;
     }
   };
-  // a radio group: one stop in the tab order, arrow keys move the choice
-  const onRadioKey = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    const step = e.key === "ArrowDown" || e.key === "ArrowRight" ? 1 : e.key === "ArrowUp" || e.key === "ArrowLeft" ? -1 : 0;
-    if (!step || !options.length) return;
-    e.preventDefault();
-    const next = (pick + step + options.length) % options.length;
-    choose(next);
-    e.currentTarget.querySelectorAll<HTMLButtonElement>("[role=radio]")[next]?.focus();
-  };
   return (
     <section className="card pad stack-12" aria-labelledby="which-company">
-      <div className="strong" id="which-company">
-        {options.length > 1 ? "We found more than one company. Which is this about?" : options.length === 1 ? "Is this about this company?" : "Which company is this about?"}
-      </div>
-      {options.length ? (
-        <div className="stack-10" role="radiogroup" aria-label="Company" onKeyDown={onRadioKey}>
-          {options.map((c, i) => (
-            <button key={`${c.domain}-${c.name}-${i}`} type="button" className="opt" role="radio" aria-checked={pick === i} tabIndex={pick === i ? 0 : -1} onClick={() => choose(i)}>
-              <span className="in">
-                <span className="radio-dot" aria-hidden="true" />
-                <span className="grow strong">{c.name ?? c.domain}</span>
-                <span className="mut xs-text">{c.mentions ? `Mentioned ${c.mentions} times` : c.domain ?? ""}</span>
-              </span>
-            </button>
-          ))}
-        </div>
-      ) : null}
+      <div className="strong" id="which-company">Which company is this file for?</div>
+      <p className="mut sm-text">Add the company name and website, then continue. Nothing is attached until you do.</p>
       <div className="row-12 wrap">
         <div className="field grow-220">
           <label htmlFor="fc-name">Company name</label>
@@ -96,7 +69,7 @@ function CompanyChoice({ docs, onConfirmed }: { docs: DocumentStatus[]; onConfir
       </div>
       {error ? <p className="sm-text bad-text" role="alert">{error}</p> : null}
       <button type="button" className="btn align-start" disabled={busy || !name.trim() || !DOMAIN_RE.test(domain)} onClick={() => void confirm()}>
-        {busy ? "Confirming…" : "This is the company"}
+        {busy ? "Confirming…" : "Continue"}
       </button>
     </section>
   );
@@ -111,30 +84,15 @@ export function useAttachLate(waiting: DocumentStatus[], company: Company | null
   const sent = useRef(new Set<string>());
   useEffect(() => {
     if (!company || !accountId) return;
-    const late = waiting.filter((d) => (d.stage === "parsed" || d.stage === "indexed") && !sent.current.has(d.document_id));
+    const late = waiting.filter((d) => isSettled(d.stage) && !sent.current.has(d.document_id));
     if (!late.length) return;
     late.forEach((d) => sent.current.add(d.document_id));
     api<CompanyConfirmed>("POST", "/v1/documents/confirm-company", { document_ids: late.map((d) => d.document_id), company_name: company.name, domain: company.domain })
       .then(onDone)
-      .catch(() => late.forEach((d) => sent.current.delete(d.document_id)));
+      // a refusal (4xx) is final for these files: sending the same request every poll only
+      // repeats it; a network error or a 5xx is retried on the next read
+      .catch((e: unknown) => { if (!(e instanceof ApiError) || e.status >= 500) late.forEach((d) => sent.current.delete(d.document_id)); });
   }, [waiting, company, accountId, onDone]);
-}
-
-function useAutoAttach(waiting: DocumentStatus[], settled: boolean, onAttached: (accountId: string, name: string, domain: string) => void) {
-  const tried = useRef(new Set<string>());
-  const [failed, setFailed] = useState(false);
-  useEffect(() => {
-    if (!settled || !waiting.length) return;
-    const found = detectedCompany(waiting);
-    const key = waiting.map((d) => d.document_id).sort().join(",");
-    if (found.status !== "resolved" || !found.company?.domain || tried.current.has(key)) return;
-    tried.current.add(key);
-    const name = found.company.name ?? found.company.domain;
-    api<CompanyConfirmed>("POST", "/v1/documents/confirm-company", { document_ids: waiting.map((d) => d.document_id), company_name: name, domain: found.company.domain })
-      .then((done) => onAttached(done.account_id, name, found.company!.domain!))
-      .catch(() => setFailed(true));
-  }, [waiting, settled, onAttached]);
-  return failed;
 }
 
 function FileTab({ initialDrive, estimate }: { initialDrive: boolean; estimate: ResearchEstimate | null }) {
@@ -159,14 +117,14 @@ function FileTab({ initialDrive, estimate }: { initialDrive: boolean; estimate: 
   const waiting = needingCompany(docs);
   const ready = allIndexed(docs);
   const bound = accountId ?? docs.find((d) => d.account_id)?.account_id ?? null;
-  const settled = waiting.length > 0 && docs.every((d) => d.stage === "parsed" || d.stage === "indexed" || d.stage === "failed");
-  const onAttached = useCallback((id: string, name: string, domain: string) => { setAccountId(id); setAttached(name); setCompany({ name, domain }); setRefresh((n) => n + 1); }, []);
-  const autoFailed = useAutoAttach(waiting, settled, onAttached);
+  const settled = waiting.length > 0 && docs.every((d) => isSettled(d.stage) || d.stage === "failed");
   const reread = useCallback(() => setRefresh((n) => n + 1), []);
   useAttachLate(waiting, company, accountId, reread);
-  const resolved = detectedCompany(waiting).status === "resolved";
-  // once a company is confirmed the choice closes, even before the files report "indexed"
-  const needsChoice = (!accountId && settled && (!resolved || autoFailed)) || changing;
+  // the files are never attached by themselves (2026-11-05, owner): once they are read the page
+  // asks which account they are for and its link, prefilled from what the files name, and waits
+  // for Continue. Once a company is confirmed the choice closes, even before the files report
+  // "indexed"
+  const needsChoice = (!accountId && settled) || changing;
 
   const uses = enrich ? "One chat and one research" : "One chat";
 
@@ -213,7 +171,7 @@ function FileTab({ initialDrive, estimate }: { initialDrive: boolean; estimate: 
 
   return (
     <div className="stack-20">
-      <DocumentDrop onChange={onChange} disabled={busy} initialDrive={initialDrive} refresh={refresh} />
+      <DocumentDrop picker={false} onChange={onChange} disabled={busy} initialDrive={initialDrive} refresh={refresh} />
       {attached && !changing ? (
         <div className="card pad-sm row-space wrap" role="status">
           <span>These files are about <b>{attached}</b>.</span>
@@ -222,8 +180,8 @@ function FileTab({ initialDrive, estimate }: { initialDrive: boolean; estimate: 
       ) : null}
       {needsChoice ? (
         <CompanyChoice
-          docs={changing ? docs.filter((d) => d.stage === "parsed" || d.stage === "indexed") : waiting}
-          onConfirmed={(id, chosen) => { setAccountId(id); setCompany(chosen); setAttached(null); setChanging(false); setRefresh((n) => n + 1); }}
+          docs={changing ? docs.filter((d) => isSettled(d.stage)) : waiting}
+          onConfirmed={(id, chosen) => { setAccountId(id); setCompany(chosen); setAttached(chosen.name); setChanging(false); setRefresh((n) => n + 1); }}
         />
       ) : null}
       {docs.length ? (

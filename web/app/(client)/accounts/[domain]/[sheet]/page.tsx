@@ -9,6 +9,7 @@ import type { Sheet, SheetTab } from "@/lib/gen/api.gen";
 import { serverGet, ServerApiError } from "@/lib/server-api";
 import { StateCard } from "@/ui/design";
 import { SheetView } from "@/components/accounts/SheetView";
+import { matchParams } from "@/components/accounts/sheet-match";
 import { SheetTabs } from "@/components/accounts/SheetTabs";
 import { TabView } from "@/components/accounts/TabView";
 
@@ -17,7 +18,8 @@ export const dynamic = "force-dynamic";
 const TITLES: Record<string, string> = {
   people: "People", signals: "Signals", jobs: "Job postings", technology: "Tech stack and teams",
   news: "News", "mail-and-drive": "From your mail and drive", sources: "Sources", searches: "Web searches",
-  facts: "Platform picture by lane", coverage: "Coverage",
+  facts: "Platform picture by lane", coverage: "Coverage", "uploaded-files": "Uploaded files",
+  teams: "Platform teams", connections: "Connections", findings: "Findings", calls: "Calls made", notes: "Notes",
 };
 const PAGE = 200;
 const MAX_LIMIT = 500;
@@ -67,7 +69,11 @@ export default async function SheetPage({ params, searchParams }: Props) {
   const sp = {
     tab: one(query.tab), limit: one(query.limit), offset: one(query.offset),
     filter: one(query.filter), sort: one(query.sort), dir: one(query.dir),
+    match_col: one(query.match_col), match: one(query.match),
   };
+  // the match an Ask citation opened (?match_col=location&match=San%20Francisco): forwarded to
+  // the API, which validates it, and kept on every link of the page (tabs included)
+  const asked: Record<string, string> = sp.match_col && sp.match ? { match_col: sp.match_col, match: sp.match } : {};
   const base = `/accounts/${encodeURIComponent(domain)}/${encodeURIComponent(key)}`;
   const back = `/accounts/${encodeURIComponent(domain)}`;
   const api = `/v1/accounts/${encodeURIComponent(domain)}/sheets/${encodeURIComponent(key)}`;
@@ -95,7 +101,7 @@ export default async function SheetPage({ params, searchParams }: Props) {
           </div>
           {download ? <a className="btn sm" href={download} download>Download the file</a> : null}
         </div>
-        <SheetTabs tabs={tabs} base={base} current={tab.tab ?? sp.tab} />
+        <SheetTabs tabs={tabs} base={base} current={tab.tab ?? sp.tab} keep={asked} />
         <TabView tab={tab} />
       </div>
     );
@@ -106,12 +112,13 @@ export default async function SheetPage({ params, searchParams }: Props) {
   const q = new URLSearchParams({ limit: String(limit) });
   if (offset) q.set("offset", String(offset));
   for (const k of ["filter", "sort", "dir"] as const) if (sp[k]) q.set(k, sp[k]!);
+  for (const [k, v] of Object.entries(asked)) q.set(k, v);
   let sheet: Sheet | null = null;
   let failed = false;
   let bad = false;
   try {
     sheet = await serverGet<Sheet>(`${api}?${q.toString()}`, base, [422]);
-    if (sheet === null && (sp.filter || sp.sort || sp.dir)) bad = true;
+    if (sheet === null && (sp.filter || sp.sort || sp.dir || sp.match_col || sp.match)) bad = true;
   } catch (e) {
     if (!(e instanceof ServerApiError)) throw e;
     failed = true;
@@ -120,7 +127,7 @@ export default async function SheetPage({ params, searchParams }: Props) {
   const rows = sheet.rows ?? [];
   const start = Math.max(0, sheet.offset ?? offset);
   const shown = start + rows.length;
-  const view = { filter: sheet.filter, sort: sheet.sort, dir: sheet.dir };
+  const view = { filter: sheet.filter, sort: sheet.sort, dir: sheet.dir, ...matchParams(sheet) };
   const at = (o: number, l: number) => `${base}?${new URLSearchParams({ ...view, limit: String(l), ...(o ? { offset: String(o) } : {}) }).toString()}`;
   // "Show more rows" grows the page to 500 rows; past that the table pages by 500
   const more = shown < sheet.total && limit < MAX_LIMIT && offset === 0 ? at(0, Math.min(MAX_LIMIT, limit + PAGE)) : null;
@@ -140,7 +147,7 @@ export default async function SheetPage({ params, searchParams }: Props) {
         {sheet.private ? <span className="pill internal big">Private to you</span> : null}
         {download ? <a className="btn sm" href={download} download>Download the file</a> : null}
       </div>
-      <SheetTabs tabs={sheet.tabs ?? []} base={base} current={null} />
+      <SheetTabs tabs={sheet.tabs ?? []} base={base} current={null} keep={matchParams(sheet)} />
       <SheetView sheet={sheet} domain={domain} base={base} moreHref={more} />
       {prev || next ? (
         <nav className="pager" aria-label="Pages of rows">

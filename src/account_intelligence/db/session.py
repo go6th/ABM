@@ -6,11 +6,14 @@ a system job. Who is acting comes from a context variable:
 
 * ``set_actor(user)``: the verified caller of a tenant route (``api.guard.authorize``), or the
   owner of the run, document or job a worker task works on;
-* ``system_scope()``: scheduler ticks, the sweeper, the isolation check, operator counts. A
-  system transaction sees every row of its tenant; rows it inserts into an owned table must name
-  their owner (the column default is the acting user).
+* ``system_scope()`` / ``set_system()`` (``db.system_scope``): scheduler ticks, the sweeper,
+  the isolation check, operator counts. A system transaction sees every row of its tenant; rows
+  it inserts into an owned table must name their owner (the column default is the acting user).
 
-With neither, owned rows are invisible and inserts into them fail (fail closed).
+With neither, owned rows are invisible and inserts into them fail (fail closed). The two ways
+out of the tenant and user scope, ``untenanted_session()`` and the system scope, live in
+``account_intelligence.db.system_scope``, which only the modules allow-listed in the import
+contract may import (ADR-0123).
 """
 
 from __future__ import annotations
@@ -21,7 +24,7 @@ from contextvars import ContextVar, Token
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -29,6 +32,7 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
+from sqlalchemy.orm import Session, SessionTransaction
 
 from account_intelligence.config import get_settings
 
@@ -131,8 +135,19 @@ async def bind_cloud_engine(settings: Any) -> Any:
         pool_size=settings.db_pool_size,
         max_overflow=settings.db_max_overflow,
     )
+    await assert_service_db_role(new_engine, settings.service_role)
     bind_engine(new_engine)
     return connector
+
+
+async def assert_service_db_role(target: AsyncEngine, service_role: str) -> None:
+    """Fail closed when the signed-in IAM user holds another service's database role; log
+    ``db.role_pending`` while it still holds app_rw (ADR-0123, migration 0101)."""
+    from account_intelligence.platform.gcp.adapters import check_db_role
+    from obs.logging import logger
+
+    if await check_db_role(target, service_role) == "pending":
+        logger(__name__).warning("db.role_pending", extra={"state": "app_rw", "kind": service_role})
 
 
 def make_sync_url(url: str) -> str:
@@ -181,24 +196,9 @@ def acting_as(user_id: str) -> Iterator[None]:
         _ACTOR.reset(token)
 
 
-def set_system() -> Token[bool]:
-    """Mark the rest of this context as a system job (see the module docstring)."""
-    return _SYSTEM.set(True)
-
-
 def set_user_scope() -> Token[bool]:
     """Leave the system scope for the rest of this context (a task acting as one user)."""
     return _SYSTEM.set(False)
-
-
-@contextmanager
-def system_scope() -> Iterator[None]:
-    """A system job inside the block."""
-    token = _SYSTEM.set(True)
-    try:
-        yield
-    finally:
-        _SYSTEM.reset(token)
 
 
 @asynccontextmanager
@@ -249,6 +249,31 @@ async def bind_tenant(
         ),
         {"tid": str(tenant_id), "uid": actor or "", "scope": scope},
     )
+    session.info[_TENANT_KEY] = tenant_id
+
+
+_TENANT_KEY = "app_tenant_id"
+
+
+@event.listens_for(Session, "after_transaction_end")
+def _forget_tenant(session: Session, transaction: SessionTransaction) -> None:
+    """The tenant ``bind_tenant`` recorded lives as long as its transaction, like the
+    transaction-local ``app.tenant_id`` (a savepoint ending leaves it)."""
+    if transaction.parent is None:
+        session.info.pop(_TENANT_KEY, None)
+
+
+async def session_tenant(session: AsyncSession) -> UUID:
+    """The tenant ``session``'s transaction was bound to (``bind_tenant``: the verified caller's
+    tenant, never a value from a request body), for queries that state the tenant in their own
+    SQL on top of row level security. A session bound some other way reads its transaction's
+    ``app.tenant_id``; one with no tenant raises (fail closed)."""
+    found = session.info.get(_TENANT_KEY)
+    if found is None:
+        found = await session.scalar(text("SELECT app_tenant()"))
+    if found is None:
+        raise PermissionError("no tenant bound to this session")
+    return found if isinstance(found, UUID) else UUID(str(found))
 
 
 async def bound_waits(session: AsyncSession, *, lock_s: int, statement_s: int) -> None:
@@ -257,12 +282,3 @@ async def bound_waits(session: AsyncSession, *, lock_s: int, statement_s: int) -
     holding the caller open. Transaction-local, like the tenant context."""
     await session.execute(text(f"SET LOCAL lock_timeout = '{int(lock_s)}s'"))
     await session.execute(text(f"SET LOCAL statement_timeout = '{int(statement_s)}s'"))
-
-
-@asynccontextmanager
-async def untenanted_session() -> AsyncIterator[AsyncSession]:
-    """A transaction with NO tenant context, for the definer-rights identity lookups only
-    (``idp_connection_tenant``, ``login_state_tenant``, ``session_tenant``). RLS shows this
-    session zero tenant rows; the lookups return identifiers only."""
-    async with _sessions()() as session, session.begin():
-        yield session

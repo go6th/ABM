@@ -17,6 +17,7 @@ else, and no DELETE is ever issued (no grant allows one).
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Callable, Sequence
 from contextlib import AbstractAsyncContextManager
@@ -56,6 +57,368 @@ class StoredPage:
     page_no: int
     cursor_in: str | None
     page: PersonPage
+
+
+@dataclass(frozen=True)
+class ImportedPerson:
+    """One person of an uploaded workspace People List, ready to store (workspace import
+    phase 2): the ``Person`` the native tables keep, plus what only the workbook carried."""
+
+    person: Person
+    note: str | None = None
+    second_profile_url: str | None = None
+    merged_count: int = 0
+    # "Firm (2017 to 2019); Other (2020 to 2021)" as (employer, start year, end year)
+    former_employers: tuple[tuple[str, int | None, int | None], ...] = ()
+
+
+async def import_people(
+    s: AsyncSession,
+    tenant_id: UUID,
+    account_id: UUID,
+    run_id: UUID,
+    items: Sequence[ImportedPerson],
+) -> int:
+    """Store the people of an uploaded workspace People List under the file-import run
+    (``people`` with its ``person_sources`` row, and a ``person_profiles`` row carrying the
+    former employers when the workbook named any), the same way a research's people are
+    stored; a person the run already holds is left as is. Returns the rows written. The people
+    pipeline's own writer is ``PgPeopleRepo.save_run``; this one takes no pipeline record and
+    needs no payload store."""
+    written = 0
+    for item in items:
+        p = item.person
+        c = p.classification
+        row = await s.execute(
+            text(
+                "INSERT INTO people (tenant_id, account_id, run_id, profile_url,"
+                " provider_person_id, name, title, job_level, source_ref, excluded,"
+                " excluded_reason, person_key, source_record_id, origin, headline, location,"
+                " employer_domain, profile_url_canonical, scope_status, scope_reason, rule_id,"
+                " classification_json, lanes, priority, possible_duplicate, internal_only,"
+                " profile_state, note, second_profile_url, merged_count)"
+                " VALUES (:t, :a, :r, :url, :pid, :name, :title, :level, :sref, :excluded,"
+                " :excluded_reason, :key, :rid, :origin, :headline, :location, :employer,"
+                " :canonical, :status, :reason, :rule, CAST(:cls AS jsonb), :lanes, :priority,"
+                " :dup, :internal, :pstate, :note, :second, :merged)"
+                " ON CONFLICT (tenant_id, run_id, person_key) WHERE person_key IS NOT NULL"
+                " DO NOTHING RETURNING id"
+            ),
+            {
+                "t": tenant_id,
+                "a": account_id,
+                "r": run_id,
+                "url": p.profile_url,
+                "pid": p.source_record_id,
+                "name": p.name,
+                "title": p.title,
+                "level": c.level,
+                "sref": p.raw_ref or p.source_record_id,
+                "excluded": c.status == "excluded",
+                "excluded_reason": c.reason if c.status == "excluded" else None,
+                "key": p.person_key,
+                "rid": p.source_record_id,
+                "origin": p.origin,
+                "headline": p.headline,
+                "location": p.location,
+                "employer": p.employer_domain,
+                "canonical": p.profile_url,
+                "status": c.status,
+                "reason": c.reason,
+                "rule": c.rule_id,
+                "cls": c.model_dump_json(),
+                "lanes": list(c.lanes),
+                "priority": c.priority,
+                "dup": p.possible_duplicate,
+                "internal": p.internal_only,
+                "pstate": p.profile_state,
+                "note": item.note,
+                "second": item.second_profile_url,
+                "merged": item.merged_count,
+            },
+        )
+        if row.first() is None:
+            continue
+        written += 1
+        await s.execute(
+            text(
+                "INSERT INTO person_sources (tenant_id, account_id, run_id, person_key,"
+                " source_record_id, origin, profile_url_raw, mention_url, provider_code)"
+                " VALUES (:t, :a, :r, :k, :rid, :o, :raw, :murl, :provider)"
+                " ON CONFLICT (tenant_id, run_id, source_record_id) DO NOTHING"
+            ),
+            {
+                "t": tenant_id,
+                "a": account_id,
+                "r": run_id,
+                "k": p.person_key,
+                "rid": p.source_record_id,
+                "o": p.origin,
+                "raw": p.profile_url_raw or p.profile_url,
+                # the page a person was named on (the leadership page of an uploaded
+                # workspace): the Leadership sheet's source (2026-11-05)
+                "murl": p.mention_url,
+                "provider": p.provider_code,
+            },
+        )
+        if item.former_employers and p.profile_url:
+            employments = [
+                {
+                    "employer": employer,
+                    "start": {"year": start} if start else None,
+                    "end": {"year": end} if end else None,
+                }
+                for employer, start, end in item.former_employers
+            ]
+            await s.execute(
+                text(
+                    "INSERT INTO person_profiles (tenant_id, account_id, run_id,"
+                    " profile_url_canonical, person_key, provider_code, raw_ref, call_ref,"
+                    " name, current_title, prior_employers, employments, location,"
+                    " certifications_provided, fields_dropped, internal_only, partial, hostile)"
+                    " VALUES (:t, :a, :r, :url, :key, 'file_import', :raw, 'file_import',"
+                    " :name, :title, :prior, CAST(:employments AS jsonb), :location, false, 0,"
+                    " false, true, false)"
+                    " ON CONFLICT (tenant_id, run_id, profile_url_canonical) DO NOTHING"
+                ),
+                {
+                    "t": tenant_id,
+                    "a": account_id,
+                    "r": run_id,
+                    "url": p.profile_url,
+                    "key": p.person_key,
+                    "raw": p.raw_ref or p.source_record_id,
+                    "name": p.name,
+                    "title": p.title,
+                    "prior": [e for e, _, _ in item.former_employers],
+                    "employments": json.dumps(employments),
+                    "location": p.location,
+                },
+            )
+    return written
+
+
+async def record_folded_sources(
+    s: AsyncSession,
+    tenant_id: UUID,
+    account_id: UUID,
+    run_id: UUID,
+    folded: Sequence[tuple[str, str, str]],
+) -> int:
+    """Record people of an uploaded workspace that were folded into a person the run already
+    holds as more sources of that person: (person key held, source record id, origin) each. An
+    import of the same file again knows them by their source, even after the person was erased
+    (erasure nulls the personal fields and keeps the keys), so it never adds them back. Returns
+    the rows written."""
+    written = 0
+    for person_key, source_record_id, origin in folded:
+        res = await s.execute(
+            text(
+                "INSERT INTO person_sources (tenant_id, account_id, run_id, person_key,"
+                " source_record_id, origin) VALUES (:t, :a, :r, :k, :rid, :o)"
+                " ON CONFLICT (tenant_id, run_id, source_record_id) DO NOTHING"
+            ),
+            {"t": tenant_id, "a": account_id, "r": run_id, "k": person_key,
+             "rid": source_record_id, "o": origin},
+        )  # fmt: skip
+        written += int(bool(res.rowcount))  # type: ignore[attr-defined]
+    return written
+
+
+async def known_sources(s: AsyncSession, tenant_id: UUID, run_id: UUID) -> set[str]:
+    """The source record ids the run's people were stored or folded under."""
+    rows = await s.execute(
+        text("SELECT source_record_id FROM person_sources WHERE tenant_id = :t AND run_id = :r"),
+        {"t": tenant_id, "r": run_id},
+    )
+    return {str(r[0]) for r in rows.all()}
+
+
+@dataclass(frozen=True)
+class ImportedProfile:
+    """One full profile of an uploaded workspace's raw pull (``profiles_full.json``), for a
+    person the import holds: the allow-listed fields the research keeps (phase 4)."""
+
+    profile_url: str
+    name: str | None = None
+    current_title: str | None = None
+    headline: str | None = None
+    employer: str | None = None
+    employer_domain: str | None = None
+    prior_employers: tuple[str, ...] = ()
+    # (employer, title, start yyyy-mm, end yyyy-mm or None)
+    employments: tuple[tuple[str, str | None, str | None, str | None], ...] = ()
+    certifications: tuple[str, ...] = ()
+    location: str | None = None
+    own_description: str | None = None
+
+
+@dataclass(frozen=True)
+class ImportedPost:
+    """One post or comment of a person from an uploaded raw pull."""
+
+    profile_url: str
+    post_url: str
+    excerpt: str
+    posted_at: date | None = None
+    post_excerpt: str | None = None  # a comment: the post it answered
+
+
+async def import_profiles(
+    s: AsyncSession,
+    tenant_id: UUID,
+    account_id: UUID,
+    run_id: UUID,
+    items: Sequence[ImportedProfile],
+) -> int:
+    """Store the full profiles of an uploaded raw pull as ``person_profiles`` of the file-import
+    run, for the profile links the run's people hold (a profile of nobody on the list is
+    skipped); a profile the run already holds is left as is. Returns the rows written."""
+    held = {
+        str(r.profile_url_canonical): str(r.person_key)
+        for r in (
+            await s.execute(
+                text(
+                    "SELECT profile_url_canonical, person_key FROM people WHERE run_id = :r"
+                    " AND profile_url_canonical IS NOT NULL"
+                ),
+                {"r": run_id},
+            )
+        ).all()
+    }
+    written = 0
+    for item in items:
+        key = held.get(item.profile_url.rstrip("/")) or held.get(item.profile_url)
+        if key is None:
+            continue
+        employments = [
+            {
+                "employer": e[0],
+                "title": e[1],
+                "start": {"year": int(e[2][:4]), "month": int(e[2][5:7])}
+                if e[2] and len(e[2]) >= 7 and e[2][:4].isdigit()
+                else ({"year": int(e[2][:4])} if e[2] and e[2][:4].isdigit() else None),
+                "end": {"year": int(e[3][:4]), "month": int(e[3][5:7])}
+                if e[3] and len(e[3]) >= 7 and e[3][:4].isdigit()
+                else ({"year": int(e[3][:4])} if e[3] and e[3][:4].isdigit() else None),
+            }
+            for e in item.employments
+        ]
+        own = (item.own_description or "")[:8000] or None
+        res = await s.execute(
+            text(
+                "INSERT INTO person_profiles (tenant_id, account_id, run_id,"
+                " profile_url_canonical, person_key, provider_code, raw_ref, call_ref,"
+                " name, current_title, headline, employer, prior_employers, employments,"
+                " certifications, certifications_provided, location, own_description,"
+                " own_description_sha256, fields_dropped, internal_only, partial, hostile)"
+                " VALUES (:t, :a, :r, :url, :key, 'file_import', 'workspace_import',"
+                " 'file_import', :name, :title, :headline, :employer, :prior,"
+                " CAST(:employments AS jsonb), :certs, :certs_given, :location, :desc, :sha, 0,"
+                " false, false, false)"
+                " ON CONFLICT (tenant_id, run_id, profile_url_canonical) DO NOTHING"
+            ),
+            {
+                "t": tenant_id,
+                "a": account_id,
+                "r": run_id,
+                "url": item.profile_url.rstrip("/")
+                if item.profile_url.rstrip("/") in held
+                else item.profile_url,
+                "key": key,
+                "name": (item.name or "")[:200] or None,
+                "title": (item.current_title or "")[:300] or None,
+                "headline": (item.headline or "")[:500] or None,
+                "employer": (item.employer or "")[:200] or None,
+                "prior": list(item.prior_employers)[:50],
+                "employments": json.dumps(employments[:60]),
+                # none given is NULL, not an empty list (ck_person_profiles_certs; UCB 2026-11-04)
+                "certs": list(item.certifications)[:50] or None,
+                "certs_given": bool(item.certifications),
+                "location": (item.location or "")[:200] or None,
+                "desc": own,
+                "sha": hashlib.sha256(own.encode("utf-8")).hexdigest() if own else None,
+            },
+        )
+        written += int(bool(res.rowcount))  # type: ignore[attr-defined]
+    return written
+
+
+async def import_posts(
+    s: AsyncSession,
+    tenant_id: UUID,
+    account_id: UUID,
+    run_id: UUID,
+    posts: Sequence[ImportedPost],
+    comments: Sequence[ImportedPost],
+) -> tuple[int, int]:
+    """Store the recent posts and comments of an uploaded raw pull (``person_posts`` and
+    ``person_comments``) for the profile links the run's people hold. Returns (posts, comments)
+    written."""
+    held = {
+        str(r.profile_url_canonical)
+        for r in (
+            await s.execute(
+                text(
+                    "SELECT profile_url_canonical FROM people WHERE run_id = :r"
+                    " AND profile_url_canonical IS NOT NULL"
+                ),
+                {"r": run_id},
+            )
+        ).all()
+    }
+
+    def canonical(url: str) -> str | None:
+        """The held spelling of a profile address (with or without its trailing slash)."""
+        for candidate in (url, url.rstrip("/"), url.rstrip("/") + "/"):
+            if candidate in held:
+                return candidate
+        return None
+
+    n_posts = n_comments = 0
+    for post in posts:
+        url = canonical(post.profile_url)
+        excerpt = " ".join((post.excerpt or "").split())[:2000]
+        if url is None or not excerpt or not post.post_url:
+            continue
+        res = await s.execute(
+            text(
+                "INSERT INTO person_posts (tenant_id, account_id, run_id, profile_url_canonical,"
+                " post_url, posted_at, excerpt, excerpt_sha256, raw_ref, call_ref, internal_only,"
+                " hostile) VALUES (:t, :a, :r, :url, :post, :at, :excerpt, :sha,"
+                " 'workspace_import', 'file_import', false, false)"
+                " ON CONFLICT (tenant_id, run_id, profile_url_canonical, post_url) DO NOTHING"
+            ),
+            {
+                "t": tenant_id, "a": account_id, "r": run_id, "url": url,
+                "post": post.post_url[:2000], "at": post.posted_at, "excerpt": excerpt,
+                "sha": hashlib.sha256(excerpt.encode("utf-8")).hexdigest(),
+            },
+        )  # fmt: skip
+        n_posts += int(bool(res.rowcount))  # type: ignore[attr-defined]
+    for comment in comments:
+        url = canonical(comment.profile_url)
+        excerpt = " ".join((comment.excerpt or "").split())[:2000]
+        if url is None or not excerpt or not comment.post_url:
+            continue
+        res = await s.execute(
+            text(
+                "INSERT INTO person_comments (tenant_id, account_id, run_id,"
+                " profile_url_canonical, post_url, commented_at, excerpt, excerpt_sha256,"
+                " post_excerpt, raw_ref) VALUES (:t, :a, :r, :url, :post, :at, :excerpt, :sha,"
+                " :post_excerpt, 'workspace_import')"
+                " ON CONFLICT (tenant_id, run_id, profile_url_canonical, post_url, excerpt_sha256)"
+                " DO NOTHING"
+            ),
+            {
+                "t": tenant_id, "a": account_id, "r": run_id, "url": url,
+                "post": comment.post_url[:2000], "at": comment.posted_at, "excerpt": excerpt,
+                "sha": hashlib.sha256(excerpt.encode("utf-8")).hexdigest(),
+                "post_excerpt": (comment.post_excerpt or "")[:2000] or None,
+            },
+        )  # fmt: skip
+        n_comments += int(bool(res.rowcount))  # type: ignore[attr-defined]
+    return n_posts, n_comments
 
 
 def _employments(raw: Any) -> tuple[Employment, ...] | None:

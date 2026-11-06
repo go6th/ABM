@@ -17,7 +17,8 @@ Guarantees (tests: ``tests/runs/test_lifecycle_db.py``):
 * every transition is ``UPDATE ... WHERE status = :expected`` validated against the pure table in
   ``workflow.transitions``; losing a race raises ``RunStateConflict`` and changes nothing.
 * ``finish`` sweeps unset rows at any non-COMPLETED end (T12), moves the run through
-  ``tracker.guard.finish_run`` (never COMPLETED with gaps), then settles exactly once and stores
+  ``tracker.guard.finish_run`` with the tracker verdict evaluated exactly once (the one owner of
+  "Completed", ADR-0128: never COMPLETED with gaps), then settles exactly once and stores
   the spend report once (credit cap K12), all in the caller's transaction.
 * ``settle_once`` settles the run's job once (``replica.credits.settle_run``): credits used from
   the real spend, never more than reserved, the rest released; ``reserved = committed +
@@ -30,7 +31,7 @@ import hashlib
 import json
 import math
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
@@ -38,9 +39,10 @@ from uuid import UUID, uuid4
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from account_intelligence.connectors.cache import replay_key_version
 from account_intelligence.dev_limits import UNCAPPED, UNCAPPED_BUDGET_USD, research_uncapped
 from account_intelligence.runs.transitions import TERMINAL, RunStatus, transition
-from account_intelligence.tracker.guard import finish_run
+from account_intelligence.tracker.guard import finish_run, terminal_status
 from account_intelligence.tracker.model import ReasonCode
 from account_intelligence.tracker.service import TrackerService
 from datamodel import pins
@@ -219,6 +221,9 @@ async def create_run(
     # starts (the API, a file run's linked research, a refresh job). It is not part of the request
     # hash: the same request repeated is the same run
     run_input = {**request.run_input, **await _incremental_keys(session, account, request, now)}
+    # the replay-key version the run's calls are keyed with (ADR-0129): a later resume of this run
+    # compares it with the current one to warn about calls whose keys changed
+    run_input["replay_key_version"] = replay_key_version()
     if credit.job_id is not None:
         job = (
             await session.execute(
@@ -388,11 +393,19 @@ async def record_library_run(
 
 
 async def record_file_import_run(
-    session: AsyncSession, tenant_id: UUID, account_id: UUID, document_id: UUID, *, now: datetime
+    session: AsyncSession,
+    tenant_id: UUID,
+    account_id: UUID,
+    document_id: UUID,
+    *,
+    now: datetime,
+    research_date: date | None = None,
 ) -> UUID:
     """The run an uploaded deliverable workbook's rows hang off (``documents.deliverables``,
     2026-10-16): finished the moment it is made, no credits, no call, one per document (a
-    second import of the same document reuses it)."""
+    second import of the same document reuses it). ``research_date`` is the day an uploaded
+    workspace's pulls were made (``documents.workspace_identity``): kept in ``run_input`` so
+    the repair stage dates the workspace by it, not by the upload (2026-11-05)."""
     key = f"file-import-{document_id}"
     existing: Any = (
         await session.execute(
@@ -401,6 +414,14 @@ async def record_file_import_run(
         )
     ).scalar_one_or_none()
     if existing is not None:
+        if research_date is not None:
+            await session.execute(
+                text(
+                    "UPDATE account_runs SET run_input = coalesce(run_input, '{}'::jsonb)"
+                    " || CAST(:extra AS jsonb) WHERE id = :id"
+                ),
+                {"id": existing, "extra": json.dumps({"research_date": research_date.isoformat()})},
+            )
         return UUID(str(existing))
     from sqlalchemy.exc import IntegrityError
 
@@ -417,13 +438,30 @@ async def record_file_import_run(
         "g": "0" * 64,
         "now": now,
         "k": key,
-        "inp": json.dumps({"document_id": str(document_id), "mode": "file_import"}),
+        "inp": json.dumps(
+            {
+                "document_id": str(document_id),
+                "mode": "file_import",
+                **({"research_date": research_date.isoformat()} if research_date else {}),
+            }
+        ),
     }
     try:
         # two sweeps importing one document at the same moment: the second takes the first's run
         # (the unique idempotency key refuses a second row; seen on staging 2026-10-16)
         async with session.begin_nested():
             run_id: Any = (await session.execute(insert, params)).scalar_one()
+            # the legacy runs row with the same id (coverage_rows and the tracker key on it;
+            # workspace import phase 3 stores an uploaded tracker under this run)
+            await session.execute(
+                text(
+                    "INSERT INTO runs (id, tenant_id, account_id, run_type, status,"
+                    " config_version, credit_cap, started_at, finished_at) VALUES (:id, :t, :a,"
+                    " 'full', 'completed', 'file-import', 1, :now, :now)"
+                    " ON CONFLICT (id) DO NOTHING"
+                ),
+                {"id": run_id, "t": tenant_id, "a": account_id, "now": now},
+            )
     except IntegrityError:
         run_id = (
             await session.execute(
@@ -749,13 +787,22 @@ async def finish(
         await close_spend(session, run_id)  # a re-delivery stores no second report
         return expected.value, settlement
     transition(expected, target)
-    final = target
-    if target is RunStatus.COMPLETED and not (await tracker.verdict(run_id)).can_complete:
-        final = RunStatus.PARTIAL
+    # the tracker's verdict is the one owner of "Completed" (ADR-0128): evaluated exactly once
+    # here, before any sweep, and handed to the guard that maps it (COMPLETED, or PARTIAL with
+    # the reason code tracker_verdict); the research graph never votes on the terminal status
+    verdict = await tracker.verdict(run_id)
+    final = RunStatus(terminal_status(target.value, verdict))
     if final is not RunStatus.COMPLETED:
         await tracker.sweep(run_id, (await _tenant(session, run_id)), SWEEP_REASON[final])
     result = await finish_run(
-        session, tracker, run_id, expected.value, final.value, reason=reason, detail=detail
+        session,
+        tracker,
+        run_id,
+        expected.value,
+        target.value,
+        reason=reason,
+        detail=detail,
+        verdict=verdict,
     )
     settlement = await settle_once(session, run_id, refund_all=refund_all)
     await close_spend(session, run_id)
@@ -852,6 +899,37 @@ async def _tenant(session: AsyncSession, run_id: UUID) -> UUID:
     return tenant
 
 
+async def _note_document_tokens(session: AsyncSession, run_id: UUID, tenant_id: UUID) -> None:
+    """Write the settled run's model input and output tokens onto the document whose own
+    analysis it is (``documents.analysis_run_id``, set when the upload analysis starts). The
+    totals are set, not added, so a redelivered settlement writes the same figures. The larger of
+    the router's ledger (``llm_calls``) and the reply log (``model_reply_log``) is used, as the
+    token meter reads them (``spend_guard.RUN_TOKENS``). A run that is no document's analysis
+    changes no row."""
+    ledger = (
+        await session.execute(
+            text(
+                "SELECT coalesce(sum(input_tokens), 0) AS i, coalesce(sum(output_tokens), 0) AS o"
+                " FROM llm_calls WHERE run_id = :r"
+            ),
+            {"r": run_id},
+        )
+    ).one()
+    replies = (
+        await session.execute(
+            text(
+                "SELECT coalesce(sum(input_tokens), 0) AS i, coalesce(sum(output_tokens), 0) AS o"
+                " FROM model_reply_log WHERE run_id = :r AND served_from = 'model'"
+            ),
+            {"r": run_id},
+        )
+    ).one()
+    used = ledger if ledger.i + ledger.o >= replies.i + replies.o else replies
+    from documents.repo import set_analysis_tokens
+
+    await set_analysis_tokens(session, tenant_id, run_id, int(used.i), int(used.o))
+
+
 async def settle_once(
     session: AsyncSession, run_id: UUID, *, refund_all: bool = False
 ) -> Settlement:
@@ -875,6 +953,7 @@ async def settle_once(
         raise RunNotFound(str(run_id))
     if RunStatus(run.status) not in TERMINAL:
         raise LifecycleError("only a terminal run is settled")
+    await _note_document_tokens(session, run_id, run.tenant_id)
     now: datetime = (await session.execute(text("SELECT now()"))).scalar_one()
     platform_fault = refund_all or RunStatus(run.status) is RunStatus.FAILED
     # real spend: the paid data calls (spent_usd) and the model calls of this run: the router's

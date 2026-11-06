@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from account_intelligence.agents.fence import unfence
 from account_intelligence.platform.ports import LlmResult, LlmUsage
 
 _AGENT = re.compile(r"<!-- agent: ([a-z_0-9]+);")
@@ -167,10 +168,12 @@ class FakeModel:
         if agent == "setup":
             page = next((p for p in data.get("visited_pages", []) if "careers" in p["url"]), None)
             return {"careers_page_id": page["page_id"] if page else None}
+        # the page texts arrive fenced (``agents.fence``); a model reads and quotes inside them
+        payloads = [{**p, "text": unfence(p["text"])} for p in data.get("payloads", [])]
         if agent in ("pass1", "pass2"):
-            return {"candidates": self._candidates(data.get("payloads", []))}
+            return {"candidates": self._candidates(payloads)}
         if agent == "people":
-            return {"people": self._people(data.get("payloads", []))}
+            return {"people": self._people(payloads)}
         if agent == "sense_check":
             return {"findings": [], "proposals": []}
         if agent == "distill":
@@ -240,6 +243,14 @@ class FakeModel:
     # Workflow v1 ---------------------------------------------------------------------------------
 
     def _workflow(self, tier: str, data: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+        if data.get("kind") == "file_summary":
+            # the summary of a file analysis (documents.summarise): the scenario's canned texts
+            return "file_summary", {
+                "narrative": " ".join(self.scenario.narrative) or "The files state nothing.",
+                "hypotheses": list(self.scenario.hypotheses),
+                "cautions": [],
+                "first_call_questions": list(self.scenario.questions),
+            }
         if tier == "planner" and "rows" in data:
             return "plan_gaps", self._plan(data)
         if tier == "planner" and "lead" in data:

@@ -38,7 +38,8 @@ from account_intelligence.api.guard import authorize
 from account_intelligence.api.policy import ANONYMOUS, register, tenant_route
 from account_intelligence.api.routes.auth import EmailBody, _require_same_origin
 from account_intelligence.api.tenant_plane import CSRF_KEY_REF, plane_of
-from account_intelligence.db.session import tenant_txn, untenanted_session
+from account_intelligence.db.session import tenant_txn
+from account_intelligence.db.system_scope import untenanted_session
 from identity import connections, rate_limit, sessions
 from identity.broker import SignedIn, SignInRefused
 from identity.csrf import csrf_token

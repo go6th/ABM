@@ -7,7 +7,8 @@ from __future__ import annotations
 
 def act_as_test_system() -> None:
     """Set this process's acting user and scope."""
-    from account_intelligence.db.session import set_actor, set_system
+    from account_intelligence.db.session import set_actor
+    from account_intelligence.db.system_scope import set_system
 
     set_system()
     set_actor("test-owner")

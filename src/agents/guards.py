@@ -75,11 +75,6 @@ def coverage_verdict(
     return CoverageVerdict(not missing and not unproven, tuple(missing), tuple(unproven))
 
 
-# Row reasons that are a gap the client chose, not a missing step: a run whose other rows are all
-# Done or None still completes (config/tracker_v1.yaml high_reasons_allowed_for_completed)
-STATED_GAPS = frozenset({"no_internal_access"})
-
-
 # G1b: a pulled page is about the account --------------------------------------------------------
 
 MIN_NAME_CHARS = 4  # a shorter name ("6th") is in too much text: it must appear twice to count
@@ -195,6 +190,61 @@ def evidence_problem(
         if _norm(ref.quote) not in _norm(payload.text):
             return "quote_not_in_payload"
     return None
+
+
+# A sentence of a payload ends at ``.``, ``!`` or ``?`` followed by whitespace, or at a line
+# break; the share of a quote's words a replacement sentence must carry to stand for it
+_SENTENCE_END = re.compile(r"(?<=[.!?])\s+(?=\S)|\n+")
+MIN_SHARED_WORDS = 0.3
+QUOTE_MIN, QUOTE_MAX = 8, 600  # ``EvidenceRef.quote`` bounds
+
+
+def _words(text: str) -> list[str]:
+    return re.findall(r"\w+", _norm(text))
+
+
+def _carries(value: str, sentence: str) -> bool:
+    """The value's words appear contiguously in the sentence (folded)."""
+    needle, hay = _words(value), _words(sentence)
+    n = len(needle)
+    return n > 0 and any(hay[i : i + n] == needle for i in range(len(hay) - n + 1))
+
+
+def reanchor_quotes(
+    value: str, evidence: Sequence[EvidenceRef], given: Mapping[str, PayloadView]
+) -> tuple[tuple[EvidenceRef, ...], int]:
+    """``(evidence, repaired)``: each quote that is not verbatim in its payload replaced by the
+    payload's own sentence that carries ``value`` and shares the most words with the quote (at
+    least ``MIN_SHARED_WORDS`` of them), when the payload has one; the rest is left as it was,
+    for ``evidence_problem`` to judge. A model quotes the right passage with a word changed or
+    two sentences run together more often than it invents one (staging 2026-11-04: 92 candidates
+    dropped ``quote_not_in_payload`` in one run); the replacement is verbatim text of the payload
+    that holds the value, so G4 is kept, not loosened. A value the payload never states is never
+    rescued."""
+    out: list[EvidenceRef] = []
+    repaired = 0
+    for ref in evidence:
+        payload = given.get(ref.payload_ref)
+        if payload is None or _norm(ref.quote) in _norm(payload.text):
+            out.append(ref)
+            continue
+        quote_words = set(_words(ref.quote))
+        best: tuple[float, str] | None = None
+        for raw in _SENTENCE_END.split(payload.text):
+            sentence = " ".join(raw.split())
+            if not QUOTE_MIN <= len(sentence) <= QUOTE_MAX or not _carries(value, sentence):
+                continue
+            shared = (
+                len(quote_words & set(_words(sentence))) / len(quote_words) if quote_words else 0.0
+            )
+            if shared >= MIN_SHARED_WORDS and (best is None or shared > best[0]):
+                best = (shared, sentence)
+        if best is None:
+            out.append(ref)
+            continue
+        out.append(ref.model_copy(update={"quote": best[1]}))
+        repaired += 1
+    return tuple(out), repaired
 
 
 def quoted(value: str, quotes: Iterable[str]) -> bool:

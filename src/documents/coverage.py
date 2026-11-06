@@ -85,7 +85,7 @@ async def coverage(session: Any, accounts: Sequence[UUID]) -> list[dict[str, Any
             "type": str(d.detected_type or ""),
             "passages": int(c.get("passages") or d.passages or 0),
         }
-        if d.status in ("rejected", "failed"):
+        if d.status in ("rejected", "failed", "scan_failed", "abandoned"):
             code = str(d.reject_reason or d.stop_detail or "")
             entry["why"] = MESSAGES["empty"] if code == "parse:empty" else MESSAGES.get(code, "")
         if read or c.get("skipped"):

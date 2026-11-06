@@ -23,6 +23,7 @@ Operator (6th staff, no tenant content):
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
@@ -37,7 +38,8 @@ from account_intelligence.api.errors import APIProblem
 from account_intelligence.api.guard import authorize
 from account_intelligence.api.operator import StaffIdentity, require_staff
 from account_intelligence.api.policy import OperatorRole, operator_route, register, tenant_route
-from account_intelligence.db.session import tenant_txn, untenanted_session
+from account_intelligence.db.session import tenant_txn
+from account_intelligence.db.system_scope import untenanted_session
 from account_intelligence.replica import library as L
 from account_intelligence.replica.settings import (
     accounts_used,
@@ -135,7 +137,8 @@ async def library_upload(
     if not data or len(data) > MAX_UPLOAD:
         raise APIProblem(413, "package_size", "Package size", "Upload a file up to 100 MB.")
     try:
-        found = L.inspect_package(filename, data, account_name, domain)
+        # unzipping, re-zipping and reading up to 100 MB: in a thread (ADR-0130)
+        found = await asyncio.to_thread(L.inspect_package, filename, data, account_name, domain)
     except L.LibraryError as error:
         raise APIProblem(422, "package_unreadable", "Package not readable", str(error)) from None
     async with untenanted_session() as plain:

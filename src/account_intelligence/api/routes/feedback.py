@@ -25,7 +25,8 @@ from account_intelligence.api.operator import StaffIdentity, require_staff
 from account_intelligence.api.policy import OperatorRole, operator_route, register, tenant_route
 from account_intelligence.api.routes.accounts import exclusion_rule, resolve_run
 from account_intelligence.api.tenant_plane import plane_of
-from account_intelligence.db.session import tenant_txn, untenanted_session
+from account_intelligence.db.session import tenant_txn
+from account_intelligence.db.system_scope import untenanted_session
 from pilot import feedback, metric, usefulness
 
 router = APIRouter(tags=["feedback"])

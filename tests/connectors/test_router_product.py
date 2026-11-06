@@ -359,5 +359,9 @@ def test_structured_logs_drop_fields_outside_the_allow_list(caplog) -> None:  # 
         api_key="k",
         url="https://a?key=1",
     )
-    line = json.loads(caplog.records[-1].getMessage())
-    assert line == {"event": "x", "provider_code": "p_search"}
+    record = caplog.records[-1]
+    # the event name is the message and the allow-listed fields are record attributes (what the
+    # JSON formatter reads); nothing outside the allow-list reaches the record
+    assert record.getMessage() == "x" and record.event == "x"  # type: ignore[attr-defined]
+    assert record.provider_code == "p_search"  # type: ignore[attr-defined]
+    assert not any(hasattr(record, k) for k in ("page_text", "api_key", "url"))

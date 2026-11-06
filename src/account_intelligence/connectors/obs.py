@@ -9,7 +9,6 @@ and tenant ids are not metric data). Spans carry the attributes from the build b
 from __future__ import annotations
 
 import hashlib
-import json
 import logging
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
@@ -61,10 +60,13 @@ _latency = _meter.create_histogram("connector_latency_ms", unit="ms")
 
 
 def log_event(event: str, level: int = logging.INFO, **fields: Any) -> None:
-    """Structured JSON log through the field allow-list (no prompts, text or secrets)."""
-    payload = {"event": event}
-    payload.update({k: _scalar(v) for k, v in fields.items() if k in LOG_FIELDS})
-    _logger.log(level, json.dumps(payload, sort_keys=True, default=str))
+    """Structured log through the field allow-list (no prompts, text or secrets). The event name
+    and the fields travel as record attributes (``extra``), which the JSON formatter reads: a
+    JSON message string was reduced to the anonymous event ``log`` with every field lost (the
+    formatter keeps a message only as an event name), so no connector event was readable in
+    Cloud Logging (staging 2026-11-04)."""
+    extra = {k: _scalar(v) for k, v in fields.items() if k in LOG_FIELDS and v is not None}
+    _logger.log(level, event, extra={"event": event, **extra})
 
 
 def _scalar(value: Any) -> Any:

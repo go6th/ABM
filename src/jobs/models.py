@@ -157,6 +157,9 @@ class Posting(_Frozen):
     # became a row). A posting only the live board holds has no feed date; this is the First seen
     # the file prints for it, and a carried posting keeps it (review 2026-10-29, finding 14)
     captured_on: date | None = None
+    # the careers site's own posting number ("94459", "R-12345"), when the source gave one: the
+    # Requisition column of an uploaded workbook, the id segment of a careers address
+    requisition_id: str | None = None
     # the research date on which the status last changed (a carried posting whose status moved:
     # open to closed, or closed to open again). It is part of the archive copy's identity so a
     # posting that returns to an earlier state is a new copy, not the old one (finding 13)

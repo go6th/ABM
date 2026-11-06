@@ -4,8 +4,8 @@
 # evals/tabular_synthetic over the synthetic workspace zip, Kimi K3 at temperature 0) runs on the
 # nightly schedule, on demand (workflow_dispatch) and on a prompt/routing change; with no
 # MOONSHOT_API_KEY secret it reports not_run, which BLOCKS the merge (E5: no override in
-# code). `nightly` runs the full set on a schedule. The routing governance check fails a
-# routing change with no decision.
+# code). `nightly` runs the full set on a schedule. A routing change is a change to
+# src/llm/ or config/models.yaml (ADR-0113 removed the separate routing governance check).
 name: eval
 
 on:
@@ -36,7 +36,7 @@ jobs:
         run: |
           base="${{ github.event.pull_request.base.sha || 'HEAD~1' }}"
           if git diff --name-only "$base" HEAD | grep -E \
-            '^(src/account_intelligence/agents/|src/llm/|src/verify/|src/account_intelligence/grading/|config/model_routing.yaml|config/models.yaml|config/verify.yaml)'; then
+            '^(src/account_intelligence/agents/|src/llm/|src/verify/|src/account_intelligence/grading/|config/models.yaml|config/chat_models.yaml|config/verify.yaml)'; then
             echo "model=true" >> "$GITHUB_OUTPUT"
           else
             echo "model=false" >> "$GITHUB_OUTPUT"
@@ -70,8 +70,6 @@ jobs:
           python-version: "3.12"
       - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
       - run: uv sync --frozen
-      - name: Routing governance (R12)
-        run: uv run --frozen python scripts/check_routing_governance.py
       - name: Contamination (E2)
         run: >-
           uv run --frozen python -m evalgate.cli contamination --labels evals/golden/labels

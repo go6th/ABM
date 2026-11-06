@@ -29,7 +29,7 @@ meets them:
 | `rag/` | Retrieval over uploaded documents: hybrid search, ACL filters, prompts, guardrails. |
 | `safety/` | The one client-output scanner every export path calls (no vendor, credit or person names in a client file). |
 | `agents/` (inside this package) | The grading facade and versioned prompts used by Workflow v1. The ABM graph is the top-level `agents/` package below. |
-| `config.py` | The typed environment registry (every variable the code reads; `docs/ENVIRONMENT.md` is generated from it). `config_files.py` loads and fingerprints the YAML rules. `dev_limits.py`, `model_routing.py`, `urls.py` are small helpers. |
+| `config.py` | The typed environment registry (every variable the code reads; `docs/ENVIRONMENT.md` is generated from it). `config_files.py` loads and fingerprints the YAML rules. `dev_limits.py`, `urls.py` are small helpers. |
 
 ## The ABM research graph
 
@@ -58,7 +58,6 @@ meets them:
 | `spend/` | Credit cap and spend rules: money model, gate, approval, priority, reconcile, the end-of-run report. Every rule lives here; the API routes are thin. |
 | `metering/` | Insert-only usage events, atomic plan limits (`config/plans.yaml`), the billing-ready period summary. |
 | `governance/` | Monitoring cost governance: the monthly allowance and the throttle ladder. |
-| `unitcost/` | Unit cost roll-ups per account (broker and model cost) and the anomaly alert. |
 | `tenancy/` | Tenant settings, per-tenant storage paths, registries, the tenant lifecycle (suspend, delete). |
 | `identity/` | Sessions, CSRF, roles, membership rules, SSO (OIDC and SAML), the local password issuer, rate limits. |
 | `admin/` | The operator plane: tenants, quotas, flags, support grants, view-as. |
@@ -73,7 +72,7 @@ meets them:
 
 | Package | What it is |
 | --- | --- |
-| `llm/` | Model routing: task kind → tier → candidate ladder from `config/model_routing.yaml`; the reply cache. The only entry to a language model. |
+| `llm/` | Model routing: one table (`route.py`: task kind → tier → `config/models.yaml` task, default effort, role), the user's model choice, the one price table (`cost.py`), the reply cache. Every research call enters through `workflow/deps.py::RunDeps.resolve_model`. |
 | `verify/` | Verifier agents: blind re-reads whose only authority is to downgrade. |
 | `evalgate/` | The eval harness (metrics, golden sets, contamination check, benchmark CLI). |
 | `parallel/` | The dependency-aware unit scheduler with per-provider concurrency limits. |
@@ -84,7 +83,8 @@ meets them:
 `crosscut/` evaluates `config/section11_spec.yaml` against the repository (every requirement
 names its evidence: a symbol, a test, a column or a config file) and writes
 `docs/crosscutting/CONFORMANCE.md`. The small packages it points at hold the implementation:
-`datamodel/` (the data model spec), `contracts/` (contract drift), `quality/` (regression policy,
-analyst loop), `privacy/` (minimisation, retention, DSAR), `security/` (secret scan, rotation,
-SOC 2 coverage, pentest gate, review store), `metrics/` (success metrics report, link check),
-`registers/` (risk, decision, claim and messaging registers).
+`datamodel/` (the data model spec). `contracts/`, `quality/` and `privacy/` had no importer and
+were parked in `unwanted-things/dead-code-2026-11/` (ADR-0136). The former `security/`, `metrics/`,
+`registers/` and `unitcost/` packages were no-op stubs that returned constants; they were parked
+in `unwanted-things/retired-stubs/` (ADR-0122) and the requirements they claimed now read Partial
+or Missing in the report.

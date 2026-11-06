@@ -35,6 +35,11 @@ containers, the HTTPS load balancer with Cloud Armor, and the Artifact Registry
 
 ### 2.1 Release path: the gated workflow
 
+**Current practice (checked 2026-11-03):** the product branch is `feat/final-product`, which has
+not been merged to `main`, so this workflow has not released it. Every staging release so far
+went through the manual Cloud Build + gcloud path in 2.2 (`make deploy-staging` prints it). The
+workflow below is the intended path once the branch reaches `main`.
+
 A release is a push to `main` with a green `ci.yml` run. `deploy-staging.yml` (the reusable
 `_deploy.yml`) then pushes the images CI built and tested, signs them, runs the migration job
 from the new api image, deploys every service by digest, runs `docker/ci/smoke_deployed.sh`
@@ -50,7 +55,7 @@ changes (`ignore_changes = [image]` in `infra/modules/cloud_run` and `cloud_run_
 made from stale digests does not roll a service back; the deploy workflow and `gcloud` own the
 running image.
 
-### 2.2 Emergency path only: Cloud Build and gcloud by hand
+### 2.2 Cloud Build and gcloud by hand (the path in use until the branch reaches `main`)
 
 When the workflow cannot run (GitHub or Workload Identity Federation down, a hotfix that must
 ship before CI can finish), the owner may build and roll out by hand. This path skips CI, so it

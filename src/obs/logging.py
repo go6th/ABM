@@ -11,6 +11,9 @@ from __future__ import annotations
 
 import json
 import logging as std_logging
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Any
 
 from opentelemetry import trace
@@ -21,7 +24,26 @@ from obs.exporters import DropCounter
 from obs.scrub import clean, scrub_exception
 
 RESERVED = frozenset(vars(std_logging.LogRecord("", 0, "", 0, "", (), None)))
-__all__ = ["REQUEST_ID", "JsonFormatter", "configure_logging", "logger"]
+__all__ = ["REQUEST_ID", "JsonFormatter", "configure_logging", "log_context", "logger"]
+
+# Identifiers every log line of a stretch of work carries (an import's tenant, account, document,
+# import run and part). Ids only, never row text; a line's own ``extra`` wins over the context.
+LOG_CONTEXT: ContextVar[dict[str, str] | None] = ContextVar("log_context", default=None)
+
+
+@contextmanager
+def log_context(**fields: object) -> Iterator[None]:
+    """Add ``fields`` (None values dropped, values stringified) to every log line emitted inside
+    the block, on top of any enclosing context; asyncio tasks started inside inherit it."""
+    merged = {
+        **(LOG_CONTEXT.get() or {}),
+        **{k: str(v) for k, v in fields.items() if v is not None},
+    }
+    token = LOG_CONTEXT.set(merged)
+    try:
+        yield
+    finally:
+        LOG_CONTEXT.reset(token)
 
 
 class JsonFormatter(std_logging.Formatter):
@@ -49,6 +71,8 @@ class JsonFormatter(std_logging.Formatter):
                 extra.update(scrub_exception(record.exc_info[1]))
             if "logger" not in extra and record.name and record.name != "root":
                 extra["logger"] = record.name[:64]  # which library or module spoke
+            for key, value in (LOG_CONTEXT.get() or {}).items():
+                extra.setdefault(key, value)
             request_id = REQUEST_ID.get()
             if request_id and "request_id" not in extra:
                 extra["request_id"] = request_id
@@ -81,6 +105,12 @@ def configure_logging(level: str, service: str) -> None:
     root = std_logging.getLogger()
     root.handlers = [handler]
     root.setLevel(level)
+    # library chatter whose message the allow-list drops, so it arrived as anonymous ``log``
+    # lines (a run of 25 minutes wrote 2,500 of them, staging 2026-11-04): one per HTTP call
+    # from httpx, one per request from uvicorn's access log (Cloud Run keeps its own request
+    # log, and the API writes ``http.request``); a problem is still logged at WARNING or above
+    for name in ("httpx", "httpcore", "uvicorn.access"):
+        std_logging.getLogger(name).setLevel(std_logging.WARNING)
 
 
 def logger(name: str) -> std_logging.Logger:

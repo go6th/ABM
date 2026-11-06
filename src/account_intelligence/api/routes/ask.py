@@ -86,6 +86,7 @@ from account_intelligence.replica.model_answer import (
     refusal_phrase,
     stream_with_model,
 )
+from account_intelligence.replica.open_question import open_question
 from account_intelligence.replica.render import ensure_table
 from account_intelligence.replica.settings import touch_activity
 from account_intelligence.replica.source_label import relabel_answer
@@ -106,8 +107,8 @@ LOCAL_MODEL = "workspace-local"
 FALLBACK_NOTICE = "AI summary unavailable. Showing workspace records:"
 # the model ran but its reply could not be used (cut off, no final answer, an unknown citation)
 RESET_NOTICE = (
-    "The AI answer could not be completed and was not used, so this is not an analysis. Ask"
-    " again or pick another model. Showing workspace records:"
+    "The AI answer could not be completed and was not used, so there is no analysis for this"
+    " question. Ask again, or pick another model."
 )
 
 
@@ -125,6 +126,23 @@ class AskBody(BaseModel):
     # the effort for this question (medium or high, the composer's effort chip; owner decision
     # 2026-10-20); None: the user's analysis effort
     effort: str | None = Field(default=None, min_length=1, max_length=16)
+
+
+INDEXING_NOTICE = "Some files are still being indexed; search may miss them."
+# a document bound to an account that is not yet searchable but is on its way (a held upload,
+# needs_account, waits for the user and is not counted)
+_IN_PROGRESS = ("quarantined", "scanning", "parsing", "parsed", "indexing")
+
+
+async def _indexing_notices(tenant_id: UUID, account_id: UUID | None) -> list[str]:
+    """PR5: the account page fills from the import before the embeddings are written, so an
+    answer asked in between searches an incomplete index. When any bound document of the account
+    (of every account the caller can see, without a scope) is not yet ``indexed``, say so."""
+    from documents import repo as DOCREPO
+
+    async with tenant_txn(tenant_id) as session:
+        pending = await DOCREPO.any_not_indexed(session, account_id, _IN_PROGRESS)
+    return [INDEXING_NOTICE] if pending else []
 
 
 def week_of(now: datetime) -> date:
@@ -219,6 +237,12 @@ async def ask(
             # the model the answer was paid on, kept even when its reply is not used
             paid_model: str | None = None
             decision = R.Decision("prose", "no table in the workspace")
+            # why the route is what it is, as a fixed code for the log (the router's reason
+            # repeats the user's words): no_tables, router, tables_exist, provider_no_tools,
+            # table_store_failed (2026-11-03: UCB turns logged prose with no table found)
+            route_code = "no_tables"
+            # an open question answers with insights from the Account Summary first
+            shape = open_question(body.question)
             found: list[T.TableInfo] = []
             file_map = ""
             pre_read = ""
@@ -245,10 +269,12 @@ async def ask(
                             "ask_research_tables_failed", extra={"request_id": str(body.request_id)}
                         )
                     classifier = _classifier(request, provider, analysis_model)
-                    decision = with_table_tools(
-                        await R.route(body.question, found, classifier), found
-                    )
+                    routed = await R.route(body.question, found, classifier)
+                    decision = with_table_tools(routed, found)
+                    if found:
+                        route_code = "tables_exist" if decision is not routed else "router"
                     if decision.route != "prose" and not getattr(provider, "supports_tools", False):
+                        route_code = "provider_no_tools"
                         decision = R.Decision(
                             "prose", f"{decision.reason}; the model's provider offers no tools"
                         )
@@ -264,10 +290,12 @@ async def ask(
                             require_data=decision.route == "tabular",
                             archive=_archive_tools(request, ident, ws, searched),
                             web=_web_tools(ident, ws, searched, body.account_id),
+                            shape=shape,
                         )
                 except Exception:  # noqa: BLE001 - an answer without tables still stands
                     log.warning("ask_tables_failed", extra={"request_id": str(body.request_id)})
                     decision, tools = R.Decision("prose", "the table store failed"), None
+                    route_code = "table_store_failed"
                 # the reading code can do before the model starts: describe the tables the
                 # question names and read the small ones whole (replica.read_plan)
                 if tools is not None and decision.route in ("tabular", "mixed"):
@@ -316,7 +344,17 @@ async def ask(
                             )
                             # the file the question is about goes to the model whole
                             await A.take_whole_file(
-                                session, ws, get_settings().ask_whole_file_max_chars
+                                session,
+                                ws,
+                                get_settings().ask_whole_file_max_chars,
+                                prefer_summary=shape is not None,
+                                accounts=(
+                                    [body.account_id]
+                                    if body.account_id
+                                    else [
+                                        a.id for a in A.understand(body.question, ws, None).accounts
+                                    ]
+                                ),
                             )
                     except Exception:  # noqa: BLE001 - an answer without passages still stands
                         log.warning(
@@ -327,6 +365,7 @@ async def ask(
             model_id = LOCAL_MODEL
             usage = None
             from_model = False
+            failed = False
             log.info(
                 "ask.gate",
                 extra={
@@ -398,6 +437,7 @@ async def ask(
                         pre_read=pre_read,
                         history=history,
                         web=tools.web if tools is not None else None,
+                        shape=shape,
                     ):
                         if kind == "piece":
                             # Hold streamed pieces until the whole answer is scrubbed and scanned.
@@ -431,10 +471,12 @@ async def ask(
                                     "stop_reason": getattr(usage, "stop_reason", None),
                                 },
                             )
-                            # the reply was paid for and thrown away: say so, never present the
-                            # workspace's own records as the answer (audit 2026-11-02: a $2.31
-                            # Fable turn showed "At UCB Inc, UCB 1." with no notice)
-                            _mark_local_fallback(draft, RESET_NOTICE)
+                            # the reply was paid for and thrown away: say so, and show no
+                            # workspace records in its place (audit 2026-11-02: a $2.31 Fable
+                            # turn showed "At UCB Inc, UCB 1."; 2026-11-03: the notice kept the
+                            # same placeholder rows, which read as an answer)
+                            draft = _failed_draft(draft)
+                            failed = True
                 except Exception as e:  # the local answer stands; no user text is logged
                     log.exception("ask_model_fallback")
                     log.warning(
@@ -446,8 +488,13 @@ async def ask(
                             "exception_msg": str(e)[:200],
                         },
                     )
-                    # Keep the local records, but disclose that the model answer was unavailable.
-                    _mark_local_fallback(draft)
+                    # the model was called and failed: the same honest notice, no placeholder
+                    # rows (the local records stand only when no model was called at all)
+                    if paid_model is not None:
+                        draft = _failed_draft(draft)
+                        failed = True
+                    else:
+                        _mark_local_fallback(draft)
             else:
                 log.warning(
                     "ask.gate_fallback",
@@ -459,9 +506,21 @@ async def ask(
                         "has_accounts": bool(ws.accounts),
                     },
                 )
-            # the table guarantee's last line: whatever wrote the answer, it leaves with a table
-            ensure_table(draft)
+            # the table guarantee's last line: whatever wrote the answer, it leaves with a table;
+            # an open question's insights keep their facts table under "Sources"
+            ensure_table(draft, collapsed=shape is not None)
+            if tools is not None:
+                # a cited table that is a deep-dive sheet opens the sheet narrowed by the
+                # answer's own query (one equality or contains test; answers.carry_table_matches)
+                A.carry_table_matches(draft.rows.values(), tools.table_tools.stored)
             answer = A.finish(draft, q, ws, now, scope)
+            notices = await _indexing_notices(
+                ident.tenant_id, scope.id if scope is not None else None
+            )
+            answer["notices"] = notices  # always present: the stored answer carries it too
+            if failed:
+                # the same question, one tap away
+                answer["followups"] = [body.question[:200], *answer["followups"]][:2]
             stats = tools.stats() if tools is not None else {}
             cost = _turn_cost(service, paid_model, usage, classifier)
             if tools is not None and tools.web is not None:
@@ -482,7 +541,19 @@ async def ask(
                     "cache_write_tokens": getattr(usage, "cache_write_tokens", 0),
                     "cost_usd": str(cost),
                     **route_log(decision),
-                    "outcome": "model" if from_model else "local",
+                    "reason": route_code,
+                    "tables_held": len(found),
+                    # where the tables come from (2026-11-04: the UCB turns could not say
+                    # whether the imported rows were offered): uploads, materialised research
+                    # tables, an imported workspace's native rows
+                    "tables_uploaded": sum(1 for t in found if t.view is None),
+                    "tables_research": sum(
+                        1 for t in found if t.view is not None and t.view.source == "view_rows"
+                    ),
+                    "tables_native": sum(
+                        1 for t in found if t.view is not None and t.view.source == "native"
+                    ),
+                    "outcome": "model" if from_model else ("failed" if failed else "local"),
                     "latency_ms": round((time.monotonic() - turn_started) * 1000),
                     **stats,
                 },
@@ -531,7 +602,12 @@ async def ask(
                     cache_write_tokens=usage.cache_write_tokens if usage else 0,
                     cost_usd=cost,
                     billed_model_id=paid_model,
-                    answer_json=_json(answer),
+                    # the stored answer keeps the context size for a reopened thread's meter
+                    answer_json=_json(
+                        {**answer, "context_tokens": int(getattr(usage, "context_tokens", 0) or 0)}
+                        if usage and isinstance(answer, dict)
+                        else answer
+                    ),
                     week=week_of(now),
                     category=A.classify(body.question),
                 )
@@ -663,6 +739,16 @@ def _mark_local_fallback(draft: A.Draft, notice: str = FALLBACK_NOTICE) -> None:
     draft.paragraphs.insert(0, notice)
 
 
+def _failed_draft(local: A.Draft) -> A.Draft:
+    """The answer when the model ran and its reply could not be used: the notice alone, no
+    workspace rows passed off as an analysis (the cost is on the done frame and the token
+    meter; the follow-ups offer the same question again)."""
+    out = A.Draft()
+    out.focus = local.focus
+    out.para(RESET_NOTICE)
+    return out
+
+
 def _classifier(request: Request, provider: Any, model_id: str) -> Any:
     """The fallback route classifier (``ASK_ROUTE_LLM_FALLBACK``) on the helper model of
     ``models.yaml`` ``helpers.route_classifier`` (Haiku 5.5), over the container's Anthropic
@@ -750,6 +836,8 @@ def _done_frame(turn_id: Any, model_id: str, usage: Any, cost: Decimal) -> dict[
         "output_tokens": int(getattr(usage, "output_tokens", 0) or 0),
         "cache_read_tokens": int(getattr(usage, "cache_read_tokens", 0) or 0),
         "cache_write_tokens": int(getattr(usage, "cache_write_tokens", 0) or 0),
+        # the last round's prompt: what the context meter shows (the counts above add rounds)
+        "context_tokens": int(getattr(usage, "context_tokens", 0) or 0),
         "cost_usd": str(cost),
     }
 

@@ -216,8 +216,9 @@ class EngineGrading:
     ledger: InheritedLedger
     cfg: GradingConfig
     clock: Clock
-    # G12: the support judge. Without it (or when the judge would be the generator's model) every
-    # claim that needs a judge, Confirmed included, is capped and flagged ``unjudged``.
+    # G12: the support judge. Without it every claim that needs a judge, Confirmed included, is
+    # capped and flagged ``unjudged``; a judge on the generator's model never runs (the run is
+    # refused at its start, ``judge_profile_ok``, ADR-0118).
     judge: SupportJudgePort | None = None
 
     async def grade(self, ctx: RunContext, items: Sequence[GradingCandidate]) -> GradeBatch:

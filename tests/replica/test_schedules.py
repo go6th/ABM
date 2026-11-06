@@ -19,6 +19,12 @@ from tests.replica.conftest import _call, _plane
 pytestmark = [pytest.mark.requires_postgres, pytest.mark.asyncio]
 
 
+@pytest.fixture(autouse=True)
+def _automatic_starts_on(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These tests exercise the schedule tick itself (off unless the switch is on)."""
+    monkeypatch.setenv("RESEARCH_AUTOMATIC_STARTS", "on")
+
+
 def _admin() -> str:
     from tests.conftest import ADMIN_DSN
 

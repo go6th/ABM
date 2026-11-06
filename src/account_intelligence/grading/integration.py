@@ -83,13 +83,19 @@ async def load_run_info(txn: TxnFactory, tenant_id: UUID, run_id: UUID) -> RunIn
 
 
 def judge_profile_ok(cfg: GradingConfig) -> bool:
-    """True only when the configured judge model differs from the generator (G12)."""
+    """G12: the judge never runs on the generator's model. When the configured judge and
+    generator tasks route to one model, the judge's calls run on another Claude model of the
+    allow-list (``workflow.deps.RunDeps.chosen_model``), so the verdicts count; with no such
+    model ``llm.route.JudgeNotIndependent`` is raised (the runner refuses such a run at its
+    start, ADR-0118). It used to return False here, which capped every claim at Probable with
+    ``unjudged`` and no error."""
+    from llm.choice import independent_judge
+
+    generator = model_profile(cfg.judge.generator_task)
     try:
-        ensure_judge_differs(
-            cfg, model_profile(cfg.judge.judge_task), model_profile(cfg.judge.generator_task)
-        )
+        ensure_judge_differs(cfg, model_profile(cfg.judge.judge_task), generator)
     except ConfigError:
-        return False
+        independent_judge(generator)
     return True
 
 

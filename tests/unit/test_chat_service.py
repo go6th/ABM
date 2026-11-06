@@ -55,16 +55,13 @@ def test_message_and_context_limits_fail_before_provider_calls() -> None:
 
 def test_estimates_and_actual_cost_include_cache_usage() -> None:
     model = get_chat_registry().model(None)
-    raw = next(
-        m
-        for m in yaml.safe_load((CONFIG_DIR / "chat_models.yaml").read_text())["models"]
-        if m["id"] == model.id
-    )
+    # the one price table (models.yaml, ADR-0115)
+    raw = yaml.safe_load((CONFIG_DIR / "models.yaml").read_text())["models"][model.id]["pricing"]
     expected_price = (
-        100 * Decimal(raw["input_usd_per_million"])
-        + 20 * Decimal(raw["output_usd_per_million"])
-        + 30 * Decimal(raw["cache_read_usd_per_million"])
-        + 10 * Decimal(raw["cache_write_usd_per_million"])
+        100 * Decimal(str(raw["input_usd_per_million"]))
+        + 20 * Decimal(str(raw["output_usd_per_million"]))
+        + 30 * Decimal(str(raw["cached_read_usd_per_million"]))
+        + 10 * Decimal(str(raw["cache_write_usd_per_million"]))
     ) / Decimal(1_000_000)
     messages = [ChatMessage("user", "hello"), ChatMessage("assistant", "world")]
     assert estimated_tokens(messages) >= len("helloworld") + 1024
@@ -136,8 +133,11 @@ async def test_anthropic_adapter_streams_only_text_and_final_usage() -> None:
         event async for event in provider.stream(model, [ChatMessage("user", "question")], 1024)
     ]
     assert [event.text for event in events if event.kind == "text"] == ["Hello", " world"]
-    # the final round's stop reason travels with the usage (a cut-off reply is "max_tokens")
-    assert events[-1] == ChatEvent("usage", usage=ChatUsage(3, 2, 1, 0, stop_reason="end_turn"))
+    # the final round's stop reason travels with the usage (a cut-off reply is "max_tokens"),
+    # and so does that round's whole prompt (3 uncached + 1 cached + 0 written)
+    assert events[-1] == ChatEvent(
+        "usage", usage=ChatUsage(3, 2, 1, 0, stop_reason="end_turn", context_tokens=4)
+    )
     assert calls[0]["model"] == model.id and calls[0]["max_tokens"] == 1024
     assert calls[0]["messages"] == [{"role": "user", "content": "question"}]
     assert "temperature" not in calls[0]

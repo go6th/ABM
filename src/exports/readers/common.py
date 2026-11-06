@@ -72,6 +72,10 @@ def own_names(content: SnapshotContent) -> tuple[str, ...]:
     for sub in lock.get("subsidiaries") or ():
         if isinstance(sub, dict):
             found += [sub.get("name"), sub.get("domain")]
+    # the account's own home page title names it the way the company does ("Olympus Corporation
+    # of the Americas | Olympus"); an account added by its domain has only the domain's words as
+    # name and brand, and its parent's name was refused in its own files (staging 2026-11-06)
+    found += [part for part in re.split(r"\s+[|–—-]\s+", str(lock.get("home_title") or ""))]
     names = [str(x).strip() for x in found if isinstance(x, str) and x.strip()]
     return tuple(dict.fromkeys(names))
 
