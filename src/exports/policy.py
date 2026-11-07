@@ -242,15 +242,12 @@ def names_own(term: str, own_names: Iterable[str]) -> bool:
 def platform_names() -> frozenset[str]:
     """The platform names and aliases of the job lexicon (``config/job_lanes.yaml``), case
     folded: words every account's files print as technology names."""
-    import yaml
+    from jobs.config import load_jobs_config
 
-    from account_intelligence.config import CONFIG_DIR
-
-    data = yaml.safe_load((CONFIG_DIR / "job_lanes.yaml").read_text(encoding="utf-8"))
     names: set[str] = set()
-    for lane in data.get("lanes") or ():
-        for platform in lane.get("platforms") or ():
-            names.update(str(n) for n in (platform.get("name"), *(platform.get("aliases") or ())))
+    for lane in load_jobs_config().lanes:
+        for name, aliases in lane.platforms.items():
+            names.update((name, *aliases))
     return frozenset(n.strip().casefold() for n in names if n and n.strip())
 
 

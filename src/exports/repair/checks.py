@@ -298,7 +298,7 @@ def _name_validator() -> Callable[[str], bool]:
             # a People row's name came from a provider's name field: the same rule the builder
             # applies to it (a trailing initial or a short surname is a name there)
             return lambda n: bool(fn(n)) or bool(callable(profile_fn) and profile_fn(n))
-    except Exception:  # noqa: BLE001 - the builder module is optional at this point
+    except Exception:  # noqa: BLE001 - the builder module is optional at this point  # nosec B110 -- the optional module falls back to the local rule.
         pass
     return _local_is_person_name
 

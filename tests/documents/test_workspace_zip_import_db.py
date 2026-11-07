@@ -759,13 +759,17 @@ async def test_a_workspace_zip_imports_each_deliverable_row_once_and_skips_build
         " ORDER BY title",
         account,
     )
-    assert events and counts["signals"] == ws["counts"]["signals"] == len(events)
+    # the Signals sheet and count also hold the research's own news findings beside the events
+    # (owner decision 2026-11-06): the News sheet's rows that are not imported news events
+    news_facts = [n for n in news if not n["imported"]]
+    shown = len(events) + len(news_facts)
+    assert events and counts["signals"] == ws["counts"]["signals"] == shown
     assert all(t and g in ("confirmed", "probable", "hypothesis", "lead") for t, _, g, _ in events)
     assert {b for *_, b in events} <= {1, 2, 3}
     assert ws["findings"] and all(f["text"] for f in ws["findings"])
     assert ws["narrative"] is not None and ws["narrative"]["sentences"]
     signal_rows = await sheet_rows("signals")
-    assert len(signal_rows) == len(events) and all(r["_private"] for r in signal_rows)
+    assert len(signal_rows) == shown and all(r["_private"] for r in signal_rows)
     assert register["https://news.holdings.example/cio"]["how_retrieved"] == "Read in full"
     assert register["https://news.holdings.example/cio"]["supports"] == "The CIO appointment"
 

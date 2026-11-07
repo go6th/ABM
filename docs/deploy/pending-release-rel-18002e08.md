@@ -9,7 +9,7 @@ Built after the overnight audit. Snapshot of the whole working tree (same tree a
 rel-7b28a9e2 plus the fix below), Cloud Build ad8ea965. Full offline backend suite on this tree:
 7,738 passed, 0 failed (`-m "not eval and not live"`, 1 h 40 min). No new migration.
 
-Not deployed because rajesh@6th.ai stopped the staging database at 21:32 UTC (activation policy
+Not deployed because the owner stopped the staging database at 21:32 UTC (activation policy
 NEVER). With the DB stopped nothing runs on staging, so the leak below cannot happen there now.
 Deploy when the DB is started again.
 

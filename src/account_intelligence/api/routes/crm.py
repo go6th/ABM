@@ -86,7 +86,7 @@ async def _items(s: Any, account_id: UUID) -> list[payloads.Item]:
     rows = (
         await s.execute(
             text(
-                "SELECT f.attribute_key, f.visibility, f.value_json, min(src.source_code) AS code"
+                "SELECT f.attribute_key, f.visibility, f.value_json, min(src.source_code) AS code"  # nosec B608 -- fixed SQL fragments; values are bound.
                 " FROM facts f LEFT JOIN fact_evidence e ON e.fact_id = f.id"
                 " LEFT JOIN sources src ON src.id = e.source_id WHERE f.account_id = :a"
                 " AND f.superseded_at IS NULL AND f.status = 'current'"

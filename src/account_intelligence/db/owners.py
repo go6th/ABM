@@ -31,7 +31,7 @@ async def act_as_owner_of(kind: str, tenant_id: UUID, item_id: UUID) -> str:
     async with tenant_txn(tenant_id, system=True) as s:
         owner = (
             await s.execute(
-                text(f"SELECT owner_user_id FROM {table} WHERE id = :i"),  # noqa: S608 fixed names
+                text(f"SELECT owner_user_id FROM {table} WHERE id = :i"),  # noqa: S608 fixed names  # nosec B608 -- table from OWNED_ITEMS; values are bound.
                 {"i": item_id},
             )
         ).scalar_one_or_none()

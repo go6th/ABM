@@ -164,7 +164,7 @@ unannotated (the generator's check fails otherwise).
 | reingest clients | `src/documents/tables_reingest.py:55` | every client once per run, `limit` documents each | last client |
 | reingest documents | `src/documents/tables_reingest.py:61` | `limit` per client per run | rows exhausted |
 | relationship target prefix strip | `src/exports/ooxml.py:74` | the target's length (each pass removes at least one character) | no leading "../" or "/" left |
-| release pages | `src/exports/readers/pg.py:272` | releases_max / MAX_LIST pages (each page adds a copy or ends the loop) | cap reached, an empty page, or every copy listed |
+| release pages | `src/exports/readers/pg.py:287` | releases_max / MAX_LIST pages (each page adds a copy or ends the loop) | cap reached, an empty page, or every copy listed |
 | remainder text reads | `src/jobs/stage.py:115` | gap remainder, TEXT_CONCURRENCY in flight | all read |
 | renderer output drain | `src/exports/word/renderer.py:82` | the byte cap (max_output_bytes or max_stderr_bytes) in 64 KiB reads | end of stream, cap exceeded (the process is killed) |
 | renderer re-run | `src/exports/word/renderer.py:182` | 1 + reruns (1) attempts per document | converged (rendered), cap_reached (RenderError) |

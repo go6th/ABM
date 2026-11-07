@@ -325,7 +325,7 @@ async def load_workspace(
     for r in (
         await session.execute(
             text(
-                "SELECT f.id, f.account_id, f.attribute_key, coalesce(f.value_text,"
+                "SELECT f.id, f.account_id, f.attribute_key, coalesce(f.value_text,"  # nosec B608 -- fixed SQL fragments; values are bound.
                 " f.value_json->>'text') AS v,"
                 " f.product_grade, f.lane, f.flags, f.created_at, f.visibility,"
                 " e.url, e.evidence_date, s.title AS source_title"
@@ -366,7 +366,7 @@ async def load_workspace(
     for r in (
         await session.execute(
             text(
-                "SELECT j.id, j.account_id, j.title, j.url, j.posted_at, j.first_seen, j.lanes,"
+                "SELECT j.id, j.account_id, j.title, j.url, j.posted_at, j.first_seen, j.lanes,"  # nosec B608 -- fixed SQL fragments; values are bound.
                 " j.status, j.location, j.created_at"
                 " FROM job_postings j WHERE true"
                 + ("" if include_closed else " AND j.status <> 'closed'")
@@ -403,7 +403,7 @@ async def load_workspace(
     for r in (
         await session.execute(
             text(
-                "SELECT p.id, p.account_id, coalesce(p.name, '[Name]') AS name, p.title,"
+                "SELECT p.id, p.account_id, coalesce(p.name, '[Name]') AS name, p.title,"  # nosec B608 -- fixed SQL fragments; values are bound.
                 " p.priority,"
                 " p.classification_json, p.created_at, s.title AS source_title, s.url AS source_url"
                 " FROM people p LEFT JOIN sources s ON s.account_id = p.account_id AND"
@@ -466,7 +466,7 @@ async def load_workspace(
     for r in (
         await session.execute(
             text(
-                "SELECT t.id, t.account_id, t.technology, t.cross_check_result, t.created_at,"
+                "SELECT t.id, t.account_id, t.technology, t.cross_check_result, t.created_at,"  # nosec B608 -- fixed SQL fragments; values are bound.
                 " s.url, s.title AS source_title"
                 " FROM tech_detections t LEFT JOIN sources s ON s.account_id = t.account_id AND"
                 # the pipeline stores the page's address in source_ref; older rows hold the S-code
@@ -824,7 +824,7 @@ async def _best_hit_member(session: Any, ws: Workspace) -> tuple[UUID, str | Non
     member = (
         await session.execute(
             text(
-                "SELECT " + _MEMBER + " AS member, p.account_id FROM document_passages p"
+                "SELECT " + _MEMBER + " AS member, p.account_id FROM document_passages p"  # nosec B608 -- fixed SQL fragments; values are bound.
                 " WHERE p.document_id = :d AND p.seq = :s"
             ),
             {"d": doc_id, "s": seq},
@@ -849,7 +849,7 @@ async def _summary_member(session: Any, accounts: Sequence[UUID]) -> tuple[UUID,
     row = (
         await session.execute(
             text(
-                "SELECT p.document_id, " + _MEMBER + " AS member FROM document_passages p"
+                "SELECT p.document_id, " + _MEMBER + " AS member FROM document_passages p"  # nosec B608 -- fixed SQL fragments; values are bound.
                 " JOIN documents d ON d.id = p.document_id"
                 " LEFT JOIN document_members m ON m.document_id = d.id"
                 " AND m.member_path = " + _MEMBER + ""
@@ -882,7 +882,7 @@ async def _whole_member(
     head = (
         await session.execute(
             text(
-                "SELECT d.name, d.account_id, count(p.id) AS n,"
+                "SELECT d.name, d.account_id, count(p.id) AS n,"  # nosec B608 -- fixed SQL fragments; values are bound.
                 " coalesce(sum(length(p.content)), 0) AS chars"
                 " FROM documents d JOIN document_passages p ON p.document_id = d.id"
                 " AND " + _MEMBER + " IS NOT DISTINCT FROM CAST(:m AS text)"
@@ -899,7 +899,7 @@ async def _whole_member(
     rows = (
         await session.execute(
             text(
-                "SELECT p.seq, p.content FROM document_passages p WHERE p.document_id = :d"
+                "SELECT p.seq, p.content FROM document_passages p WHERE p.document_id = :d"  # nosec B608 -- fixed SQL fragments; values are bound.
                 " AND " + _MEMBER + " IS NOT DISTINCT FROM CAST(:m AS text) ORDER BY p.seq"
             ),
             {"d": doc_id, "m": member},

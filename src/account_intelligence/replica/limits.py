@@ -139,7 +139,7 @@ async def take(
     row = (
         await session.execute(
             text(
-                f"INSERT INTO usage_periods (owner_user_id, period, {col}) VALUES (:u, :p, 1)"  # noqa: S608 fixed names
+                f"INSERT INTO usage_periods (owner_user_id, period, {col}) VALUES (:u, :p, 1)"  # noqa: S608 fixed names  # nosec B608 -- column from COLUMN; values are bound.
                 f" ON CONFLICT (tenant_id, owner_user_id, period) DO UPDATE SET"
                 f" {col} = usage_periods.{col} + 1, updated_at = now(){guard}"
                 f" RETURNING {col}"

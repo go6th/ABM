@@ -19,7 +19,7 @@ def newest_only(table: str, alias: str, same: str) -> str:
     and every reader that selects by account must show each once, not once per run (leakage
     review 2026-10-30, F2; the delivered files read one run, so they never repeat)."""
     return (
-        f" AND NOT EXISTS (SELECT 1 FROM {table} n WHERE n.tenant_id = {alias}.tenant_id"
+        f" AND NOT EXISTS (SELECT 1 FROM {table} n WHERE n.tenant_id = {alias}.tenant_id"  # nosec B608 -- fixed SQL fragments; values are bound.
         f" AND n.account_id = {alias}.account_id"
         f" AND {same} AND (n.created_at, n.id) > ({alias}.created_at, {alias}.id))"
     )
@@ -33,7 +33,7 @@ def newest_by_probe(table: str, alias: str, same: str) -> str:
     the database at full CPU. The probe reads the ``(account_id, fingerprint, created_at)`` index
     for the one fingerprint, whatever the statistics say. Needs that index on ``table``."""
     return (
-        f" AND COALESCE(({alias}.created_at, {alias}.id) >= (SELECT n.created_at, n.id"
+        f" AND COALESCE(({alias}.created_at, {alias}.id) >= (SELECT n.created_at, n.id"  # nosec B608 -- fixed SQL fragments; values are bound.
         f" FROM {table} n WHERE n.tenant_id = {alias}.tenant_id AND n.account_id ="
         f" {alias}.account_id"
         f" AND {same}"

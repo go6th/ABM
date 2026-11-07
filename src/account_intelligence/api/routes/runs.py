@@ -423,8 +423,8 @@ async def get_run(
         row = (
             await s.execute(
                 text(
-                    "SELECT r.status, r.finished_reason, r.stop_detail, r.input_mode, a.domain,"
-                    " r.models, r.stalled_at, " + resume_context("r") + ","
+                    "SELECT r.status, r.finished_reason, r.stop_detail, r.input_mode, a.domain,"  # nosec B608 -- fixed SQL fragments; values are bound.
+                    " r.models, r.stalled_at, " + resume_context("r") + ","  # nosec B608 -- fixed SQL fragments; values are bound.
                     " coalesce(r.run_input->>'linked_file_run', (SELECT c.id::text FROM"
                     " account_runs c WHERE c.run_input->>'linked_file_run' = r.id::text"
                     " LIMIT 1)) AS linked"

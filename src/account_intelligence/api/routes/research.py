@@ -304,7 +304,7 @@ async def _resumed(s: Any, job_id: Any, run_id: UUID, domain: str) -> dict[str, 
         await s.execute(
             text(
                 # the steps in the research's scope (replica.workspace.PLANNED)
-                "SELECT count(*) AS total, count(*) FILTER (WHERE c.status IN ('done', 'none'))"
+                "SELECT count(*) AS total, count(*) FILTER (WHERE c.status IN ('done', 'none'))"  # nosec B608 -- fixed SQL fragments; values are bound.
                 f" AS done FROM coverage_rows c WHERE c.run_id = :r AND {PLANNED}"
             ),
             {"r": run_id},

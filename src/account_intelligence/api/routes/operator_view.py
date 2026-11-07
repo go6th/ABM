@@ -92,7 +92,7 @@ async def workspace(
         rows = (
             await s.execute(
                 text(
-                    "SELECT coalesce(a.name, a.domain) AS name, a.domain, a.lanes,"
+                    "SELECT coalesce(a.name, a.domain) AS name, a.domain, a.lanes,"  # nosec B608 -- fixed SQL fragments; values are bound.
                     " a.refresh_cadence,"
                     " (SELECT max(r.finished_at) FROM account_runs r WHERE r.account_id = a.id"
                     "   AND r.status IN ('COMPLETED', 'PARTIAL')) AS researched,"

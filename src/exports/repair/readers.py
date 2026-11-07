@@ -475,7 +475,7 @@ async def read_articles(
     rows = (
         await s.execute(
             text(
-                "SELECT f.id::text AS fid, coalesce(f.value_text, f.value_json->>'text') AS fact,"
+                "SELECT f.id::text AS fid, coalesce(f.value_text, f.value_json->>'text') AS fact,"  # nosec B608 -- fixed SQL fragments; values are bound.
                 " f.product_grade AS grade, f.superseded_by::text AS sup, f.lane,"
                 " f.attribute_key, e.url, e.supporting_sentence AS quote, e.evidence_date,"
                 " e.date_kind, e.source_tier, e.created_at AS collected,"
@@ -688,7 +688,7 @@ async def read_sources(s: Any, account_id: UUID) -> list[SourceRecord]:
     rows = (
         await s.execute(
             text(
-                "SELECT s.source_code, s.url,"
+                "SELECT s.source_code, s.url,"  # nosec B608 -- fixed SQL fragments; values are bound.
                 f" coalesce(nullif(s.title, ''), {by_hash})"
                 " AS title, s.publisher, s.published_at, s.kind,"
                 " s.created_at, coalesce((SELECT array_agg(DISTINCT f.attribute_key) FROM"
@@ -723,7 +723,7 @@ async def read_sources(s: Any, account_id: UUID) -> list[SourceRecord]:
     reads = (
         await s.execute(
             text(
-                "SELECT DISTINCT ON (t.response->'args'->>'url') t.response->'args'->>'url' AS url,"
+                "SELECT DISTINCT ON (t.response->'args'->>'url') t.response->'args'->>'url' AS url,"  # nosec B608 -- fixed SQL fragments; values are bound.
                 f" {titled(f'la.url = {_READ_URL}') if archive else 'NULL'} AS title,"
                 " t.created_at FROM tool_calls t JOIN account_runs r ON r.id = t.run_id"
                 " WHERE r.account_id = :a AND t.tool IN ('p_search:read_page',"

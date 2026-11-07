@@ -282,7 +282,7 @@ class ObjectScanner:
         return bool(verdict.result == "clean")
 
 
-TENANT_SECRET_PREFIX = "tenant-"
+TENANT_SECRET_PREFIX = "tenant-"  # nosec B105 -- a secret-name prefix, not a secret.
 
 
 class SecretManagerStore(ReadOnlySecretStore):

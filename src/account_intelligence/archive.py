@@ -516,7 +516,7 @@ async def list_latest(
     rows = (
         await session.execute(
             text(
-                f"WITH n AS ({newest}) SELECT n.*, count(*) OVER () AS total FROM n{where}"
+                f"WITH n AS ({newest}) SELECT n.*, count(*) OVER () AS total FROM n{where}"  # nosec B608 -- columns from FILTER_COLUMNS; values are bound.
                 " ORDER BY n.archived_at DESC, n.id DESC OFFSET :o LIMIT :n"
             ),
             {**args, "o": max(offset, 0), "n": cap},
@@ -528,7 +528,7 @@ async def list_latest(
         total = int(
             (
                 await session.execute(
-                    text(f"SELECT count(*) FROM ({newest}) n{where}"),  # noqa: S608 - fixed text
+                    text(f"SELECT count(*) FROM ({newest}) n{where}"),  # noqa: S608 - fixed text  # nosec B608 -- columns from FILTER_COLUMNS; values are bound.
                     args,
                 )
             ).scalar_one()

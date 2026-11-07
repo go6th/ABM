@@ -134,7 +134,7 @@ async def _jobs(s: Any, cfg: LiveSettings) -> list[Any]:
     rows = (
         await s.execute(
             text(
-                "SELECT j.id, j.kind, j.scope, j.status, j.topic, j.run_id, j.created_at,"
+                "SELECT j.id, j.kind, j.scope, j.status, j.topic, j.run_id, j.created_at,"  # nosec B608 -- fixed SQL fragments; values are bound.
                 " j.started_at, j.finished_at, j.stop_reason, j.failure_reason,"
                 " a.domain, a.name, r.status AS run_status, r.finished_reason, r.stop_detail,"
                 " r.stalled_at, " + resume_context("r") + ","
@@ -193,7 +193,7 @@ async def _counts(s: Any, run_ids: Sequence[UUID]) -> dict[UUID, dict[str, int]]
         for row in (
             await s.execute(
                 text(
-                    f"SELECT run_id, COALESCE(sum(input_tokens + output_tokens), 0) AS n"  # noqa: S608 - fixed names
+                    f"SELECT run_id, COALESCE(sum(input_tokens + output_tokens), 0) AS n"  # noqa: S608 - fixed names  # nosec B608 -- fixed SQL fragments; values are bound.
                     f" FROM {table} WHERE run_id = ANY(:ids){extra} GROUP BY run_id"
                 ),
                 {"ids": ids},
@@ -413,7 +413,7 @@ async def snapshot(
                     # the rows in the research's scope (replica.workspace.PLANNED): a scoped
                     # one marks the rest "not planned" at once, and they used to count as
                     # reported rows ("33 of 33" for a 3-row research, owner report 2026-10-21)
-                    "SELECT c.run_id, c.row_key, c.status FROM coverage_rows c"
+                    "SELECT c.run_id, c.row_key, c.status FROM coverage_rows c"  # nosec B608 -- fixed SQL fragments; values are bound.
                     f" WHERE c.run_id = ANY(:ids) AND {PLANNED}"
                 ),
                 {"ids": run_ids},

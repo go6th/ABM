@@ -215,7 +215,7 @@ async def steps_left(session: Any, run_id: UUID) -> tuple[int, int]:
     row = (
         await session.execute(
             text(
-                "SELECT count(*) FILTER (WHERE c.status IS DISTINCT FROM 'done') AS remaining,"
+                "SELECT count(*) FILTER (WHERE c.status IS DISTINCT FROM 'done') AS remaining,"  # nosec B608 -- fixed SQL fragments; values are bound.
                 f" count(*) AS planned FROM coverage_rows c WHERE c.run_id = :r AND {PLANNED}"
             ),
             {"r": run_id},

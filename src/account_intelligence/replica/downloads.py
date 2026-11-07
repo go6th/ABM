@@ -282,7 +282,7 @@ async def _beat(tenant_id: UUID, job_id: UUID, src: Sources) -> None:
                     ),
                     {"j": job_id},
                 )
-        except Exception:  # noqa: BLE001 - a missed beat is retried at the next one
+        except Exception:  # noqa: BLE001 - a missed beat is retried at the next one  # nosec B112 -- skipping an unreadable item is intended.
             continue
 
 
@@ -605,7 +605,7 @@ def _workspace_deliverables(src: Sources, documents: Any) -> dict[str, bytes]:
                     name = member.rsplit("/", 1)[-1]
                     if name:
                         out[name] = z.read(member)
-        except Exception:  # noqa: BLE001 - not a zip, or gone: no deliverable from this upload
+        except Exception:  # noqa: BLE001 - not a zip, or gone: no deliverable from this upload  # nosec B112 -- skipping an unreadable item is intended.
             continue
     return out
 

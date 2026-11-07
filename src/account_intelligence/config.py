@@ -689,7 +689,7 @@ class _Explicit(Settings):
 
 
 # Local identity providers and hosts a cloud profile must never trust (the replica's fake IdP).
-_LOCAL_HOSTS = ("localhost", "127.0.0.1", "0.0.0.0", "fake-idp", "host.docker.internal", "[::1]")
+_LOCAL_HOSTS = ("localhost", "127.0.0.1", "0.0.0.0", "fake-idp", "host.docker.internal", "[::1]")  # nosec B104 -- local host names to recognise, not a bind address.
 
 
 def deployment_refusals(env: Mapping[str, str]) -> list[str]:

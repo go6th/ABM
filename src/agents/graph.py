@@ -910,7 +910,7 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
             return _fail("token_guard_stopped", token_pause_node=None, token_pauses=pauses)
         await deps.credit.accept_tokens(context(state))
         return {
-            "token_pause_node": None,
+            "token_pause_node": None,  # nosec B105 -- a label, not a credential.
             "token_resume_node": state.get("token_pause_node"),
             "token_pauses": pauses,
         }

@@ -361,7 +361,7 @@ async def _close_ended_jobs(limit: int = 100) -> int:
                 UUID(str(r.run_id))
                 for r in await s.execute(
                     text(
-                        "SELECT j.run_id FROM research_jobs j"
+                        "SELECT j.run_id FROM research_jobs j"  # nosec B608 -- fixed SQL fragments; values are bound.
                         " JOIN account_runs r ON r.id = j.run_id"
                         " WHERE j.status IN ('queued', 'running') AND r.status IN "
                         + ended

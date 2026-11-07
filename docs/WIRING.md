@@ -10,9 +10,9 @@ provider calls. Those require separate local-stack or externally configured chec
 ## Summary
 
 - Backend operations in OpenAPI: **223**.
-- Frontend literal call sites found: **97**.
-- Frontend call sites mapped to backend operations: **93**.
-- Backend operations without a direct frontend call site: **140**.
+- Frontend literal call sites found: **99**.
+- Frontend call sites mapped to backend operations: **95**.
+- Backend operations without a direct frontend call site: **139**.
 - Route-policy/catalog violations: **0**.
 - Unmapped frontend calls: **0**.
 
@@ -67,6 +67,7 @@ calls are listed only when their wrapper has a statically visible literal call s
 | `web/components/accounts/AddAccount.tsx` | tenant client | `POST /v1/accounts/from-library` | FromLibrary (required) | LibraryAdded | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `web/components/accounts/DeleteAccount.tsx` | tenant client | `DELETE /v1/accounts/{domain}` | AccountDeleteBody (required) | AccountDeleted | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `web/components/accounts/DownloadEverything.tsx` | tenant client | `POST /v1/accounts/{domain}/download-everything` | EverythingBody (required) | DownloadJob | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=export |
+| `web/components/accounts/RefreshDialog.tsx` | tenant client | `GET /v1/accounts/{domain}/refresh` | — | RefreshOptions | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `web/components/accounts/RefreshForm.tsx` | tenant client | `POST /v1/accounts/{domain}/refresh` | RefreshBody (required) | RefreshStarted | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `web/components/ask/ChatList.tsx` | tenant client | `DELETE /v1/chat/threads/{thread_id}` | — | ChatThreadDeleted | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=none |
 | `web/components/accounts/LiveSync.tsx` | tenant client | `GET /v1/documents` | — | DocumentList | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=read |
@@ -114,6 +115,7 @@ calls are listed only when their wrapper has a statically visible literal call s
 | `web/components/ws/RunSteps.tsx` | tenant client | `GET /v1/runs/{run_id}/progress` | — | RunProgress | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `web/lib/useRunStream.ts` | tenant client | `GET /v1/runs/{run_id}/progress` | — | RunProgress | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `web/components/ws/RunSteps.tsx` | tenant client | `GET /v1/runs/{run_id}/spend/live` | — | TenantLiveSpend | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
+| `web/components/accounts/AutoRefreshSelect.tsx` | tenant client | `PUT /v1/schedules/{account_id}` | CadenceBody (required) | Schedules | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `web/components/accounts/SchedulesView.tsx` | tenant client | `PUT /v1/schedules/{account_id}` | CadenceBody (required) | Schedules | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `web/components/accounts/PeopleConsent.tsx` | tenant client | `POST /v1/settings/people-consent` | PeopleConsentBody (required) | PeopleConsent | tenant; roles=admin; principal=jwt, session; tenant=session; audit=admin |
 | `web/app/api/auth/logout/route.ts` | server API fetch | `POST /v1/sso/logout` | — | SignedOut | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=none |

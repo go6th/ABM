@@ -626,11 +626,8 @@ async def rebuild_files(
     if builder is None or getattr(builder, "reader", None) is None:
         raise APIProblem(503, "not_configured", "Not available", "The file builder is off.")
     async with tenant_txn(tenant_id) as s:
-        account = await s.scalar(
-            text("SELECT id FROM accounts WHERE domain = :d AND deleted_at IS NULL"),
-            {"d": body.domain},
-        )
-        run = await SH.delivered_run(s, UUID(str(account))) if account is not None else None
+        account = await SH.account_of_domain(s, body.domain)
+        run = await SH.delivered_run(s, account) if account is not None else None
         imported = await SH.imported_run(s, run) if run is not None else False
     if run is None:
         raise APIProblem(404, "not_found", "Not found", "No delivered files for that account.")

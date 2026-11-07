@@ -106,7 +106,7 @@ def _fact_rows(category: str, columns: str) -> str:
     """The public facts of a category as rows of its sheet (the research graph records what it
     finds as graded facts; see ``workspace.FACT_CLASS``), with each fact's latest evidence."""
     return (
-        f"SELECT f.id AS _id, {columns} FROM facts f LEFT JOIN LATERAL (SELECT url, evidence_date"
+        f"SELECT f.id AS _id, {columns} FROM facts f LEFT JOIN LATERAL (SELECT url, evidence_date"  # nosec B608 -- configured SQL and quoted configured words; values are bound.
         " FROM fact_evidence x WHERE x.tenant_id = f.tenant_id AND x.fact_id = f.id"
         f" ORDER BY evidence_date DESC NULLS LAST LIMIT 1) e ON true WHERE {FACT_CLASS[category]}"
     )
@@ -161,7 +161,7 @@ SHEETS: dict[str, Sheet] = {
         file="People list.xlsx",
         scope=f"Director and above, global, security excluded. {SORT_HINT}",
         base=(
-            "SELECT p.id AS _id, coalesce(p.name, '[Name]') AS name, p.title,"
+            "SELECT p.id AS _id, coalesce(p.name, '[Name]') AS name, p.title,"  # nosec B608 -- configured SQL and quoted configured words; values are bound.
             " coalesce(p.classification_json->>'area', '') AS area, coalesce(p.priority, '') AS"
             " priority,"
             " coalesce(p.classification_json->>'grade', '') AS grade, p.created_at AS seen,"
@@ -230,7 +230,7 @@ SHEETS: dict[str, Sheet] = {
         file="Signals.xlsx",
         scope=f"Hiring, leadership, technology, news and speaking signals. {SORT_HINT}",
         base=(
-            "SELECT s.id AS _id, s.title, initcap(s.signal_type) AS type, s.grade, s.detected_at"
+            "SELECT s.id AS _id, s.title, initcap(s.signal_type) AS type, s.grade, s.detected_at"  # nosec B608 -- configured SQL and quoted configured words; values are bound.
             " AS detected,"
             " (SELECT e.url FROM fact_evidence e WHERE e.tenant_id = s.tenant_id AND e.fact_id ="
             " s.fact_id"
@@ -282,7 +282,7 @@ SHEETS: dict[str, Sheet] = {
         file="Job postings.xlsx",
         scope=f"Open roles from the account's careers pages and job feeds. {SORT_HINT}",
         base=(
-            "SELECT j.id AS _id, j.title, array_to_string(j.lanes, ', ') AS lanes,"
+            "SELECT j.id AS _id, j.title, array_to_string(j.lanes, ', ') AS lanes,"  # nosec B608 -- configured SQL and quoted configured words; values are bound.
             " coalesce(j.location, '') AS location,"
             " coalesce(j.posted_at, j.first_seen) AS posted, initcap(j.status) AS status, j.url AS"
             " link"
@@ -325,7 +325,7 @@ SHEETS: dict[str, Sheet] = {
         file="Tech stack and teams.xlsx",
         scope=f"Technologies detected, with how many sources show each. {SORT_HINT}",
         base=(
-            "SELECT t.id AS _id, t.technology, t.source_count AS sources,"
+            "SELECT t.id AS _id, t.technology, t.source_count AS sources,"  # nosec B608 -- configured SQL and quoted configured words; values are bound.
             " CASE t.cross_check_result WHEN 'confirmed' THEN 'Confirmed' WHEN 'contradicted' THEN"
             " 'Contradicted'"
             "   WHEN 'not_found' THEN 'Not cross-checked' ELSE '' END AS check,"
@@ -375,7 +375,7 @@ SHEETS: dict[str, Sheet] = {
         # the graded news facts of the research, then the news events of an imported workspace
         # (``news_events``, the feed's own fields; an event is not a graded fact)
         base=(
-            "SELECT f.id AS _id, coalesce(f.value_text, f.value_json->>'text') AS headline,"
+            "SELECT f.id AS _id, coalesce(f.value_text, f.value_json->>'text') AS headline,"  # nosec B608 -- configured SQL and quoted configured words; values are bound.
             " f.product_grade AS grade, '' AS category,"
             " e.evidence_date AS published, e.url AS link, '' AS why, false AS imported"
             " FROM facts f LEFT JOIN LATERAL (SELECT url, evidence_date FROM fact_evidence x WHERE"
@@ -990,7 +990,7 @@ def file_sheet(key: str) -> Sheet:
         )
     selected = ", ".join(f"coalesce(v.cells->>'{c.key}', '') AS \"{c.key}\"" for c in cols)
     base = (
-        "SELECT v.position AS _id, v.position AS _pos, v.cells AS _cells, v.source_url AS link,"
+        "SELECT v.position AS _id, v.position AS _pos, v.cells AS _cells, v.source_url AS link,"  # nosec B608 -- configured SQL and quoted configured words; values are bound.
         f" {selected} FROM view_rows v WHERE v.tenant_id = :t AND v.run_id = CAST(:run AS uuid)"
         f" AND v.table_kind = {_lit(table)}"
     )
@@ -1023,6 +1023,14 @@ def file_sheet(key: str) -> Sheet:
         table=table,
         sheet_name=sheet_name,
     )
+
+
+async def account_of_domain(session: Any, domain: str) -> UUID | None:
+    """The live account of the session's tenant with that domain (RLS keeps the tenant)."""
+    found = await session.scalar(
+        text("SELECT id FROM accounts WHERE domain = :d AND deleted_at IS NULL"), {"d": domain}
+    )
+    return UUID(str(found)) if found is not None else None
 
 
 async def delivered_run(session: Any, account_id: UUID) -> UUID | None:
@@ -1320,7 +1328,7 @@ def visible_base(q: Query) -> str:
     if q.sheet.table is not None:
         return q.sheet.base
     return (
-        f"SELECT * FROM ({q.sheet.base}) hb"
+        f"SELECT * FROM ({q.sheet.base}) hb"  # nosec B608 -- configured SQL and quoted configured words; values are bound.
         " WHERE CAST(hb._id AS text) <> ALL(CAST(:hide AS text[]))"
     )
 
@@ -1352,7 +1360,7 @@ async def hidden_ids(
     rows = (
         (
             await session.execute(
-                text(f"SELECT * FROM ({q.sheet.base}) b"),
+                text(f"SELECT * FROM ({q.sheet.base}) b"),  # nosec B608 -- configured SQL and quoted configured words; values are bound.
                 params(q, account_id, user_id, now, tenant_id=tenant),
             )
         )  # nosec B608 -- allow-listed sheet SQL; values are bound.

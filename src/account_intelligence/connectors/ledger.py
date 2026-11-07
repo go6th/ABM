@@ -246,7 +246,7 @@ class Ledger:
         row = (
             await s.execute(
                 text(
-                    "INSERT INTO run_leases (run_id, owner, epoch, expires_at, heartbeat_at) "
+                    "INSERT INTO run_leases (run_id, owner, epoch, expires_at, heartbeat_at) "  # nosec B608 -- fixed SQL fragments; values are bound.
                     "VALUES (:r, :o, 1, :exp, :now) "
                     "ON CONFLICT (run_id) DO UPDATE SET "
                     " owner = EXCLUDED.owner,"

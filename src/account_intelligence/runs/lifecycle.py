@@ -506,7 +506,7 @@ async def add_account(
     mine = "domain = :d AND owner_user_id = coalesce(CAST(:by AS text), app_user())"
     found: Any = (
         await session.execute(
-            text(f"SELECT id, deleted_at FROM accounts WHERE {mine}"),  # noqa: S608
+            text(f"SELECT id, deleted_at FROM accounts WHERE {mine}"),  # noqa: S608  # nosec B608 -- fixed SQL fragments; values are bound.
             owner,
         )
     ).first()
@@ -533,7 +533,7 @@ async def add_account(
     if created is not None:
         return UUID(str(created)), True
     raced: Any = (
-        await session.execute(text(f"SELECT id FROM accounts WHERE {mine}"), owner)  # noqa: S608
+        await session.execute(text(f"SELECT id FROM accounts WHERE {mine}"), owner)  # noqa: S608  # nosec B608 -- fixed SQL fragments; values are bound.
     ).scalar_one()
     return UUID(str(raced)), False
 
@@ -586,7 +586,7 @@ async def begin_slice(
     used = (
         await session.execute(
             text(
-                f"UPDATE account_runs SET slices_used = slices_used + 1 WHERE id = :r{where}"
+                f"UPDATE account_runs SET slices_used = slices_used + 1 WHERE id = :r{where}"  # nosec B608 -- fixed SQL fragments; values are bound.
                 " RETURNING slices_used"
             ),
             params,

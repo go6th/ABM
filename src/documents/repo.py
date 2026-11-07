@@ -620,7 +620,7 @@ async def private_passages(s: AsyncSession, account_id: UUID) -> list[tuple[str,
     pat = own_deliverable_name_pattern(await _delivered_names(s, account_id))
     rows = await s.execute(
         text(
-            "SELECT document_id, content FROM document_passages p WHERE account_id = :a"
+            "SELECT document_id, content FROM document_passages p WHERE account_id = :a"  # nosec B608 -- fixed SQL fragments; values are bound.
             f" AND NOT {_own_filter('document_id', 'p.location')} ORDER BY id"
         ),
         {"a": account_id, "pat": pat},
@@ -637,7 +637,7 @@ async def nearest_private(
     row = (
         await s.execute(
             text(
-                "SELECT 1 - (embedding <=> CAST(:v AS halfvec)) AS sim, doc_id FROM chunks"
+                "SELECT 1 - (embedding <=> CAST(:v AS halfvec)) AS sim, doc_id FROM chunks"  # nosec B608 -- fixed SQL fragments; values are bound.
                 f" WHERE account_id = :a AND NOT {_own_filter('doc_id', 'location')}"
                 " ORDER BY embedding <=> CAST(:v AS halfvec) LIMIT 1"
             ),
@@ -1513,7 +1513,7 @@ def _newest(table: str, alias: str, same: str) -> str:
     new run, and an import adds its rows under the file-import run, so of the rows that are the
     same thing only the newest is read."""
     return (
-        f" AND NOT EXISTS (SELECT 1 FROM {table} n WHERE n.tenant_id = {alias}.tenant_id"
+        f" AND NOT EXISTS (SELECT 1 FROM {table} n WHERE n.tenant_id = {alias}.tenant_id"  # nosec B608 -- fixed SQL fragments; values are bound.
         f" AND n.account_id = {alias}.account_id AND {same}"
         f" AND (n.created_at, n.id) > ({alias}.created_at, {alias}.id))"
     )
@@ -1532,7 +1532,7 @@ def _newest(table: str, alias: str, same: str) -> str:
 # by a role RLS never applies to still sees one tenant (upload hardening PR1, 2026-11-04).
 _NATIVE_ROWS: dict[str, str] = {
     "people": (
-        "(SELECT row_number() OVER (ORDER BY p.account_id, p.created_at, p.id) AS row_no,"
+        "(SELECT row_number() OVER (ORDER BY p.account_id, p.created_at, p.id) AS row_no,"  # nosec B608 -- fixed SQL fragments; values are bound.
         " 0 AS seq, jsonb_build_object('account', coalesce(a.name, a.domain),"
         " 'file_row', row_number() OVER (PARTITION BY p.account_id ORDER BY p.created_at, p.id),"
         " 'name', coalesce(p.name, ''), 'title', coalesce(p.title, ''),"
@@ -1553,7 +1553,7 @@ _NATIVE_ROWS: dict[str, str] = {
         + ") r"
     ),
     "jobs": (
-        "(SELECT row_number() OVER (ORDER BY j.account_id, j.created_at, j.id) AS row_no,"
+        "(SELECT row_number() OVER (ORDER BY j.account_id, j.created_at, j.id) AS row_no,"  # nosec B608 -- fixed SQL fragments; values are bound.
         " 0 AS seq, jsonb_build_object('account', coalesce(a.name, a.domain),"
         " 'file_row', row_number() OVER (PARTITION BY j.account_id ORDER BY j.created_at, j.id),"
         " 'requisition', CASE WHEN left(j.posting_key, 3) = 'id:' THEN substr(j.posting_key, 4)"
@@ -1576,7 +1576,7 @@ _NATIVE_ROWS: dict[str, str] = {
         + ") r"
     ),
     "tech": (
-        "(SELECT row_number() OVER (ORDER BY t.account_id, t.created_at, t.id) AS row_no,"
+        "(SELECT row_number() OVER (ORDER BY t.account_id, t.created_at, t.id) AS row_no,"  # nosec B608 -- fixed SQL fragments; values are bound.
         " 0 AS seq, jsonb_build_object('account', coalesce(a.name, a.domain),"
         " 'file_row', row_number() OVER (PARTITION BY t.account_id ORDER BY t.created_at, t.id),"
         " 'technology', t.technology, 'sources', coalesce(t.source_count, 0),"

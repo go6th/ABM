@@ -370,7 +370,7 @@ async def file_analysis(
         row = (
             await s.execute(
                 text(
-                    "SELECT r.id, r.status, r.created_at, r.finished_at,"
+                    "SELECT r.id, r.status, r.created_at, r.finished_at,"  # nosec B608 -- RUN_DOCUMENT_IDS is fixed SQL; values are bound.
                     " (SELECT count(*) FROM documents d WHERE d.id IN ("
                     f"{RUN_DOCUMENT_IDS.replace(':r', 'r.id')})) AS files,"
                     " (SELECT c.id FROM account_runs c"

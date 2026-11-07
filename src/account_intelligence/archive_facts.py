@@ -244,7 +244,7 @@ def _original_url(raw: str, own_url: str) -> str | None:
 
 # --------------------------------------------------------------------------------- people
 
-_NAME_TOKEN = r"(?:[A-Z][a-z]+(?:[-'’][A-Z][a-z]+)?|[A-Z]\.)"
+_NAME_TOKEN = r"(?:[A-Z][a-z]+(?:[-'’][A-Z][a-z]+)?|[A-Z]\.)"  # nosec B105 -- a name pattern, not a credential.
 _NAME = rf"{_NAME_TOKEN}(?:\s+(?:(?:de|van|von|da|del|di|la|le|bin)\s+)?{_NAME_TOKEN}){{1,3}}"
 _NOT_NAME = {
     "chief",

@@ -273,7 +273,7 @@ async def workspace(session: Any, account_id: UUID, user_id: str, now: datetime)
         }
 
     facts_sql = (
-        "SELECT f.id, coalesce(f.value_text, f.value_json->>'text') AS v, f.product_grade,"
+        "SELECT f.id, coalesce(f.value_text, f.value_json->>'text') AS v, f.product_grade,"  # nosec B608 -- fixed SQL fragments; values are bound.
         " f.attribute_key, f.lane,"
         " f.flags, f.run_id, f.created_at, e.url, e.evidence_date, e.source_ref"
         " FROM facts f LEFT JOIN LATERAL (SELECT url, evidence_date, source_ref FROM fact_evidence"
@@ -349,7 +349,7 @@ async def workspace(session: Any, account_id: UUID, user_id: str, now: datetime)
     counts = (
         await session.execute(
             text(
-                "SELECT"
+                "SELECT"  # nosec B608 -- fixed SQL fragments; values are bound.
                 " ((SELECT count(*) FROM signal_events WHERE tenant_id = :t AND account_id = :a)"
                 f"  + (SELECT count(*) FROM facts f WHERE {FACT_CLASS['signals']})) AS signals,"
                 " ((SELECT count(*) FROM people p WHERE p.tenant_id = :t AND p.account_id = :a AND"
@@ -442,7 +442,7 @@ async def workspace(session: Any, account_id: UUID, user_id: str, now: datetime)
     job = (
         await session.execute(
             text(
-                "SELECT j.id, j.kind, j.scope, j.status, j.topic, j.run_id,"
+                "SELECT j.id, j.kind, j.scope, j.status, j.topic, j.run_id,"  # nosec B608 -- fixed SQL fragments; values are bound.
                 f" (SELECT count(*) FROM coverage_rows c WHERE c.run_id = j.run_id AND {PLANNED})"
                 " AS total,"
                 " (SELECT count(*) FROM coverage_rows c WHERE c.run_id = j.run_id"
@@ -636,7 +636,7 @@ async def coverage_gaps(session: Any, account_id: UUID) -> list[dict[str, Any]]:
     rows = (
         await session.execute(
             text(
-                "SELECT coalesce(c.reason_code, 'unknown') AS code, count(*) AS n"
+                "SELECT coalesce(c.reason_code, 'unknown') AS code, count(*) AS n"  # nosec B608 -- fixed SQL fragments; values are bound.
                 " FROM coverage_rows c WHERE c.run_id = (SELECT r.id FROM account_runs r"
                 "   WHERE r.account_id = :a AND r.status IN ('COMPLETED', 'PARTIAL',"
                 "   'BUDGET_EXCEEDED') AND EXISTS (SELECT 1 FROM coverage_rows x WHERE"
@@ -701,7 +701,7 @@ STOP_TEXT = {
         "It made no progress in three tries in a row, so it was stopped. What it found is kept."
         " Press Resume to try again."
     ),
-    "token_guard_stopped": (
+    "token_guard_stopped": (  # nosec B105 -- a label, not a credential.
         "It reached the AI model allowance for one research and was not approved to go on."
         " What it found is kept. Press Resume to continue."
     ),
@@ -940,7 +940,7 @@ def resume_context(run: str) -> str:
     job waiting, queued or running, which Resume would refuse with ``credits.JobOpen``)."""
     statuses = ", ".join(f"'{s}'" for s in OPEN_JOB_STATUSES)
     return (
-        f"({run}.id = (SELECT l.id FROM account_runs l WHERE l.account_id = {run}.account_id"
+        f"({run}.id = (SELECT l.id FROM account_runs l WHERE l.account_id = {run}.account_id"  # nosec B608 -- fixed SQL fragments; values are bound.
         " AND coalesce(l.input_mode, 'company') = 'company' ORDER BY l.created_at DESC LIMIT 1))"
         " AS is_latest,"
         f" EXISTS (SELECT 1 FROM research_jobs o WHERE o.account_id = {run}.account_id"
@@ -966,7 +966,7 @@ async def stopped_run(session: Any, account_id: UUID) -> dict[str, Any] | None:
     row = (
         await session.execute(
             text(
-                "SELECT r.id, r.status, r.finished_reason, r.stalled_at,"
+                "SELECT r.id, r.status, r.finished_reason, r.stalled_at,"  # nosec B608 -- fixed SQL fragments; values are bound.
                 " coalesce((r.run_input->>'replay_key_version')::int, 1) AS replay_version,"
                 f" (SELECT count(*) FROM coverage_rows c WHERE c.run_id = r.id AND {PLANNED})"
                 " AS total,"

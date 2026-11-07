@@ -348,14 +348,14 @@ def build_file_graph(deps: Any, documents: Any, cfg: InputModesConfig | None = N
             return {
                 "outcome": "failed",
                 "error_code": "token_guard_stopped",
-                "token_pause_node": None,
+                "token_pause_node": None,  # nosec B105 -- a label, not a credential.
                 "token_pauses": pauses,
             }
         tenant, run, _ = ids(state)
         async with deps.txn(tenant) as s:
             await spend_guard.accept_tokens(s, run)
         return {
-            "token_pause_node": None,
+            "token_pause_node": None,  # nosec B105 -- a label, not a credential.
             "token_resume_node": state.get("token_pause_node"),
             "token_pauses": pauses,
         }

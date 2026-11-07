@@ -85,7 +85,7 @@ SCOPE = {"invalid_scope"}
 REFUSAL = {
     "provider_unavailable": "provider",
     "scope_mismatch": "scope",
-    "no_refresh_token": "scope",
+    "no_refresh_token": "scope",  # nosec B105 -- a label, not a credential.
     "unknown_or_used_state": "expired",
 }
 

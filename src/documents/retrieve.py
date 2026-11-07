@@ -76,7 +76,7 @@ async def _lexical(
 ) -> list[dict[str, Any]]:
     rows = await session.execute(
         text(
-            "SELECT p.document_id::text || ':' || p.seq AS key, p.account_id, p.content,"
+            "SELECT p.document_id::text || ':' || p.seq AS key, p.account_id, p.content,"  # nosec B608 -- fixed SQL fragments; values are bound.
             " p.location, coalesce(d.name, 'an uploaded file') AS document"
             " FROM document_passages p JOIN documents d ON d.id = p.document_id"
             " WHERE p.account_id = ANY(:scope) AND d.status <> 'needs_account'"
@@ -103,7 +103,7 @@ async def _dense(
 
     rows = await session.execute(
         text(
-            "SELECT c.doc_id::text || ':' || c.passage_seq AS key, c.account_id, c.content,"
+            "SELECT c.doc_id::text || ':' || c.passage_seq AS key, c.account_id, c.content,"  # nosec B608 -- fixed SQL fragments; values are bound.
             " c.location, coalesce(d.name, 'an uploaded file') AS document"
             " FROM chunks c JOIN documents d ON d.id = c.doc_id"
             " WHERE c.account_id = ANY(:scope) AND c.semantic_model = :m"

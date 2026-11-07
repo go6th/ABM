@@ -58,7 +58,7 @@ def model_versions(path: Path | None = None) -> dict[str, str]:
 def _model_versions(path: Path, stamp: tuple[int, int]) -> tuple[tuple[str, str], ...]:
     del stamp  # part of the cache key only
     loader = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
-    doc = yaml.load(path.read_text(), Loader=loader)  # noqa: S506 - the safe loader, in C
+    doc = yaml.load(path.read_text(), Loader=loader)  # noqa: S506 - the safe loader, in C  # nosec B506 -- the safe loader.
     return tuple((str(k), str(v["model"])) for k, v in sorted(doc["profiles"].items()))
 
 

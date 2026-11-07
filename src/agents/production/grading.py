@@ -201,7 +201,7 @@ def _lead_states(
             continue
         try:
             norm = normalise_value(value, normaliser_for(key, cfg))
-        except Exception:  # noqa: BLE001 - an unknown attribute has no lead key to verify
+        except Exception:  # noqa: BLE001 - an unknown attribute has no lead key to verify  # nosec B112 -- skipping an unreadable item is intended.
             continue
         leads.setdefault(f"{key}={norm}", tuple(re.findall(r"\w+", norm.lower())))
     terms = tuple(re.findall(r"\w+", (run.account_name or "").lower()))
