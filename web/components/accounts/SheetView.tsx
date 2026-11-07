@@ -213,7 +213,8 @@ export function SheetView({ sheet, domain, base, moreHref }: { sheet: Sheet; dom
             {match.label}: {match.value} <span aria-hidden="true">×</span>
           </Link>
         ) : null}
-        {filters.map((f) => (
+        {/* a chip that would open an empty table is left out (the active one always shows) */}
+        {filters.filter((f) => f.key === "all" || f.count > 0 || sheet.filter === f.key).map((f) => (
           <Link key={f.key} className="fc" href={query({ filter: f.key })} aria-current={sheet.filter === f.key ? "true" : undefined} prefetch={false} scroll={false}>
             {f.key === "all" ? `All ${f.count}` : `${f.label} · ${f.count}`}
           </Link>

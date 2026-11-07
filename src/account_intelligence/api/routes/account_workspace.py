@@ -363,13 +363,16 @@ async def file_analysis(
     """The account's file analysis (the given run, else the latest file-mode run): its state,
     when it ran, how many files it read and whether public sources were added. 404 when the
     account has none."""
+    from documents.repo import RUN_DOCUMENT_IDS
+
     async with tenant_txn(ident.tenant_id) as s:
         account_id = await account_id_of(s, domain)
         row = (
             await s.execute(
                 text(
                     "SELECT r.id, r.status, r.created_at, r.finished_at,"
-                    " (SELECT count(*) FROM run_documents d WHERE d.run_id = r.id) AS files,"
+                    " (SELECT count(*) FROM documents d WHERE d.id IN ("
+                    f"{RUN_DOCUMENT_IDS.replace(':r', 'r.id')})) AS files,"
                     " (SELECT c.id FROM account_runs c"
                     "   WHERE c.run_input->>'linked_file_run' = r.id::text LIMIT 1) AS public_run,"
                     " EXISTS (SELECT 1 FROM coverage_rows v WHERE v.run_id = r.id"

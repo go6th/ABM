@@ -23,7 +23,7 @@ test("a note says what happened, where it leads and whether it is a warning", ()
   const [expiring] = shellNotes(wrap(note({ kind: "access_expiring" })));
   expect(expiring).toMatchObject({ href: "/", warn: true });
   const [raised] = shellNotes(wrap(note({ kind: "limit_request_approved" })));
-  expect(raised).toMatchObject({ href: "/research/new", warn: false });
+  expect(raised).toMatchObject({ href: "/research", warn: false });
   const [refresh] = shellNotes(wrap(note({ kind: "refresh_finished", scope: "jobs", account_domain: null })));
   expect(refresh).toMatchObject({ text: "Acme: refresh finished (job postings)", href: "/accounts" });
   const [encoded] = shellNotes(wrap(note({ account_domain: "a b/c" })));

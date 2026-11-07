@@ -21,7 +21,7 @@ function inviteFailure(cause: unknown): string {
   if (cause instanceof ApiError) {
     if (cause.status === 403) return "Sign in again with multi-factor authentication, then invite.";
     if (cause.status === 409 && cause.type.endsWith("invite_pending_elsewhere")) return "This person has an invitation waiting. Once they accept it, invite them again.";
-    if (cause.status === 409 && cause.detail === "already_member") return "This person is already in your workspace.";
+    if (cause.status === 409 && cause.type.endsWith("already_member")) return "This person is already in your workspace.";
     if (cause.status === 409) return "This address cannot be invited.";
     if (cause.status === 402) return "Your workspace has no free seats. Ask 6th for more.";
     if (cause.status === 422) return "Enter a full work email, like name@company.com.";

@@ -9,28 +9,9 @@
 import { FormEvent, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { AuthFrame, AuthPitch, KeyIcon, type PitchPoint } from "@/ui/AuthFrame";
+import { AuthFrame, AuthPitch, KeyIcon, PitchExample } from "@/ui/AuthFrame";
 import { ApiError, apiPublic, clearSession } from "@/lib/api";
 import type { EmailVerificationSent, SignedIn, SsoDiscovery } from "@/lib/gen/api.gen";
-
-const POINTS: PitchPoint[] = [
-  {
-    icon: "shield",
-    title: "Every fact is graded and sourced",
-    body: "Each fact is Confirmed, Probable, Hypothesis or Lead and links to where it came from, so you know what to say on a call and what to check first.",
-    grades: true,
-  },
-  {
-    icon: "lock",
-    title: "Your work stays in your workspace",
-    body: "Each company has its own workspace. Files you add are private to it and never appear in research files you share.",
-  },
-  {
-    icon: "document",
-    title: "Ready to use on a call",
-    body: "Every account comes with a brief, a senior people list and a coverage tracker, as files you can download. We never send outreach for you.",
-  },
-];
 
 const TOO_MANY = "Too many attempts, try again in a minute.";
 const UNAVAILABLE = "Sign in is unavailable right now. Try again in a moment.";
@@ -139,12 +120,12 @@ export default function TenantLoginPage() {
       plane="client"
       pitch={
         <AuthPitch
-          title="6th is a go-to-market consultancy."
-          lead="Account Intelligence is the research process we run for our own clients, now a workspace your team can use directly."
-          points={POINTS}
+          title="Every account brief, with the proof behind each line."
+          lead="6th researches your target accounts and grades each fact by how well it is sourced, so you know what is safe to say on a call."
+          example={<PitchExample />}
         />
       }
-      below={<>6th team? <Link href="/operator/login">Sign in to the admin console</Link></>}
+      below={<Link href="/operator/login">6th staff sign in</Link>}
     >
       <div>
         <h1 id="auth-title">Sign in</h1>

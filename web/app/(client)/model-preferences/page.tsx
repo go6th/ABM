@@ -1,21 +1,4 @@
-// Model preferences (owner decision 2026-10-14): the user's default research model (pulling and
-// extraction) and analysis model (answers, file analysis and the deliverables). Remembered on the
-// user's own profile; a model the workspace cannot use is greyed out with the reason.
-import type { Metadata } from "next";
-import { ModelPreferences } from "@/components/ModelPreferences";
+// Moved into Settings (redesign 2026-11-07); the old address still works.
+import { redirect } from "next/navigation";
 
-export const metadata: Metadata = { title: "Model preferences · Account Intelligence" };
-
-export default function Page() {
-  return (
-    <div className="pg center"><div className="col w820">
-      <div className="head">
-        <div className="ttl">
-          <h1>Model preferences</h1>
-          <div className="sub">Choose once. Every screen then starts with these models, and you can still change them for a single question or research.</div>
-        </div>
-      </div>
-      <ModelPreferences />
-    </div></div>
-  );
-}
+export default function Moved() { redirect("/settings"); }

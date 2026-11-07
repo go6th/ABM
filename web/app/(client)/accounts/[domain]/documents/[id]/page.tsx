@@ -48,7 +48,7 @@ async function allPassages(api: string, returnTo: string): Promise<{ passages: D
 function Failed({ back, here, failed }: { back: string; here: string; failed: boolean }) {
   return (
     <div className="pg tight gap-18">
-      <Link className="back" href={back} prefetch={false}>‹ Back to the account</Link>
+      <Link className="back" href={back} prefetch={false}>‹ Files</Link>
       {failed
         ? <StateCard title="This file could not be loaded" body="Reload the page in a moment." action={<a className="btn" href={here}>Reload</a>} />
         : <StateCard title="File not found" body="It is not in your workspace." action={<Link className="btn" href={back}>Back to the account</Link>} />}
@@ -60,8 +60,8 @@ export default async function DocumentPage({ params }: Props) {
   const { domain: rawDomain, id: rawId } = await params;
   const domain = segment(rawDomain);
   const id = segment(rawId);
-  const back = `/accounts/${encodeURIComponent(domain)}`;
-  const here = `${back}/documents/${encodeURIComponent(id)}`;
+  const back = `/accounts/${encodeURIComponent(domain)}/files`;
+  const here = `/accounts/${encodeURIComponent(domain)}/documents/${encodeURIComponent(id)}`;
   const api = `/v1/documents/${encodeURIComponent(id)}`;
   let doc: DocumentStatus | null = null;
   let members: DocumentMembers | null = null;
@@ -80,10 +80,10 @@ export default async function DocumentPage({ params }: Props) {
   if (failed || !doc) return <Failed back={back} here={here} failed={failed} />;
   return (
     <div className="pg tight gap-18">
-      <Link className="back" href={back} prefetch={false}>‹ Back to the account</Link>
+      <Link className="back" href={back} prefetch={false}>‹ Files</Link>
       <DocumentView doc={doc} members={members?.members ?? []} passages={read.passages} />
       {read.truncated ? (
-        <div className="fine">The first {read.passages.length.toLocaleString()} passages are shown. The rest were read but are not listed here.</div>
+        <div className="fine">The first {read.passages.length.toLocaleString()} sections are shown. The rest were read but are not listed here.</div>
       ) : null}
     </div>
   );

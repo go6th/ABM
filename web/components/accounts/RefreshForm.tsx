@@ -1,7 +1,7 @@
 "use client";
 // Refresh from web as designed, plus research on one topic the user types. Three scopes and the
 // topic are radio cards (arrow keys move between them); typing in the topic box selects it. Then
-// the two model chips, Confirm refresh and Stay local, and the researches left this month (a
+// the two model chips, Confirm refresh and Not now, and the researches left this month (a
 // refresh is one research; owner decision 2026-10-14: researches, not credits, are shown). With
 // none left, the refusal and "Request more from admin" show instead. Each scope shows the tokens
 // and dollars it is expected to use, and Confirm asks "this refresh will use about N tokens
@@ -29,7 +29,9 @@ function minutes(m: number): string {
   return `About ${m} min`;
 }
 
-export function RefreshForm({ view, initialTopic }: { view: RefreshOptions; initialTopic: string }) {
+/** ``onClose``: the form sits in the account's Refresh pop-up (redesign 2026-11-07); Not now and a
+ * started refresh close it instead of leaving the page. */
+export function RefreshForm({ view, initialTopic, onClose }: { view: RefreshOptions; initialTopic: string; onClose?: () => void }) {
   const router = useRouter();
   const options: Option[] = view.options ?? [];
   const topicCost = view.topic;
@@ -73,7 +75,8 @@ export function RefreshForm({ view, initialTopic }: { view: RefreshOptions; init
     try {
       await api<RefreshStarted>("POST", `/v1/accounts/${encodeURIComponent(view.domain)}/refresh`, { request_id: request.key(body), ...body });
       request.done();
-      router.push(back);
+      if (onClose) onClose();
+      else router.push(back);
       router.refresh();
     } catch (cause) {
       // a network error or a 5xx keeps the request id, so trying again cannot start it twice
@@ -205,7 +208,7 @@ export function RefreshForm({ view, initialTopic }: { view: RefreshOptions; init
           <button type="button" className="btn primary wide" onClick={() => setAsking(true)} disabled={busy || needsTopic || none || hit !== null} aria-describedby="refresh-note">
             {topicOn ? "Confirm research" : "Confirm refresh"}
           </button>
-          <Link className="btn" href={back} prefetch={false}>Stay local</Link>
+          {onClose ? <button type="button" className="btn" onClick={onClose}>Not now</button> : <Link className="btn" href={back} prefetch={false}>Not now</Link>}
           <span className="mut small" id="refresh-note">You will be notified when it finishes.</span>
         </div>
       )}

@@ -111,10 +111,10 @@ function Counts({ screen }: { screen: ParityScreen }) {
     <div className="card parity-counts" data-counts={wrong.length ? "mismatch" : "ok"}>
       {wrong.length ? (
         <div className="warn-bar" role="alert" data-testid="counts-mismatch">
-          The screen&apos;s counts differ from the delivered files on {wrong.length} value{wrong.length === 1 ? "" : "s"}: {wrong.slice(0, 6).join(", ")}{wrong.length > 6 ? ", …" : ""}. The files are the record; this view is not to be quoted.
+          {wrong.length} count{wrong.length === 1 ? "" : "s"} on this screen differ from your downloaded files: {wrong.slice(0, 6).join(", ")}{wrong.length > 6 ? ", …" : ""}. Use the downloaded files as the record.
         </div>
       ) : (
-        <p className="mut small" data-testid="counts-ok">Every count below equals the recalculated Summary sheets of the delivered workbooks.</p>
+        <p className="mut small" data-testid="counts-ok">Every count below matches your downloaded files.</p>
       )}
       <div className="parity-count-grid">
         <table className="xl" data-table="counts_jobs">
@@ -122,7 +122,7 @@ function Counts({ screen }: { screen: ParityScreen }) {
           <thead><tr><th scope="col">Platform</th><th scope="col">Total</th><th scope="col">Closed</th><th scope="col">Open</th><th scope="col">Build role</th><th scope="col">Admin and owner role</th><th scope="col">Working tool</th><th scope="col">User role</th></tr></thead>
           <tbody>
             {Object.entries(jobs).map(([lane, c]) => <tr key={lane}><th scope="row">{lane}</th><td className="c">{c.total}</td><td className="c">{c.closed}</td><td className="c">{c.open}</td><td className="c">{c.build}</td><td className="c">{c.admin}</td><td className="c">{c.tool}</td><td className="c">{c.user}</td></tr>)}
-            <tr><th scope="row">Rows on the Jobs sheet (all entities)</th><td className="c">{totals.all_rows}</td><td colSpan={6} /></tr>
+            <tr><th scope="row">Rows on the Jobs sheet</th><td className="c">{totals.all_rows}</td><td colSpan={6} /></tr>
             <tr><th scope="row">Rows that are {str(screen.meta.account_short)} positions</th><td className="c">{totals.account_rows}</td><td colSpan={6} /></tr>
             <tr><th scope="row">Rows that are not {str(screen.meta.account_short)} positions</th><td className="c">{totals.other_rows}</td><td colSpan={6} /></tr>
           </tbody>

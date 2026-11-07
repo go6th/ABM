@@ -6,9 +6,9 @@ import type { ReactNode } from "react";
 export function LogoMark({ size = 28, inverse = false }: { size?: number; inverse?: boolean }) {
   return (
     <svg width={size} height={size} viewBox="0 0 28 28" aria-hidden="true">
-      <rect width="28" height="28" rx="8" fill={inverse ? "#fff" : "#101828"} />
-      <path d="M8 19l6-10 6 10" fill="none" stroke={inverse ? "#101828" : "#fff"} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
-      <circle cx="14" cy="16.5" r="1.6" fill={inverse ? "#2F4BE0" : "#7C93FF"} />
+      <rect width="28" height="28" rx="8" fill={inverse ? "#fff" : "#3F5AE0"} />
+      <path d="M8 19l6-10 6 10" fill="none" stroke={inverse ? "#3F5AE0" : "#fff"} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="14" cy="16.5" r="1.6" fill={inverse ? "#3F5AE0" : "#D6CCFA"} />
     </svg>
   );
 }
@@ -32,7 +32,20 @@ const ICON_PATHS: Record<string, ReactNode> = {
       <rect x="13" y="13" width="7" height="7" rx="1.5" />
     </>
   ),
-  research: <path d="M12 16V5M7 10l5-5 5 5M5 19h14" />,
+  research: (
+    <>
+      <circle cx="11" cy="11" r="6.5" />
+      <path d="m20 20-4.3-4.3" />
+    </>
+  ),
+  upload: <path d="M12 16V5M7 10l5-5 5 5M5 19h14" />,
+  settings: (
+    <>
+      <path d="M4 7h10M18 7h2M4 17h4M12 17h8" />
+      <circle cx="16" cy="7" r="2" />
+      <circle cx="10" cy="17" r="2" />
+    </>
+  ),
   runs: <path d="M3 12h4l3-7 4 14 3-7h4" />,
   support: <path d="M12 3l7 3v5c0 4.5-3 8.2-7 10-4-1.8-7-5.5-7-10V6z" />,
   schedules: (

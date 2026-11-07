@@ -43,7 +43,7 @@ function meta(n: Notification): string {
 
 function href(n: Notification): string {
   if (n.kind === "access_expiring") return "/";
-  if (n.kind.startsWith("limit_request") || n.kind === "research_limit_reached") return "/research/new";
+  if (n.kind.startsWith("limit_request") || n.kind === "research_limit_reached") return "/research";
   return n.account_domain ? `/accounts/${encodeURIComponent(n.account_domain)}` : "/accounts";
 }
 

@@ -1,7 +1,7 @@
 "use client";
 // Analysis of your file (screen 10). The findings from the files, grouped as designed, each
 // marked Internal with its file and place; what the files do not cover; Ask about these files,
-// Also check public sources, Download internal summary; the files used, Add another file and
+// Also check public sources, Download the summary of your files; the files used, Add another file and
 // Delete these files (confirmed first). While the analysis runs the screen says so and checks
 // again every few seconds.
 import Link from "next/link";
@@ -38,10 +38,12 @@ function when(at: string): string {
 /** A plain summary built from what the files said (no model involved). */
 function summary(groups: Map<string, number>, modelUnread = false): string {
   if (modelUnread) {
-    return "The AI model could not read the text of your files (its provider refused or ran out of credit), so this analysis is incomplete. Spreadsheet rows were still read. Restore model access, then analyze the files again.";
+    return "The text of your files could not be read this time, so this analysis is incomplete. Spreadsheet rows were still read. Analyze the files again later, or ask your 6th contact.";
   }
   if (!groups.size) return "Your files do not state anything in the areas this analysis looks at.";
-  const parts = ORDER.filter((g) => groups.has(g)).map((g) => `${g.toLowerCase()} (${groups.get(g)})`);
+  // every group, the designed ones first: a file whose findings are all "Other" still gets a sentence
+  const named = [...ORDER.filter((g) => groups.has(g)), ...[...groups.keys()].filter((g) => !ORDER.includes(g))];
+  const parts = named.map((g) => `${g === "Other" ? "other topics" : g.toLowerCase()} (${groups.get(g)})`);
   const listed = parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}` : parts[0];
   return `Your files speak to ${listed}. Each statement below links to the file and place it came from.`;
 }
@@ -61,8 +63,8 @@ export function FileAnalysis({ domain, run }: { domain: string; run: FileAnalysi
   const head = (
     <div className="row-12 wrap">
       <div className="grow-240">
-        <Link className="back" href="/research/new?tab=file" prefetch={false}>‹ New research</Link>
-        <h1 className="big mt-4">{run.account_name}</h1>
+        <Link className="back" href={`/accounts/${encodeURIComponent(domain)}/files`} prefetch={false}>‹ Files</Link>
+        <h2 className="mt-4">Analysis of your files</h2>
         <div className="mut sm-text mt-2">
           Analysis of {run.files} file{run.files === 1 ? "" : "s"} · {when(run.finished_at ?? run.created_at)} · {run.public_run_id ? "public sources checked" : "no web used"}
         </div>
@@ -125,8 +127,10 @@ export function FileAnalysis({ domain, run }: { domain: string; run: FileAnalysi
                 {grouped.get(label)!.map((f, j) => (
                   <div className="fa-fact" key={`${label}-${j}`}>
                     <span className="pill internal g">Internal</span>
-                    <span className="grow">{cellText(f.value)}</span>
-                    <span className="fa-cite">{cellText(f.citation)}</span>
+                    <span className="fa-body">
+                      <span>{cellText(f.value)}</span>
+                      <span className="fa-cite">{cellText(f.citation)}</span>
+                    </span>
                   </div>
                 ))}
               </div>
@@ -144,7 +148,7 @@ export function FileAnalysis({ domain, run }: { domain: string; run: FileAnalysi
           <Link className="btn" href={`/?account=${encodeURIComponent(domain)}`}>Ask about these files</Link>
           <Link className="btn" href={`/accounts/${encodeURIComponent(domain)}/refresh`}>Also check public sources</Link>
           {data.file_available ? (
-            <a className="btn" href={`/v1/runs/${encodeURIComponent(run.run_id)}/internal/file`}>Download internal summary</a>
+            <a className="btn" href={`/v1/runs/${encodeURIComponent(run.run_id)}/internal/file`}>Download the summary of your files</a>
           ) : null}
         </div>
       </div>
@@ -154,10 +158,10 @@ export function FileAnalysis({ domain, run }: { domain: string; run: FileAnalysi
           <div key={d.id || i} className="body-text">
             {d.name}
             <br />
-            <span className="mut xs-text">{d.passages} passage{d.passages === 1 ? "" : "s"}</span>
+            <span className="mut xs-text">{d.passages.toLocaleString()} section{d.passages === 1 ? "" : "s"} read</span>
           </div>
         )) : <p className="mut sm-text">The files were deleted.</p>}
-        <Link className="link-strong" href="/research/new?tab=file">Add another file</Link>
+        <Link className="link-strong" href="/research?tab=file">Add another file</Link>
         <div className="line-top" />
         <div className="lbl">Privacy</div>
         <p className="mut sm-text">Kept in your workspace only. Never included in the research files you share with a prospect. Delete any file and its findings are removed.</p>

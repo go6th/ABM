@@ -34,7 +34,7 @@ from uuid import UUID
 
 from sqlalchemy import text
 
-from account_intelligence.replica.workspace import PLANNED, can_resume, resume_context
+from account_intelligence.replica.workspace import PLANNED, can_resume, resume_context, stop_text
 from account_intelligence.safety.client_output import assert_client_safe, scan_text
 from views import progress as P
 
@@ -54,7 +54,7 @@ SCOPE_LABELS: Mapping[str, str] = {
 JOB_LABELS: Mapping[str, str] = {
     "waiting_credit_limit": "Waiting for this month's limit",
     "queued": "Starting soon",
-    "running": "Starting",
+    "running": "Researching",
     "done": "Complete",
     "failed": "Stopped",
     "canceled": "Cancelled",
@@ -350,7 +350,9 @@ async def _detail(
     if row.finished_reason == "canceled_by_user":
         reason = "Stopped by you."
     elif row.status in ("failed", "canceled") or (row.run_status in ("FAILED", "CANCELED")):
-        reason = row.stop_reason or row.failure_reason
+        code = row.stop_reason or row.failure_reason
+        # a stop code ("credit_cap_reached") in words; a sentence the job already wrote stays
+        reason = stop_text(code) if code and " " not in code else code
     return {
         "job_id": str(row.id),
         "run_id": str(run_id) if run_id else None,

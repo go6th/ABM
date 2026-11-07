@@ -29,11 +29,12 @@ def test_progress_shows_stage_counts_only() -> None:
     # setup owns no rows: it is done once a later stage has settled one
     assert (p.stages_done, p.stages_total, p.text, p.current_stage) == (1, 4, "1 of 4", "Pass 1")
     p = progress.compute("run", "QUEUED", STAGES, OWNERS, [("r1", None)])
-    assert (p.text, p.current_stage, p.label) == ("0 of 4", "Setup", "Queued")
+    # stage names are shown in plain words (views.progress.CLIENT_STAGE_NAMES)
+    assert (p.text, p.current_stage, p.label) == ("0 of 4", "Set up", "Queued")
     p = progress.compute(
         "run", "RUNNING", STAGES, OWNERS, [("r1", "done"), ("r2", "blocked"), ("r3", None)]
     )
-    assert (p.text, p.current_stage, p.label) == ("2 of 4", "Baseline", "Researching")
+    assert (p.text, p.current_stage, p.label) == ("2 of 4", "Company basics", "Researching")
     done = progress.compute("run", "PARTIAL", STAGES, OWNERS, [("r1", None)])
     assert (done.text, done.finished, done.current_stage, done.label) == (
         "4 of 4",

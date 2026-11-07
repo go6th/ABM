@@ -274,7 +274,7 @@ export function Ask({
           {accounts.length ? null : (
             <nav className="first-steps" aria-label="First steps">
               <Link className="btn primary" href="/accounts/add" prefetch={false}>Add your first account</Link>
-              <Link className="btn" href="/research/new?tab=file" prefetch={false}>Add files</Link>
+              <Link className="btn" href="/research?tab=file" prefetch={false}>Add files</Link>
             </nav>
           )}
         </div>

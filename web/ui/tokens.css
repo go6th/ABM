@@ -105,31 +105,34 @@
   --font: "Hanken Grotesk", system-ui, sans-serif;
 
   /* Shape */
-  --r-composer: 22px;
-  --r-follow: 20px;
-  --r-card: 20px;
-  --r-btn: 12px;
-  --r-field: 12px;
+  --r-composer: 12px;
+  --r-follow: 12px;
+  --r-card: 12px;
+  --r-btn: 8px;
+  --r-field: 8px;
   --r-seg: 8px;
   --r-cite: 6px;
   --r-pill: 999px;
 
-  /* Depth (only these) */
-  --sh-composer: 0 14px 34px rgba(63, 90, 224, 0.12);
-  --sh-follow: 0 10px 28px rgba(63, 90, 224, 0.10);
-  --sh-raised: 0 1px 2px rgba(27, 33, 64, 0.04), 0 8px 24px rgba(27, 33, 64, 0.05);
+  /* Depth (only these). Flat by design (redesign 2026-11-07): surfaces separate by hairline
+     borders, not drop shadows */
+  --sh-composer: none;
+  --sh-follow: none;
+  --sh-raised: none;
+  /* menus and dialogs float above the page: the one shadow left */
+  --sh-pop: 0 8px 24px rgba(27, 33, 64, 0.10);
   --sh-ring: 0 0 0 1px #E1E6FA;
   --sh-seg: 0 1px 2px rgba(16, 24, 40, 0.12);
   --sh-knob: 0 1px 3px rgba(16, 24, 40, 0.3);
   /* Sign-in pages: the primary button's pressed edge and glow, the secondary button's edge, the
      icon tiles and the right column's card */
-  --sh-primary: 0 8px 20px rgba(63, 90, 224, 0.25);
-  --sh-secondary: inset 0 -2px 0 #D9DDE4;
-  --sh-tile: 0 4px 12px rgba(16, 24, 40, 0.09);
-  --sh-pitch: 0 12px 36px rgba(16, 24, 40, 0.08);
+  --sh-primary: none;
+  --sh-secondary: none;
+  --sh-tile: none;
+  --sh-pitch: none;
 
   /* Layout */
-  --sidebar: 264px;
+  --sidebar: 240px;
   --admin-sidebar: 248px;
   --chat: 780px;
   --page: 1100px;

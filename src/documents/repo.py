@@ -501,13 +501,22 @@ async def link_run(s: AsyncSession, run_id: UUID, account_id: UUID, ids: Sequenc
         )
 
 
+# the document ids of run :r: the linked ones, plus the imported document of a workspace-import run
+RUN_DOCUMENT_IDS = (
+    "SELECT rd.document_id FROM run_documents rd WHERE rd.run_id = :r"
+    " UNION SELECT CAST(x.run_input->>'document_id' AS uuid) FROM account_runs x"
+    " WHERE x.id = :r AND x.finished_reason = 'file_import'"
+    " AND x.run_input->>'document_id' IS NOT NULL"
+)
+
+
 async def run_documents(s: AsyncSession, run_id: UUID) -> list[Any]:
-    """The documents of a run (deleted documents are gone from the list)."""
+    """The documents of a run (deleted documents are gone from the list). A workspace-import
+    run has no run_documents row: its one document is named in ``run_input``."""
     rows = await s.execute(
         text(
-            f"SELECT {', '.join('d.' + c.strip() for c in _COLS.split(','))} FROM run_documents rd"  # nosec B608 -- fixed return columns.
-            " JOIN documents d ON d.id = rd.document_id WHERE rd.run_id = :r"
-            " ORDER BY d.created_at, d.id"
+            f"SELECT {', '.join('d.' + c.strip() for c in _COLS.split(','))} FROM documents d"  # nosec B608 -- fixed return columns.
+            f" WHERE d.id IN ({RUN_DOCUMENT_IDS}) ORDER BY d.created_at, d.id"
         ),
         {"r": run_id},
     )

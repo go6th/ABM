@@ -158,7 +158,7 @@ function FileTab({ initialDrive, estimate }: { initialDrive: boolean; estimate: 
       domain = null;
     }
     router.push(domain
-      ? `/accounts/${encodeURIComponent(domain)}/files?run=${encodeURIComponent(created.run_id)}`
+      ? `/accounts/${encodeURIComponent(domain)}/file-analysis?run=${encodeURIComponent(created.run_id)}`
       : `/runs/${encodeURIComponent(created.run_id)}`);
   };
 

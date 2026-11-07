@@ -57,8 +57,7 @@ export default async function RefreshPage({ params, searchParams }: { params: Pr
     <div className="pg pad-56 center">
       <div className="col w680">
         <div>
-          <Link className="back" href={back} prefetch={false}>‹ {view.name}</Link>
-          <h1 className="big refresh-title">Refresh {view.name} from the web?</h1>
+          <h2 className="refresh-title">Refresh {view.name} from the web?</h2>
           <p className="intro lg">
             Your workspace {ago(view.refreshed_days_ago)}. A web refresh looks for anything newer. Nothing leaves your workspace until you confirm.
           </p>
@@ -67,7 +66,7 @@ export default async function RefreshPage({ params, searchParams }: { params: Pr
           <StateCard
             title="Web refresh is turned off"
             body="Your administrator has turned off web refreshes for your workspace. Answers keep coming from what your workspace already holds."
-            action={<Link className="btn" href={back}>Stay local</Link>}
+            action={<Link className="btn" href={back}>Not now</Link>}
           />
         ) : view.open_job ? (
           <StateCard

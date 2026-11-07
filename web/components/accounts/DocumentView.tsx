@@ -86,23 +86,23 @@ export function DocumentView({ doc, members, passages }: { doc: DocumentStatus; 
   const sub = [
     status,
     doc.audience === "owner_only" ? "Owner only" : null,
-    doc.passages ? `${doc.passages.toLocaleString()} passages` : null,
+    doc.passages ? `${doc.passages.toLocaleString()} sections` : null,
     zip ? `${members.length.toLocaleString()} file${members.length === 1 ? "" : "s"} inside` : null,
   ].filter(Boolean).join(" · ");
   return (
     <article className="doc-view stack-14" aria-labelledby="doc-title">
       <div className="ttl">
-        <h1 id="doc-title">{cellText(doc.name)}</h1>
+        <h2 id="doc-title">{cellText(doc.name)}</h2>
         <div className="sub">{sub}</div>
       </div>
       {passages.length === 0 && !zip ? (
         <p className="mut small">Nothing was read from this file{doc.message ? `: ${doc.message}` : "."}</p>
       ) : null}
       {sections.map((s, i) => (
-        <section key={s.path ?? `rest-${i}`} className="card pad stack-10 doc-section" id={s.path ? `m-${i}` : undefined} aria-label={s.path ?? (zip ? "Other passages" : cellText(doc.name))}>
+        <section key={s.path ?? `rest-${i}`} className="card pad stack-10 doc-section" id={s.path ? `m-${i}` : undefined} aria-label={s.path ?? (zip ? "Other sections" : cellText(doc.name))}>
           {zip ? (
             <div className="doc-member">
-              <h2>{s.path ? cellText(s.path) : "Other passages"}</h2>
+              <h2>{s.path ? cellText(s.path) : "Other sections"}</h2>
               {s.member ? (
                 <span className="sub">
                   {ROLE_TEXT[s.member.role] ?? "File"}{s.member.audience === "owner_only" ? " · owner only" : ""} · {memberLine(s.member)}

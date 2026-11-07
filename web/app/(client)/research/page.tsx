@@ -1,15 +1,17 @@
-// Research (owner request 2026-10-21): every web research running now and finished recently on
-// one page, with Start and Stop, live from the server. The first paint is the server's snapshot;
-// the board then follows the live stream.
+// Research (redesign 2026-11-07): start a research on a company, or analyze your own file, on the
+// left; every web research running now and finished recently on the right, live from the server
+// (owner request 2026-10-21). Was two pages, Research and New research; the old address
+// redirects here with its tab.
 import type { Metadata } from "next";
 import type { ResearchEstimate, ResearchLive } from "@/lib/gen/api.gen";
 import { serverGet, ServerApiError } from "@/lib/server-api";
 import { ResearchBoard } from "@/components/research/ResearchBoard";
+import { NewResearch } from "@/components/accounts/NewResearch";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Research · Account Intelligence" };
 
-export default async function ResearchPage({ searchParams }: { searchParams: Promise<{ r?: string }> }) {
+export default async function ResearchPage({ searchParams }: { searchParams: Promise<{ r?: string; tab?: string; source?: string }> }) {
   const query = await searchParams;
   const selected = query.r && /^[0-9a-f-]{36}$/i.test(query.r) ? `?selected=${query.r}` : "";
   let initial: ResearchLive | null = null;
@@ -23,9 +25,19 @@ export default async function ResearchPage({ searchParams }: { searchParams: Pro
   }
   if (live.status === "fulfilled") initial = live.value;
   if (est.status === "fulfilled") estimate = est.value;
+  const tab = query.tab === "file" ? "file" : "company";
   return (
     <div className="pg">
-      <ResearchBoard initial={initial} estimate={estimate} />
+      <div>
+        <h1>Research</h1>
+        <p className="intro">Research a company from public sources, or upload your own file to analyze. You are told when it is ready.</p>
+      </div>
+      <div className="research-grid">
+        <section className="research-start" aria-label="Start a research">
+          <NewResearch estimate={estimate} initialTab={tab} initialDrive={tab === "file" && query.source === "drive"} />
+        </section>
+        <ResearchBoard initial={initial} estimate={estimate} embedded />
+      </div>
     </div>
   );
 }

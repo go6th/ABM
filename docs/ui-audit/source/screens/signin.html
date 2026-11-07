@@ -1,0 +1,41 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../mock.css"><style>
+.auth { display:grid; grid-template-columns: 1fr 1fr; height:900px; }
+.auth-l { background:#fff; display:flex; flex-direction:column; padding:40px 72px; }
+.auth-form { width:380px; margin:auto 0 auto 64px; }
+.auth-form h1 { font-size:30px; margin-bottom:8px; }
+.auth-form .stack > * + * { margin-top:18px; }
+.auth-r { background:var(--side); display:flex; flex-direction:column; justify-content:center; padding:0 88px; }
+.grade-demo { margin-top:36px; background:#fff; border:1px solid #DDE3F5; border-radius:12px; padding:22px 24px; width:470px; }
+.grade-demo p { font-size:15px; line-height:1.55; }
+.legend { display:flex; gap:8px; margin-top:16px; flex-wrap:wrap; }
+.auth-r h2 { font-size:30px; line-height:1.2; letter-spacing:-0.02em; max-width:480px; }
+.auth-r .sub { max-width:460px; margin-top:12px; font-size:15px; }
+.or { display:flex; align-items:center; gap:12px; color:var(--faint); font-size:12.5px; }
+.or::before, .or::after { content:""; flex:1; height:1px; background:var(--line); }
+.foot { color:var(--muted); font-size:12.5px; display:flex; gap:16px; }
+</style></head><body><div class="auth">
+<div class="auth-l">
+  <div class="brand"><div class="mark">6</div><div><b>Account Intelligence</b><small>by 6th</small></div></div>
+  <div class="auth-form">
+    <h1>Sign in</h1>
+    <p class="sub">Use the work email your team invited.</p>
+    <div class="stack" style="margin-top:28px">
+      <div class="field"><label>Work email</label><div class="input focus">rachel.k@company.com</div></div>
+      <div class="field"><div class="between"><label>Password</label><a class="small" style="color:var(--primary)">Forgot password?</a></div><div class="input">••••••••••••</div></div>
+      <label class="row small" style="color:var(--ink-2)"><span style="width:16px;height:16px;border-radius:4px;background:var(--primary);display:inline-grid;place-items:center;color:#fff"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10"/></svg></span>Keep me signed in on this device</label>
+      <a class="btn primary" style="width:100%;justify-content:center;height:42px">Sign in</a>
+      <div class="or">or</div>
+      <a class="btn" style="width:100%;justify-content:center;height:42px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg> Continue with single sign-on</a>
+    </div>
+    <p class="small" style="margin-top:28px">No access yet? Ask your 6th contact for an invite.</p>
+  </div>
+  <div class="foot"><span>Privacy</span><span>Terms</span><span style="margin-left:auto">6th staff sign in</span></div>
+</div>
+<div class="auth-r">
+  <h2>Every account brief, with the proof behind each line.</h2>
+  <p class="sub">6th researches your target accounts and grades each fact by how well it is sourced, so you know what is safe to say on a call.</p>
+  <div class="grade-demo">
+    <p>Synthetic Holdings named a new CIO in September <span class="cite">3</span> and is hiring four data platform roles <span class="cite">1</span>.</p>
+    <div class="legend"><span class="g confirmed">Confirmed</span><span class="g probable">Probable</span><span class="g hypothesis">Hypothesis</span><span class="g lead">Lead</span></div>
+  </div>
+</div></div></body></html>

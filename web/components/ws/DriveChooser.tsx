@@ -136,7 +136,7 @@ export function DriveChooser({ onPick, picked, disabled = false }: {
       {off.map((s) => (
         <p key={s} className="small muted">
           {m.research.driveNotConnected(DRIVE_LABEL[s])}{" "}
-          <Link className="link" href="/mail-and-drive" prefetch={false} aria-label={`${m.research.driveConnectHere}: ${DRIVE_LABEL[s]}`}>
+          <Link className="link" href="/settings/mail-and-drive" prefetch={false} aria-label={`${m.research.driveConnectHere}: ${DRIVE_LABEL[s]}`}>
             {m.research.driveConnectHere}
           </Link>
         </p>
@@ -145,7 +145,7 @@ export function DriveChooser({ onPick, picked, disabled = false }: {
         <div className="stack-8" role="status">
           <p className="small">{problem.detail}</p>
           {CONNECT.has(problem.type) ? (
-            <div><Link className="btn primary sm" href="/mail-and-drive" prefetch={false}>{CONNECT_LINK[source]}</Link></div>
+            <div><Link className="btn primary sm" href="/settings/mail-and-drive" prefetch={false}>{CONNECT_LINK[source]}</Link></div>
           ) : null}
         </div>
       ) : (

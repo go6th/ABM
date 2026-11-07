@@ -3,7 +3,7 @@
 
 .ask-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: safe center; padding: 32px 48px; gap: 24px; overflow-y: auto; }
 /* the soft blue band holding the greeting, the composer and the limit line (pastel, 2026-10-23) */
-.ask-band { width: 100%; max-width: calc(var(--chat) + 80px); display: flex; flex-direction: column; align-items: center; gap: 22px; padding: 40px; border-radius: 24px; background: var(--hero-bg); border: 1px solid var(--hero-line); }
+.ask-band { width: 100%; max-width: calc(var(--chat) + 80px); display: flex; flex-direction: column; align-items: center; gap: 22px; padding: 40px; border-radius: var(--r-card); background: var(--hero-bg); border: 1px solid var(--hero-line); }
 .ask-band > *, .ask-empty > * { flex-shrink: 0; } /* never squash the composer: the page scrolls instead */
 .ask-empty .hero { text-align: center; }
 .ask-empty .hero .hi { display: inline-flex; align-items: center; gap: 8px; margin-bottom: 12px; padding: 6px 12px; border-radius: var(--r-pill); background: var(--surface); color: var(--lav-ink); font-size: 13px; font-weight: 700; }
@@ -21,7 +21,7 @@
 .composer input::placeholder { color: var(--muted); }
 .composer.follow { padding: 10px 16px; border-radius: var(--r-follow); box-shadow: var(--sh-follow); margin: 0 auto; }
 .composer.follow input { font-size: 16px; min-height: 44px; }
-.composer.account { max-width: none; padding: 14px 16px; border-radius: 18px; box-shadow: var(--sh-raised); }
+.composer.account { max-width: none; padding: 14px 16px; border-radius: var(--r-card); }
 .composer.account input { font-size: 16px; min-height: 44px; }
 .composer .bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
 .composer.follow .bar, .composer.account .bar { margin-top: 0; }
@@ -30,7 +30,7 @@
 .menu-wrap { position: relative; display: inline-flex; }
 .menu {
   position: absolute; left: 0; bottom: calc(100% + 6px); z-index: 30; min-width: 240px; max-height: 320px; overflow: auto;
-  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-btn); box-shadow: var(--sh-composer); padding: 6px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-btn); box-shadow: var(--sh-pop); padding: 6px;
 }
 .menu.down { top: calc(100% + 6px); bottom: auto; }
 .menu button { display: flex; width: 100%; min-height: 40px; align-items: center; padding: 0 12px; border-radius: var(--r-seg); border: 0; background: none; font-size: 14px; color: var(--text-3); text-align: left; }
@@ -51,7 +51,7 @@
 .ask-dock .ask-side { visibility: hidden; height: 0; }
 @media (min-width: 1240px) { .ask-side { display: block; } .used-inline { display: none; } }
 
-.bubble { align-self: flex-end; max-width: 80%; background: var(--hero-bg); color: var(--ink); border: 1px solid var(--hero-line); padding: 14px 18px; border-radius: 18px 18px 4px 18px; font-size: 16px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.bubble { align-self: flex-end; max-width: 80%; background: var(--hero-bg); color: var(--ink); border: 1px solid var(--hero-line); padding: 14px 18px; border-radius: 12px 12px 4px 12px; font-size: 16px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
 .reply { display: flex; flex-direction: column; gap: 14px; }
 .searching { font-size: 14px; color: var(--muted); display: flex; align-items: center; gap: 8px; }
 .searching .pdot { width: 8px; height: 8px; border-radius: 9px; background: var(--accent); animation: pulse 1.4s ease-in-out infinite; }

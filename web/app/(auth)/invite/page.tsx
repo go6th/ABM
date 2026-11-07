@@ -27,7 +27,7 @@ export default function AcceptInvitePage() {
     event.preventDefault();
     setError(null);
     if (!token) {
-      setError("This invite link is incomplete or expired. Ask 6th for a new one.");
+      setError("This invite link is incomplete or expired. Ask your workspace admin for a new one.");
       return;
     }
     if (password !== confirm) {
@@ -45,7 +45,7 @@ export default function AcceptInvitePage() {
       if (e instanceof ApiError && e.status >= 400 && e.status < 500) {
         setError(e.status === 422
           ? "Choose a password of at least 12 characters that does not contain your email or name."
-          : "This invite link was already used or has expired. Ask 6th for a new one.");
+          : "This invite link was already used or has expired. Ask your workspace admin for a new one.");
       } else {
         setError("Joining is temporarily unavailable. Try again.");
       }
@@ -68,7 +68,7 @@ export default function AcceptInvitePage() {
         <>
           {checked && !token ? (
             <div className="notice" role="status">
-              <p>This invite link is incomplete or expired. Ask 6th for a new one.</p>
+              <p>This invite link is incomplete or expired. Ask your workspace admin for a new one.</p>
             </div>
           ) : null}
           {error ? <div className="notice error" role="alert"><p>{error}</p></div> : null}

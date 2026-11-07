@@ -42,7 +42,7 @@ test("only the connected drive is enabled; the other links to Mail and drive", a
   expect(google.disabled).toBe(true);
   expect(screen.getByText(/Google Drive is not connected/)).toBeTruthy();
   const link = screen.getByRole("link", { name: /Connect it on Mail and drive/ });
-  expect(link.getAttribute("href")).toBe("/mail-and-drive");
+  expect(link.getAttribute("href")).toBe("/settings/mail-and-drive");
   expect(apiMock).toHaveBeenCalledWith("GET", "/v1/documents/drive-files?q=&source=onedrive");
   expect(apiMock.mock.calls.some((c) => c[1] === "/v1/documents/drive-files?q=")).toBe(false); // never Google's
   expect(screen.getByRole("searchbox", { name: "Search your OneDrive by file name" })).toBeTruthy();
@@ -92,7 +92,7 @@ test("a drive the server says is not connected links to Mail and drive by name",
   });
   render(<DriveChooser onPick={() => undefined} picked={new Set()} />);
   const link = await screen.findByRole("link", { name: "Connect OneDrive" });
-  expect(link.getAttribute("href")).toBe("/mail-and-drive");
+  expect(link.getAttribute("href")).toBe("/settings/mail-and-drive");
   expect(screen.getByText("Reconnect OneDrive on the Mail and drive page.")).toBeTruthy();
   expect(screen.queryByRole("search")).toBeNull();
 });

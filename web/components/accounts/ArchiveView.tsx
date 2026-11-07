@@ -301,7 +301,7 @@ export function ArchivedCopyView({ copy, domain, now = new Date() }: { copy: Arc
       ) : null}
       <div className="head">
         <div className="ttl">
-          <h1>{title}</h1>
+          <h2>{title}</h2>
           {sub ? <div className="sub">{sub}</div> : null}
           {clean ? (
             <div className="arc-badges">
@@ -395,7 +395,7 @@ export const FILTER_COLUMNS: Array<[string, string]> = [
 /** The index of the account's archived items: what was captured, when, its source type, grade, the
  * events and people it names; every column filters. View opens the copy, original opens the
  * address the research read. */
-export function ArchiveIndexView({ list, domain, name, kind, showMore, filters = {} }: { list: ArchiveList; domain: string; name: string; kind: string; showMore: string | null; filters?: Record<string, string> }) {
+export function ArchiveIndexView({ list, domain, kind, showMore, filters = {} }: { list: ArchiveList; domain: string; name?: string; kind: string; showMore: string | null; filters?: Record<string, string> }) {
   const here = `/accounts/${encodeURIComponent(domain)}`;
   const base = `${here}/archive`;
   const items = list.items ?? [];
@@ -405,8 +405,7 @@ export function ArchiveIndexView({ list, domain, name, kind, showMore, filters =
     <div className="pg tight gap-18 arc-page">
       <div className="head">
         <div className="ttl">
-          <Link className="back" href={here} prefetch={false}>‹ {name}</Link>
-          <h1>Archive</h1>
+          <h2>Archive</h2>
           <div className="sub">A copy of every page and job posting the research stored, kept as it was captured. A posting that has since been taken down can still be read here.</div>
         </div>
       </div>

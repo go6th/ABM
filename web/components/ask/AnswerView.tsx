@@ -152,7 +152,7 @@ export function AnswerView({
           ) : (
             <button type="button" className="btn primary" onClick={onPickAccount}>Refresh from web</button>
           )}
-          <button type="button" className="btn" onClick={onDismissOffer}>Stay local</button>
+          <button type="button" className="btn" onClick={onDismissOffer}>Not now</button>
         </div>
       ) : null}
       {answer.followups.length ? (

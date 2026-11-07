@@ -12,7 +12,7 @@ vi.mock("@/lib/server-api", async (original) => ({
   ...(await original<typeof import("@/lib/server-api")>()),
   serverGet: (...args: unknown[]) => serverGet(...args),
 }));
-vi.mock("next/navigation", () => ({ redirect: (to: string) => { throw new Error(`redirect:${to}`); } }));
+vi.mock("next/navigation", () => ({ redirect: (to: string) => { throw new Error(`redirect:${to}`); }, usePathname: () => "/accounts/synthetic-acme.example" }));
 
 vi.mock("@/components/accounts/FilesCard", () => ({ FilesCard: () => <div /> }));
 vi.mock("@/components/accounts/UploadedFilesCard", () => ({ UploadedFilesCard: () => <div /> }));
@@ -22,7 +22,7 @@ vi.mock("@/components/accounts/ResearchProgress", () => ({ ResearchProgress: () 
 vi.mock("@/components/accounts/DeleteAccount", () => ({ DeleteAccount: () => <div /> }));
 
 import { ServerApiError } from "@/lib/server-api";
-import AccountWorkspacePage from "@/app/(client)/accounts/[domain]/page";
+import AccountLayout from "@/app/(client)/accounts/[domain]/layout";
 import { ArchivedCopyView, ArchiveIndexView, OLD_AFTER_DAYS } from "@/components/accounts/ArchiveView";
 import ArchivePage from "@/app/(client)/accounts/[domain]/archive/page";
 
@@ -54,7 +54,7 @@ function copy(over: Partial<ArchivedCopy> = {}): ArchivedCopy {
 
 test("a posting copy reads like an archive page: banner, original link, fields, sentences, text", () => {
   render(<ArchivedCopyView copy={copy()} domain="synthetic-acme.example" now={NOW} />);
-  expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Platform Engineer");
+  expect(screen.getAllByRole("heading", { level: 2 })[0]!.textContent).toBe("Platform Engineer");
   const banner = screen.getByRole("note");
   expect(banner.textContent).toContain("Archived copy · captured 20 October 2026");
   const original = within(banner).getByRole("link", { name: "Open original (may no longer exist)" });
@@ -124,7 +124,7 @@ test("hostile text is shown as text and an unsafe original address is not linked
 test("a page or profile copy shows its title and stored text the same way, with no posting fields", () => {
   const page = copy({ kind: "page", url: "https://synthetic-acme.example/news/a", title: "News item", text: "Para one.\nPara two.", record: null });
   render(<ArchivedCopyView copy={page} domain="synthetic-acme.example" now={NOW} />);
-  expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("News item");
+  expect(screen.getAllByRole("heading", { level: 2 })[0]!.textContent).toBe("News item");
   expect(document.querySelector(".arc-fields")).toBeNull();
   expect(document.querySelector(".arc-text")!.textContent).toBe("Para one.\nPara two.");
   expect(screen.getAllByRole("link", { name: /Back to the archive/ })[0]!.getAttribute("href")).toBe("/accounts/synthetic-acme.example/archive");
@@ -214,19 +214,14 @@ test("the archived link of a delivered file opens the website's own page whateve
   expect(ownHref(null)).toBeNull();
 });
 
-test("the account's Deep dive navigation lists Archive beside the other tables", async () => {
+test("the account's More menu lists Archive beside the other tables", async () => {
   serverGet.mockClear();
-  serverGet.mockResolvedValue({
-    id: null, domain: "synthetic-acme.example", name: "Synthetic Acme", subline: "x", first_scan: true, files: [], findings: [],
-    narrative: null, changes: null, latest_run: null, open_job: null, stopped_run: null, gaps: [],
-    counts: { signals: 1, people: 2, jobs: 3, tech: 0, news: 0, mail_drive: 0, sources: 4, searches: 0, coverage_done: 0, coverage_total: 0, facts: 0 },
-  });
-  render(await AccountWorkspacePage({ params: Promise.resolve({ domain: "synthetic-acme.example" }) }));
-  const rail = screen.getByRole("navigation", { name: "Deep dive" });
-  const labels = within(rail).getAllByRole("link").map((a) => a.textContent!.replace(/\d+$/, ""));
-  expect(labels).toContain("Job postings");
-  expect(labels).toContain("Archive");
-  expect(within(rail).getByRole("link", { name: "Archive" }).getAttribute("href")).toBe("/accounts/synthetic-acme.example/archive");
+  serverGet.mockResolvedValue({ domain: "synthetic-acme.example", name: "Synthetic Acme", added_at: "2026-10-01T00:00:00Z", runs: [] });
+  render(await AccountLayout({ params: Promise.resolve({ domain: "synthetic-acme.example" }), children: <p>page</p> }));
+  const tabs = screen.getByRole("navigation", { name: "Synthetic Acme sections" });
+  expect(within(tabs).getAllByRole("link").map((a) => a.textContent)).toContain("Jobs");
+  const archive = screen.getByRole("menuitem", { name: "Archive" });
+  expect(archive.getAttribute("href")).toBe("/accounts/synthetic-acme.example/archive");
 });
 
 const NEWS = {
@@ -236,7 +231,7 @@ const NEWS = {
 
 test("a news copy shows headline, publisher, category, published date, summary and the article text", () => {
   render(<ArchivedCopyView copy={copy({ kind: "page", url: NEWS.url, title: NEWS.title, text: NEWS.article_text, record: NEWS })} domain="synthetic-acme.example" now={NOW} />);
-  expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Synthetic Acme names a CIO");
+  expect(screen.getAllByRole("heading", { level: 2 })[0]!.textContent).toBe("Synthetic Acme names a CIO");
   expect(screen.getByText("press.synthetic.example · Leadership change")).toBeTruthy();
   const strip = screen.getByRole("note");
   expect(within(strip).getByText("News article")).toBeTruthy();
@@ -266,7 +261,7 @@ test("a profile shows name, title, headline and location; a detection its techno
     record: { schema: "profile-archive/1", name: "Jane Doe", job_title: "Chief Information Officer", headline: "Technology leader", location: "Springfield", text: "Jane Doe\nCIO" },
   });
   const { rerender } = render(<ArchivedCopyView copy={profile} domain="d.example" now={NOW} />);
-  expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Jane Doe");
+  expect(screen.getAllByRole("heading", { level: 2 })[0]!.textContent).toBe("Jane Doe");
   expect(screen.getByText("Chief Information Officer", { selector: ".sub" })).toBeTruthy();
   const grid = document.querySelector("dl.arc-fields") as HTMLElement;
   expect(within(grid).getByText("Headline").nextElementSibling!.textContent).toBe("Technology leader");
@@ -276,7 +271,7 @@ test("a profile shows name, title, headline and location; a detection its techno
     record: { schema: "detection-archive/1", technology: "Workday", first_seen: "2025-01-02", last_seen: "2026-09-30", sources: 3, text: "Workday" },
   });
   rerender(<ArchivedCopyView copy={detection} domain="d.example" now={NOW} />);
-  expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Workday");
+  expect(screen.getAllByRole("heading", { level: 2 })[0]!.textContent).toBe("Workday");
   const g2 = document.querySelector("dl.arc-fields") as HTMLElement;
   expect(within(g2).getByText("First seen").nextElementSibling!.textContent).toBe("2 January 2025");
   expect(within(g2).getByText("Sources").nextElementSibling!.textContent).toBe("3");
@@ -339,7 +334,7 @@ const CLEAN = {
 test("a cleaned news copy shows badges, key facts, people, tables, commentary apart, disclaimer and provenance", () => {
   const body = "## Background\n\nAcme named Jane Roe CIO.\n\n- first point\n- second point";
   render(<ArchivedCopyView copy={copy({ url: CLEAN.url, kind: "page", title: CLEAN.title, text: body, record: CLEAN })} domain="synthetic-acme.example" now={NOW} />);
-  expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Acme names Jane Roe CIO");
+  expect(screen.getAllByRole("heading", { level: 2 })[0]!.textContent).toBe("Acme names Jane Roe CIO");
   expect(screen.getByText("AI-generated summary")).toBeTruthy();
   expect(screen.getByText("Lead")).toBeTruthy();
   expect(screen.getByRole("link", { name: "Open primary source" }).getAttribute("href")).toBe("https://www.prnewswire.example/release/1");

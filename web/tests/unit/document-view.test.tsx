@@ -50,17 +50,17 @@ test("passages are grouped under their file inside the zip, in the member list's
 
 test("a zip renders one section per file with headings, paragraphs, table text and reasons", () => {
   render(<DocumentView doc={doc({})} members={MEMBERS} passages={PASSAGES} />);
-  expect(screen.getByRole("heading", { level: 1, name: "BD_workspace.zip" })).toBeTruthy();
-  expect(screen.getByText("Ready · 3 passages · 3 files inside")).toBeTruthy();
+  expect(screen.getByRole("heading", { level: 2, name: "BD_workspace.zip" })).toBeTruthy();
+  expect(screen.getByText("Ready · 3 sections · 3 files inside")).toBeTruthy();
   const notes = within(screen.getByRole("region", { name: "ws/notes/plan.md" }));
-  expect(notes.getByText("Note · Read: 2 passages")).toBeTruthy();
+  expect(notes.getByText("Note · Read: 2 sections")).toBeTruthy();
   // the heading line appears when the heading changes, and the citation drops the member path
   expect(notes.getAllByRole("heading", { level: 3 }).map((h) => h.textContent)).toEqual(["Plan", "Budget"]);
   expect(notes.getByText("section Budget")).toBeTruthy();
   expect(notes.getByText("Dana owns the budget.")).toBeTruthy();
   expect(notes.getByText("Renewal in March.")).toBeTruthy();
   const jobs = within(screen.getByRole("region", { name: "ws/deliverables/BD_Job_Postings.xlsx" }));
-  expect(jobs.getByText("Job postings · Read: 1 passages, 1 table")).toBeTruthy();
+  expect(jobs.getByText("Job postings · Read: 1 sections, 1 table")).toBeTruthy();
   const pre = jobs.getByText(/Data engineer/);
   expect(pre.tagName).toBe("PRE");
   expect(pre.className).toBe("mono");
@@ -78,7 +78,7 @@ test("an owner-only plain file says so in its sub line and shows one section", (
     { seq: 1, kind: "section", where: "page 2", heading: "Next steps", content: "Call Dana." },
   ];
   render(<DocumentView doc={doc({ name: "private.pdf", audience: "owner_only", passages: 2 })} members={[]} passages={passages} />);
-  expect(screen.getByText("Ready · Owner only · 2 passages")).toBeTruthy();
+  expect(screen.getByText("Ready · Owner only · 2 sections")).toBeTruthy();
   expect(screen.getAllByRole("region")).toHaveLength(1);
   expect(screen.getByText("page 1")).toBeTruthy();
   expect(screen.getByRole("heading", { level: 3, name: "Next steps" })).toBeTruthy();

@@ -314,7 +314,7 @@ export function RunPanel({ runId, compact = false, state }: { runId: string; com
       {terminal && run ? (
         <p className="small" role="status">
           {status === "COMPLETED" ? <span className="status ok">{m.run.completed}</span>
-            : status === "FAILED" ? <span className="status bad">{m.run.failed}{run.reason ? ` ${humanize(run.reason)}.` : ""}</span>
+            : status === "FAILED" ? <span className="status bad">{m.run.failed} Everything found so far is kept.</span>
             : status === "CANCELED" ? <span className="status neutral">{m.run.stopped}</span>
             : <span className="status warn">{m.run.partial}</span>}
         </p>

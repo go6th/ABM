@@ -22,12 +22,12 @@ test("a resumed research says how much is already done", () => {
 });
 
 test("the indexing line counts passages indexed so far, and the progress line prefers it", () => {
-  expect(indexingLine({ stage: "indexing", passages: 22380, indexed_passages: 3200 })).toBe("Indexing 3,200 of 22,380 passages");
-  expect(indexingLine({ stage: "indexing", passages: 22380, indexed_passages: 0 })).toBe("Indexing 0 of 22,380 passages");
+  expect(indexingLine({ stage: "indexing", passages: 22380, indexed_passages: 3200 })).toBe("Getting ready: 3,200 of 22,380 sections");
+  expect(indexingLine({ stage: "indexing", passages: 22380, indexed_passages: 0 })).toBe("Getting ready: 0 of 22,380 sections");
   expect(indexingLine({ stage: "indexed", passages: 22380, indexed_passages: 22380 })).toBeNull();
   expect(indexingLine({ stage: "parsing", passages: 0, indexed_passages: 0 })).toBeNull();
   expect(progressLine({ stage: "parsing", passages: 0, indexed_passages: 0, parts_total: 3, parts_done: 1 })).toBe("Reading part 2 of 3");
-  expect(progressLine({ stage: "indexing", passages: 10, indexed_passages: 4, parts_total: 3, parts_done: 3 })).toBe("Indexing 4 of 10 passages");
+  expect(progressLine({ stage: "indexing", passages: 10, indexed_passages: 4, parts_total: 3, parts_done: 3 })).toBe("Getting ready: 4 of 10 sections");
 });
 
 test("the files line counts a zip's members read and skipped", () => {

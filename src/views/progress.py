@@ -41,6 +41,22 @@ STATUS_LABELS: Mapping[str, str] = {
 }
 
 
+# The older workflow graph's stage names (``config/workflow_v1.yaml``) as the client reads them:
+# the config keeps its own names, the screen gets plain ones.
+CLIENT_STAGE_NAMES: Mapping[str, str] = {
+    "setup": "Set up",
+    "pass1_relationship": "Relationship history",
+    "baseline": "Company basics",
+    "tech": "Technology",
+    "name_searches": "Name searches",
+    "verification": "Checking leads",
+    "distill_grade": "Writing up",
+    "build": "Building files",
+    "gate": "Quality check",
+    "deliver": "Delivery",
+}
+
+
 # The ABM research graph's nodes as the client's eight steps, in order (``finish`` settles and ends
 # every run, whatever happened before it, so it belongs to no step; ``token_gate``, the token
 # guard's pause, can follow any model step, so it belongs to none either: the run shows "Waiting for
@@ -144,6 +160,7 @@ def compute(
     rows = list(rows)
     if nodes_done is not None:
         return _abm(run_id, status, rows, nodes_done)
+    stages = [(sid, CLIENT_STAGE_NAMES.get(sid, name)) for sid, name in stages]
     finished = status in {s.value for s in TERMINAL}
     owned: dict[str, list[str | None]] = {sid: [] for sid, _ in stages}
     for key, row_status in rows:

@@ -207,7 +207,9 @@ function DetailPanel({ detail, item, now, onResumed }: {
   );
 }
 
-export function ResearchBoard({ initial, estimate }: { initial: ResearchLive | null; estimate: ResearchEstimate | null }) {
+/** ``embedded``: on the Research page beside the start form (redesign 2026-11-07), so the board
+ * draws no title and no start form of its own. */
+export function ResearchBoard({ initial, estimate, embedded = false }: { initial: ResearchLive | null; estimate: ResearchEstimate | null; embedded?: boolean }) {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
@@ -261,7 +263,10 @@ export function ResearchBoard({ initial, estimate }: { initial: ResearchLive | n
 
   return (
     <div className="stack-22">
-      <div className="head">
+      {embedded ? (
+        // the connection is worth a word only when it is not live
+        state !== "live" ? <Connection state={state} asOf={data.as_of} now={now} /> : null
+      ) : <div className="head">
         <div className="ttl">
           <h1>{m.board.title}</h1>
           <div className="sub">{m.board.sub}</div>
@@ -272,7 +277,7 @@ export function ResearchBoard({ initial, estimate }: { initial: ResearchLive | n
             {starting ? m.board.hideStart : m.board.start}
           </button>
         </div>
-      </div>
+      </div>}
 
       {starting ? (
         <section id="research-start" className="card pad stack-14" aria-labelledby="research-start-title">
@@ -302,8 +307,8 @@ export function ResearchBoard({ initial, estimate }: { initial: ResearchLive | n
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4a7 7 0 1 0 0 14a7 7 0 1 0 0-14M20 20l-4-4M8 11h6M11 8v6" /></svg>
             </span>
             <h3>Nothing is running right now</h3>
-            <p>Start a new research and it shows here as it works, step by step, with what it finds.</p>
-            {!starting ? (
+            <p>Start a research and it shows here as it works, step by step, with what it finds.</p>
+            {!starting && !embedded ? (
               <button type="button" className="btn primary" onClick={() => {
                 setStarting(true);
                 // the form opens above: bring its first field to the keyboard

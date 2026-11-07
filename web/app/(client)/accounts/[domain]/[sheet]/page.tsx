@@ -17,8 +17,8 @@ export const dynamic = "force-dynamic";
 
 const TITLES: Record<string, string> = {
   people: "People", signals: "Signals", jobs: "Job postings", technology: "Tech stack and teams",
-  news: "News", "mail-and-drive": "From your mail and drive", sources: "Sources", searches: "Web searches",
-  facts: "Platform picture by lane", coverage: "Coverage", "uploaded-files": "Uploaded files",
+  news: "News", "mail-and-drive": "From your mail and drive", sources: "Sources", searches: "Searches run",
+  facts: "Platforms by area", coverage: "Coverage", "uploaded-files": "Uploaded files",
   teams: "Platform teams", connections: "Connections", findings: "Findings", calls: "Calls made", notes: "Notes",
 };
 const PAGE = 200;
@@ -95,8 +95,7 @@ export default async function SheetPage({ params, searchParams }: Props) {
       <div className="pg tight gap-18">
         <div className="head">
           <div className="ttl">
-            <Link className="back" href={back} prefetch={false}>‹ {tab.account_name}</Link>
-            <h1>{tab.title}</h1>
+            <h2>{tab.title}</h2>
             <div className="sub">The {tab.tab_label} sheet of your delivered file, as the file prints it.</div>
           </div>
           {download ? <a className="btn sm" href={download} download>Download the file</a> : null}
@@ -140,8 +139,7 @@ export default async function SheetPage({ params, searchParams }: Props) {
     <div className="pg tight gap-18">
       <div className="head">
         <div className="ttl">
-          <Link className="back" href={back} prefetch={false}>‹ {sheet.account_name}</Link>
-          <h1>{sheet.title}</h1>
+          <h2>{sheet.title}</h2>
           <div className="sub">{sheet.scope}</div>
         </div>
         {sheet.private ? <span className="pill internal big">Private to you</span> : null}

@@ -29,7 +29,7 @@ export function UploadedFilesCard({ docs, domain = null }: { docs: DocumentStatu
               <li key={d.document_id}>
                 <div className="stack-8">
                   <p>{page ? <Link href={page} prefetch={false}>{cellText(d.name)}</Link> : cellText(d.name)}</p>
-                  <span className="sub">{fileSize(d.size_bytes)}{d.passages ? `. ${d.passages.toLocaleString()} passages` : ""}</span>
+                  <span className="sub">{fileSize(d.size_bytes)}{d.passages ? `. ${d.passages.toLocaleString()} sections` : ""}</span>
                   {progressLine(d) ? <span className="sub" aria-live="polite">{progressLine(d)}</span> : null}
                   {filesLine(d) ? <span className="sub">{filesLine(d)}</span> : null}
                   {d.members_skipped?.length ? (
@@ -51,7 +51,7 @@ export function UploadedFilesCard({ docs, domain = null }: { docs: DocumentStatu
         </ul>
       )}
       <div className="files-actions">
-        <Link className="btn" href="/research/new?tab=file" prefetch={false}>Add files</Link>
+        <Link className="btn" href="/research?tab=file" prefetch={false}>Add files</Link>
       </div>
     </section>
   );

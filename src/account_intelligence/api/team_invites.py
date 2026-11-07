@@ -152,6 +152,13 @@ async def invite_member(
                     text("SELECT name FROM tenants WHERE id = :t"), {"t": tenant_id}
                 )
         except membership.MembershipRefused as e:
+            if e.reason == "already_member":
+                raise APIProblem(
+                    409,
+                    "already_member",
+                    "Already a member",
+                    "This person is already in your workspace.",
+                ) from None
             raise HTTPException(409, e.reason) from None
     except BaseException:  # any failure after the seat was taken gives it back, then re-raises
         async with tenant_txn(tenant_id) as s:

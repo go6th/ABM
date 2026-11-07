@@ -1,32 +1,10 @@
-// New research (screen 9): two tabs. Company name researches a company from public sources on
-// one of the user's researches (confirmed first). Upload a file analyzes only the
-// files (one chat); public sources only when switched on (one research as well).
-import type { Metadata } from "next";
-import type { ResearchEstimate } from "@/lib/gen/api.gen";
-import { serverGet, ServerApiError } from "@/lib/server-api";
-import { NewResearch } from "@/components/accounts/NewResearch";
+// New research now lives on the Research page (redesign 2026-11-07); the old address still works
+// and keeps the tab it asked for (company, or file with ?source=drive).
+import { redirect } from "next/navigation";
 
-export const dynamic = "force-dynamic";
-export const metadata: Metadata = { title: "New research · Account Intelligence" };
-
-export default async function NewResearchPage({ searchParams }: { searchParams: Promise<{ tab?: string; mode?: string; source?: string }> }) {
-  const query = await searchParams;
-  let estimate: ResearchEstimate | null = null;
-  try {
-    estimate = await serverGet<ResearchEstimate>("/v1/research/estimate", "/research/new");
-  } catch (e) {
-    if (!(e instanceof ServerApiError)) throw e;
-  }
-  const tab = query.tab === "file" || query.mode === "file" ? "file" : "company";
-  return (
-    <div className="pg pad-48 center">
-      <div className="col w720">
-        <div>
-          <h1 className="big">New research</h1>
-          <p className="intro">Start from a company name, or upload your own file and we will analyze what is in it.</p>
-        </div>
-        <NewResearch estimate={estimate} initialTab={tab} initialDrive={tab === "file" && query.source === "drive"} />
-      </div>
-    </div>
-  );
+export default async function Moved({ searchParams }: { searchParams: Promise<{ tab?: string; mode?: string; source?: string }> }) {
+  const q = await searchParams;
+  const file = q.tab === "file" || q.mode === "file";
+  const next = new URLSearchParams({ ...(file ? { tab: "file" } : {}), ...(file && q.source === "drive" ? { source: "drive" } : {}) }).toString();
+  redirect(next ? `/research?${next}` : "/research");
 }

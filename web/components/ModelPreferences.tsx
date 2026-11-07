@@ -27,7 +27,7 @@ export function ModelPreferences() {
   const [toast, setToast] = useState<{ ok: boolean; text: string } | null>(null);
   const choices = state === "failed" ? null : state;
 
-  if (state === "failed") return <StateCard title="Model preferences could not be loaded" body="Reload the page in a moment." action={<a className="btn" href="/model-preferences">Reload</a>} />;
+  if (state === "failed") return <StateCard title="Model preferences could not be loaded" body="Reload the page in a moment." action={<a className="btn" href="/settings">Reload</a>} />;
   if (!choices) return <div className="stack-14"><div className="skel block" /><div className="skel block" /></div>;
   if (!choices.models.length) return <StateCard title="No models are available" body="Ask your administrator to set up a model." />;
 

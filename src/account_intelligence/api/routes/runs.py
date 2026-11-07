@@ -274,7 +274,7 @@ async def _run_input(
             409,
             "settings_invalid",
             "Settings need attention",
-            "An admin must save the tenant settings again.",
+            "An admin must save the workspace settings again.",
         ) from None
     rule = settings.ExclusionFilter.of(current.settings)
     if rule.excludes_company(body.domain):
@@ -282,7 +282,7 @@ async def _run_input(
             409,
             "excluded_company",
             "Excluded company",
-            "This company is on the tenant's exclusion list.",
+            "This company is on your workspace's exclusion list.",
         )
     lanes, _, _ = settings.platform_options()
     off = set(body.lanes_off) | (set(lanes) - set(current.settings.platform_lanes))

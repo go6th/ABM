@@ -1,23 +1,20 @@
-// The Account workspace as designed: breadcrumb, title and status line, Schedule and Refresh
-// from web, THE ONE MINUTE VERSION (each sentence links to its source), Key findings on a first
-// scan or What changed after a refresh, the account's composer, and on the right DEEP DIVE with
-// live counts and FILES. Another client's account and a missing one look the same: not found.
+// The account's Overview tab (redesign 2026-11-07; the frame, actions and tabs are the account
+// layout's): research status, the summary (each sentence links to its source), Key findings on a
+// first scan or What changed after a refresh, and on the right At a glance, coverage and the
+// account's Ask box. The delivered files and uploads live on the Files tab. Another client's
+// account and a missing one look the same: not found.
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
-import type { AccountWorkspace, DocumentList, ParityScreen } from "@/lib/gen/api.gen";
+import type { AccountWorkspace, DocumentList } from "@/lib/gen/api.gen";
 import { serverGet, ServerApiError } from "@/lib/server-api";
 import { LINK_REL, safeLink } from "@/lib/render";
-import { Grade, Pill, StateCard, type PillTone } from "@/ui/design";
-import { FilesCard } from "@/components/accounts/FilesCard";
-import { UploadedFilesCard } from "@/components/accounts/UploadedFilesCard";
+import { Grade, Pill, StateCard } from "@/ui/design";
 import { LiveSync, RetryRefresh } from "@/components/accounts/LiveSync";
 import { AccountAsk } from "@/components/accounts/AccountAsk";
 import { ResumeResearch } from "@/components/accounts/ResumeResearch";
 import { ResearchProgress } from "@/components/accounts/ResearchProgress";
 import { ImportProblems } from "@/components/accounts/ImportProblems";
-import { DeleteAccount } from "@/components/accounts/DeleteAccount";
-import { ParityWorkspace } from "@/components/accounts/ParityWorkspace";
 
 export const dynamic = "force-dynamic";
 
@@ -43,53 +40,17 @@ function joinAnd(items: string[]): string {
 
 const SCOPE_NAME: Record<string, string> = { jobs: "Job postings only", people: "People and teams", full: "Full research", topic: "a specific topic", file: "your files" };
 
-/** The first letter of a company, for its tile. */
-function initialOf(name: string): string {
-  return (name.replace(/^www\./i, "").match(/[a-z0-9]/i)?.[0] ?? "?").toUpperCase();
-}
-
-/** A gap reason's colour: something the user can act on is yellow, a failure rose, the rest
- *  (not available yet, outside this research's scope) neutral. */
-function gapTone(reason: string): PillTone {
-  const r = reason.toLowerCase();
-  if (r.includes("failed") || r.includes("error")) return "bad";
-  if (r.includes("only you") || r.includes("limit") || r.includes("waiting") || r.includes("waits")) return "warn";
-  return "neutral";
-}
-
-/** The delivered files from the account's parity bundle, when a built version exists (404
- *  otherwise: nothing is drawn). Its own Suspense boundary, like the uploads. */
-async function Delivered({ domain, here }: { domain: string; here: string }) {
-  let screen: ParityScreen | null = null;
-  try {
-    screen = await serverGet<ParityScreen>(`/v1/accounts/${encodeURIComponent(domain)}/parity/screen`, here, [404]);
-  } catch (e) {
-    if (!(e instanceof ServerApiError)) throw e;
-    return null;
-  }
-  return screen ? <ParityWorkspace domain={domain} screen={screen} /> : null;
-}
-
-/** The client's own uploads for this account (viewers may not list documents: none shown). Read
- *  inside its own Suspense boundary so the page, whose data is the workspace, does not wait for a
- *  second round trip to the API before it shows. */
-async function Uploads({ accountId, domain, here }: { accountId: string; domain: string; here: string }) {
+/** Keeps the page current while the account's uploads are read (the counts and summary follow
+ *  what a work zip holds), in its own Suspense boundary so the page does not wait for it. The
+ *  uploads themselves are listed on the Files tab. */
+async function UploadWatch({ accountId, here }: { accountId: string; here: string }) {
   let uploads: DocumentList["documents"] | null = null;
   try {
     uploads = (await serverGet<DocumentList>(`/v1/documents?account_id=${encodeURIComponent(accountId)}`, here))?.documents ?? null;
   } catch (e) {
     if (!(e instanceof ServerApiError)) throw e;
   }
-  // LiveSync re-draws the page while these files are read and after (the Deep dive counts and
-  // Files follow what a work zip holds), so an upload shows without a reload
-  return uploads ? (
-    <>
-      <UploadedFilesCard docs={uploads} domain={domain} />
-      <LiveSync accountId={accountId} docs={uploads} />
-    </>
-  ) : (
-    <RetryRefresh />
-  );
+  return uploads ? <LiveSync accountId={accountId} docs={uploads} /> : <RetryRefresh />;
 }
 
 export default async function AccountWorkspacePage({ params }: Params) {
@@ -106,7 +67,6 @@ export default async function AccountWorkspacePage({ params }: Params) {
   if (failed || !ws) {
     return (
       <div className="pg">
-        <Link className="back" href="/accounts">‹ Accounts</Link>
         {failed
           ? <StateCard title="This account could not be loaded" body="Your workspace could not be reached. Reload the page in a moment." action={<a className="btn" href={here}>Reload</a>} />
           : <StateCard title="Account not found" body="It is not in your workspace." action={<Link className="btn" href="/accounts">Back to accounts</Link>} />}
@@ -116,85 +76,27 @@ export default async function AccountWorkspacePage({ params }: Params) {
   const name = ws.name ?? ws.domain;
   const findings = ws.findings ?? [];
   const sentences = ws.narrative?.sentences ?? [];
-  const d = encodeURIComponent(ws.domain);
-  const coverage = ws.counts.coverage_total ? `${ws.counts.coverage_done} of ${ws.counts.coverage_total} done` : "Not run yet";
-  const rail: Array<[string, string, number | string]> = [
-    ["Signals", `${here}/signals`, ws.counts.signals],
-    ["People", `${here}/people`, ws.counts.people],
-    ["Job postings", `${here}/jobs`, ws.counts.jobs],
-    ["Tech stack and teams", `${here}/technology`, ws.counts.tech],
-    ["News", `${here}/news`, ws.counts.news],
-    ["From your mail and drive", `${here}/mail-and-drive`, ws.counts.mail_drive],
-    ["Sources", `${here}/sources`, ws.counts.sources],
-    ["Archive", `${here}/archive`, ""],
-    ["Web searches", `${here}/searches`, ws.counts.searches ?? 0],
-    ["Uploaded files", `${here}/uploaded-files`, ws.counts.files ?? 0],
-    ["Platform picture by lane", `${here}/facts`, ws.counts.facts ?? 0],
-    ["Findings", `${here}/findings`, ws.counts.findings ?? 0],
-    ["Platform teams", `${here}/teams`, ws.counts.teams ?? 0],
-    ["Connections", `${here}/connections`, ws.counts.connections ?? 0],
-    ["Calls made", `${here}/calls`, ws.counts.calls ?? 0],
-    ["Notes", `${here}/notes`, ws.counts.notes ?? 0],
-    ["Coverage", `${here}/coverage`, coverage],
-  ];
+  const coverage = ws.counts.coverage_total ? `${ws.counts.coverage_done} of ${ws.counts.coverage_total} areas covered` : null;
   const glance: Array<[string, string, number]> = [
-    ["Signals", `${here}/signals`, ws.counts.signals],
     ["People", `${here}/people`, ws.counts.people],
     ["Job postings", `${here}/jobs`, ws.counts.jobs],
+    ["Signals", `${here}/signals`, ws.counts.signals],
     ["News", `${here}/news`, ws.counts.news],
+    ["Sources", `${here}/sources`, ws.counts.sources],
+    ["From your mail and drive", `${here}/mail-and-drive`, ws.counts.mail_drive],
   ];
   return (
     <div className="split">
       <div className="primary-col">
-        <div className="head">
-          <div className="ttl">
-            <Link className="back" href="/accounts" prefetch={false}>‹ Accounts</Link>
-            <div className="title-row">
-              <span className="ti lg" aria-hidden="true">{initialOf(name)}</span>
-              <div>
-                <h1 className="big">{name}</h1>
-                <div className="sub">{ws.subline}</div>
-              </div>
-            </div>
-          </div>
-          <Link className="btn" href={`/schedules?account=${d}#${d}`} prefetch={false}>Schedule</Link>
-          <Link className="btn primary" href={`${here}/refresh`} prefetch={false}>Refresh from web</Link>
-          <DeleteAccount domain={ws.domain} name={name} />
-        </div>
-
+        <p className="mut sm-text">{ws.subline}</p>
         <ImportProblems problems={ws.import_problems ?? []} sheetHref={`${here}/uploaded-files`} />
-
-        <nav className="kpi-tiles" aria-label="At a glance">
-          {glance.map(([label, href, n], i) => (
-            <Link key={label} className={i === 0 && Number(n) > 0 ? "kpi-tile hl" : "kpi-tile"} href={href} prefetch={false}>
-              <span className="v">{n}</span>
-              <span className="k">{label}</span>
-            </Link>
-          ))}
-        </nav>
 
         {ws.open_job ? (
           <ResearchProgress key={`${ws.open_job.id}:${ws.open_job.run_id ?? ""}`} job={ws.open_job} scopeName={SCOPE_NAME[ws.open_job.scope] ?? "research"} />
-        ) : ws.stopped_run ? <ResumeResearch stopped={ws.stopped_run} /> : (ws.gaps ?? []).length ? (
-          <section className="card pad stack-14" aria-labelledby="gaps-title">
-            <div className="summary-head">
-              <h2 id="gaps-title">Research finished</h2>
-              <span className="big-n">{coverage}</span>
-            </div>
-            {ws.counts.coverage_total ? (
-              <progress className="pbar" max={ws.counts.coverage_total} value={ws.counts.coverage_done} aria-label={`${coverage} steps`} />
-            ) : null}
-            <ul className="chips" aria-label="Steps not done">
-              {(ws.gaps ?? []).map((g) => (
-                <li key={g.reason}><Pill tone={gapTone(g.reason)}><b>{g.count}</b>&nbsp;·&nbsp;{g.reason}</Pill></li>
-              ))}
-            </ul>
-            <Link className="btn align-start" href={`${here}/coverage`} prefetch={false}>See each step in Coverage</Link>
-          </section>
-        ) : null}
+        ) : ws.stopped_run ? <ResumeResearch stopped={ws.stopped_run} /> : null}
 
-        <section className="card pad-lg stack-10" aria-labelledby="omv">
-          <div className="lbl" id="omv">The one minute version</div>
+        <section className="stack-10" aria-labelledby="omv">
+          <h2 id="omv">Summary</h2>
           {sentences.length ? (
             <>
               <p className="narr">
@@ -211,7 +113,7 @@ export default async function AccountWorkspacePage({ params }: Params) {
                   );
                 })}
               </p>
-              <div className="fine">Every statement links to its source in <Link href={`${here}/sources`}>Sources</Link>.</div>
+              <div className="fine">Every statement links to its source. All sources are on the <Link href={`${here}/sources`}>Sources</Link> tab.</div>
             </>
           ) : (
             <p className="mut">A summary appears here when the first research finishes.</p>
@@ -226,7 +128,7 @@ export default async function AccountWorkspacePage({ params }: Params) {
                 <div key={i} className="lrow"><Grade grade={r.grade} /><span className="grow">{r.text}</span><span className="when">{r.when}</span></div>
               ))}
               {ws.changes.quiet_lanes?.length ? (
-                <div className="lrow"><Pill tone="neutral" small>No change</Pill><span className="grow">{joinAnd(ws.changes.quiet_lanes)} lanes</span><span className="when">This week</span></div>
+                <div className="lrow"><Pill tone="neutral" small>No change</Pill><span className="grow">{joinAnd(ws.changes.quiet_lanes)}</span><span className="when">This week</span></div>
               ) : null}
               {!ws.changes.rows?.length && !ws.changes.quiet_lanes?.length ? (
                 <div className="lrow"><Pill tone="neutral" small>No change</Pill><span className="grow">Nothing material changed in the latest refresh</span></div>
@@ -235,7 +137,10 @@ export default async function AccountWorkspacePage({ params }: Params) {
           </section>
         ) : (
           <section className="stack-10" aria-labelledby="findings">
-            <h2 id="findings">Key findings</h2>
+            <div className="between">
+              <h2 id="findings">Key findings</h2>
+              {ws.counts.findings ? <Link className="link-strong sm-text" href={`${here}/findings`} prefetch={false}>See all {ws.counts.findings} findings</Link> : null}
+            </div>
             {findings.length ? (
               <div className="card list">
                 {findings.map((r, i) => (
@@ -245,26 +150,41 @@ export default async function AccountWorkspacePage({ params }: Params) {
             ) : (
               <div className="card list"><div className="lrow mut">No findings yet.</div></div>
             )}
-            {ws.first_scan ? (
-              <div className="fine">This is the first scan, so there is nothing to compare yet. After the next refresh, a What changed section appears here.</div>
-            ) : null}
+            <div className="fine">Say only Confirmed facts to a prospect. Probable and Hypothesis items are for your own preparation.{ws.first_scan ? " This is the first scan; after the next refresh, What changed appears here." : ""}</div>
           </section>
         )}
-
-        <AccountAsk account={{ id: ws.id ?? "", domain: ws.domain, name }} />
-        <Suspense fallback={null}><Delivered domain={ws.domain} here={here} /></Suspense>
+        {ws.id ? <Suspense fallback={null}><UploadWatch accountId={ws.id} here={here} /></Suspense> : null}
       </div>
 
-      <div className="side-col">
-        <nav className="card rail" aria-label="Deep dive">
-          <div className="lbl">Deep dive</div>
-          {rail.map(([label, href, n]) => (
-            <Link key={label} href={href} prefetch={false}>{label}<span className="n">{n}</span></Link>
-          ))}
-        </nav>
-        <FilesCard domain={ws.domain} files={ws.files} />
-        {ws.id ? <Suspense fallback={null}><Uploads accountId={ws.id} domain={ws.domain} here={here} /></Suspense> : null}
-      </div>
+      <aside className="side-col stack-22" aria-label="At a glance">
+        <section className="stack-10">
+          <h2 className="h-sm">At a glance</h2>
+          <nav className="card glance" aria-label="Tables">
+            {glance.map(([label, href, n]) => (
+              <Link key={label} href={href} prefetch={false}><span>{label}</span><b>{n.toLocaleString()}</b></Link>
+            ))}
+          </nav>
+        </section>
+        {coverage ? (
+          <section className="stack-10">
+            <h2 className="h-sm">Research coverage</h2>
+            <div className="card pad stack-10">
+              <b>{coverage}</b>
+              <progress className="pbar" max={ws.counts.coverage_total} value={ws.counts.coverage_done} aria-label={coverage} />
+              {(ws.gaps ?? []).length ? (
+                <ul className="gap-list">
+                  {(ws.gaps ?? []).map((g) => <li key={g.reason}><b>{g.count}</b> {g.reason}</li>)}
+                </ul>
+              ) : null}
+              <Link className="link-strong sm-text" href={`${here}/coverage`} prefetch={false}>See each area</Link>
+            </div>
+          </section>
+        ) : null}
+        <section className="stack-10">
+          <h2 className="h-sm">Ask about {name}</h2>
+          <AccountAsk account={{ id: ws.id ?? "", domain: ws.domain, name }} />
+        </section>
+      </aside>
     </div>
   );
 }

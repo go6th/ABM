@@ -16,11 +16,11 @@ export type Stage = "waiting" | "uploading" | "scanning" | "parsing" | "parsed" 
 export const STAGE_TEXT: Record<Stage, string> = {
   waiting: "Waiting",
   uploading: "Uploading",
-  scanning: "Scanning",
+  scanning: "Checking",
   parsing: "Reading",
   parsed: "Read, waiting for the company",
   needs_account: "Needs account",
-  indexing: "Indexing",
+  indexing: "Getting ready",
   indexed: "Ready",
   failed: "Failed",
 };
@@ -74,11 +74,11 @@ export function partsLine(doc: Pick<DocumentStatus, "stage" | "parts_total" | "p
   return `Reading part ${Math.min(doc.parts_total, doc.parts_done + 1)} of ${doc.parts_total}`;
 }
 
-/** "Indexing 3,200 of 22,380 passages" while a read file is embedded and indexed (null otherwise). */
+/** "Getting ready: 3,200 of 22,380 sections" while a read file is embedded and indexed (null otherwise). */
 export function indexingLine(doc: Pick<DocumentStatus, "stage" | "passages" | "indexed_passages">): string | null {
   if (doc.stage !== "indexing" || !doc.passages) return null;
   const done = Math.min(doc.passages, doc.indexed_passages ?? 0);
-  return `Indexing ${done.toLocaleString()} of ${doc.passages.toLocaleString()} passages`;
+  return `Getting ready: ${done.toLocaleString()} of ${doc.passages.toLocaleString()} sections`;
 }
 
 /** "269 files read, 6 skipped" for a zip (null for a single file or before anything was read). */
@@ -163,10 +163,10 @@ export const ROLE_TEXT: Record<string, string> = {
   deliverable_other: "Deliverable",
   owner_only: "Owner-only file",
   note: "Note",
-  restore: "Package manifest",
+  restore: "Contents list",
   captured_page: "Captured page",
-  raw_pull: "Raw pull",
-  build: "Build file",
+  raw_pull: "Source data",
+  build: "Working file",
   other: "File",
 };
 
@@ -174,7 +174,7 @@ const MEMBER_STATUS_TEXT: Record<DocumentMember["status"], string> = { read: "Re
 
 export function memberLine(m: DocumentMember): string {
   const what = m.status === "read"
-    ? [m.passages ? `${m.passages.toLocaleString()} passages` : null, m.tables ? `${m.tables} table${m.tables === 1 ? "" : "s"}` : null].filter(Boolean).join(", ")
+    ? [m.passages ? `${m.passages.toLocaleString()} sections` : null, m.tables ? `${m.tables} table${m.tables === 1 ? "" : "s"}` : null].filter(Boolean).join(", ")
     : m.reason ?? "";
   const status = MEMBER_STATUS_TEXT[m.status] ?? m.status;
   return what ? `${status}: ${what}` : status;

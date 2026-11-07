@@ -101,7 +101,7 @@ test("Google Drive not connected: a link to the Mail and drive page, no file lis
   apiMock.mockRejectedValue(new ApiError(409, "drive_not_connected", "Connect Google Drive on the Mail and drive page first."));
   render(<DocumentDrop onChange={() => undefined} initialDrive />);
   const link = await screen.findByRole("link", { name: "Connect Google Drive" });
-  expect(link.getAttribute("href")).toBe("/mail-and-drive");
+  expect(link.getAttribute("href")).toBe("/settings/mail-and-drive");
   expect(screen.queryByRole("search")).toBeNull();
 });
 

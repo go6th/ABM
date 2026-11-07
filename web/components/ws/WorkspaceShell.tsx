@@ -1,6 +1,6 @@
 "use client";
-// The client workspace frame as designed: logo, workspace card, New chat, the nav (Ask,
-// Accounts, New research, Schedules, Mail and drive), recent chats, then the signed-in person and
+// The client workspace frame (redesign 2026-11-07): logo, workspace card, the nav (Ask, Accounts,
+// Research, Settings), updates, recent chats with New chat, then the signed-in person and
 // Sign out (no "Accounts used" meter: owner decision 2026-10-14; Add account still enforces the
 // cap). Below 760px the sidebar is an overlay menu: Escape or the
 // scrim closes it, focus stays inside while open and returns to the Menu button, and the page
@@ -34,10 +34,10 @@ export const NEW_CHAT_EVENT = "ask:new-chat";
 
 export function isCurrent(pathname: string, href: string): boolean {
   if (href === "/") return pathname === "/";
-  if (href === "/research/new") return pathname === href || /^\/accounts\/[^/]+\/files/.test(pathname);
-  // the Research screen only (New research is its own entry)
-  if (href === "/research") return pathname === "/research";
-  if (href === "/accounts") return pathname === "/accounts" || (pathname.startsWith("/accounts/") && !/^\/accounts\/[^/]+\/files/.test(pathname));
+  // starting, watching and reading a research all sit under Research
+  if (href === "/research") return pathname === "/research" || pathname.startsWith("/research/") || pathname.startsWith("/runs/");
+  // every account screen, its file analysis included, sits under Accounts
+  if (href === "/accounts") return pathname === "/accounts" || pathname.startsWith("/accounts/");
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
@@ -62,12 +62,8 @@ export function WorkspaceShell({ user, recent, notes = [], children }: { user: S
   const nav = [
     { href: "/", label: "Ask", icon: "ask" },
     { href: "/accounts", label: "Accounts", icon: "accounts" },
-    { href: "/research", label: "Research", icon: "runs" },
-    { href: "/research/new", label: "New research", icon: "research" },
-    { href: "/schedules", label: "Schedules", icon: "schedules" },
-    ...(user.mailDriveAllowed ? [{ href: "/mail-and-drive", label: "Mail and drive", icon: "mail" }] : []),
-    ...(user.isAdmin ? [{ href: "/team", label: "Teammates", icon: "accounts" }] : []),
-    ...(user.isAdmin ? [{ href: "/support-access", label: "Support access", icon: "support" }] : []),
+    { href: "/research", label: "Research", icon: "research" },
+    { href: "/settings", label: "Settings", icon: "settings" },
   ];
 
   useEffect(() => {
@@ -132,7 +128,6 @@ export function WorkspaceShell({ user, recent, notes = [], children }: { user: S
       <aside ref={side} className="side" id="sidebar" data-open={open} aria-label="Workspace">
         <Link href="/" prefetch={false} onClick={() => setOpen(false)}><Logo /></Link>
         <div className="card wscard"><div className="k">Workspace</div><div className="v" title={user.clientName}>{user.clientName}</div></div>
-        <button type="button" className="btn primary block" onClick={newChat}>New chat</button>
         <nav className="nav" aria-label="Main">
           {nav.map((item) => (
             <Link
@@ -164,24 +159,23 @@ export function WorkspaceShell({ user, recent, notes = [], children }: { user: S
             ))}
           </section>
         ) : null}
-        {recent.length ? (
-          <nav className="rec" aria-label="Recent chats">
-            <div className="lbl">Recent</div>
+        <nav className="rec" aria-label="Recent chats">
+          <div className="rec-head"><span className="lbl">Recent chats</span><button type="button" className="new" onClick={newChat}>New chat</button></div>
+          {recent.length ? (<>
             {recent.map((t) => (
               <Link key={t.id} href={`/?thread=${encodeURIComponent(t.id)}`} prefetch={false} aria-current={thread === t.id ? "page" : undefined} onClick={() => setOpen(false)}>
                 {t.title || "Untitled chat"}
               </Link>
             ))}
             <Link className="all" href="/chats" prefetch={false} aria-current={pathname === "/chats" ? "page" : undefined} onClick={() => setOpen(false)}>All chats</Link>
-          </nav>
-        ) : null}
+          </>) : <p className="rec-empty">Your questions appear here.</p>}
+        </nav>
         <div className="side-foot">
           <div className="me">
             <div className="avatar" aria-hidden="true">{initial(user.userName, user.email)}</div>
             <div className="who">
               {user.userName ? <div className="nm">{user.userName}</div> : null}
               {user.email ? <div className="em" title={user.email}>{user.email}</div> : null}
-              <Link className="out" href="/model-preferences" prefetch={false} onClick={() => setOpen(false)}>Model preferences</Link>
               <button type="button" className="out" onClick={() => void signOut()} disabled={busy}>Sign out</button>
             </div>
           </div>

@@ -23,19 +23,23 @@
 
 .nav { display: flex; flex-direction: column; gap: 2px; }
 .nav a {
-  display: flex; align-items: center; gap: 12px; min-height: 46px; padding: 0 10px; border-radius: var(--r-btn);
-  font-size: 14px; font-weight: 600; color: var(--text-nav); transition: background var(--ease), color var(--ease), box-shadow var(--ease);
+  display: flex; align-items: center; gap: 10px; min-height: 38px; padding: 0 10px; border-radius: var(--r-btn);
+  font-size: 14px; font-weight: 500; color: var(--text-nav); transition: background var(--ease), color var(--ease), box-shadow var(--ease);
 }
 .nav a:hover { background: var(--hover); color: var(--ink); }
-.nav a[aria-current="page"] { background: var(--surface); color: var(--ink); font-weight: 700; box-shadow: var(--sh-raised); }
-.ni { width: 30px; height: 30px; flex: none; border-radius: 9px; display: inline-flex; align-items: center; justify-content: center; background: var(--lav-bg); color: var(--lav-ink); transition: background var(--ease), color var(--ease); }
-[aria-current="page"] > .ni { background: var(--accent); color: #fff; }
-.nav a .badge { margin-left: auto; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 99px; background: var(--accent); color: #fff; font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
+.nav a[aria-current="page"] { background: var(--surface); color: var(--ink); font-weight: 600; box-shadow: inset 3px 0 0 var(--accent); }
+.ni { width: 20px; height: 20px; flex: none; display: inline-flex; align-items: center; justify-content: center; color: var(--muted); transition: color var(--ease); }
+[aria-current="page"] > .ni { color: var(--accent); }
+.nav a .badge { margin-left: auto; min-width: 20px; height: 20px; padding: 0 8px; border-radius: 99px; background: var(--probable-bg); color: var(--probable-ink); font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
 
 .rec { display: flex; flex-direction: column; }
-.rec .lbl { font-size: 11px; padding: 0 12px 6px; }
+.rec .lbl { font-size: 11px; }
+.rec-head { display: flex; align-items: center; justify-content: space-between; padding: 0 4px 6px 12px; }
+.rec-head .new { border: 0; background: none; padding: 4px 8px; min-height: 28px; border-radius: var(--r-seg); font-size: 12px; font-weight: 600; color: var(--accent); }
+.rec-head .new:hover { background: var(--hover); }
+.rec-empty { margin: 0; padding: 4px 12px; font-size: 13px; color: var(--muted); }
 .rec a.all { color: var(--accent); font-weight: 600; }
-.rec a { display: block; padding: 9px 12px; border-radius: var(--r-seg); font-size: 13px; color: var(--text-nav); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: background var(--ease); }
+.rec a { display: block; padding: 7px 12px; border-radius: var(--r-seg); font-size: 13px; color: var(--text-nav); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: background var(--ease); }
 .rec a:hover { background: var(--hover); }
 .rec a[aria-current="page"] { background: var(--hover); color: var(--ink); }
 

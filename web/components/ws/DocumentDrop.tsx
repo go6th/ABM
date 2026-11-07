@@ -247,7 +247,7 @@ export function DocumentDrop({ accountId = null, onChange, disabled = false, ini
                         ? it.driveSource ? m.research.driveFetching(DRIVE_LABEL[it.driveSource]) : `${fileSize(it.sent)} of ${fileSize(it.size)} sent`
                         : fileSize(it.size)}
                       {reading ? `. ${reading}` : ""}
-                      {it.doc?.passages ? `. ${it.doc.passages.toLocaleString()} passages` : ""}
+                      {it.doc?.passages ? `. ${it.doc.passages.toLocaleString()} sections read` : ""}
                       {it.doc?.audience === "owner_only" ? ". Owner only" : ""}
                       {it.message ? `. ${it.message}` : ""}
                     </span>

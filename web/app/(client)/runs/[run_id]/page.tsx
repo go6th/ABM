@@ -1,13 +1,13 @@
 "use client";
-// Run: the research's steps with done, running, waiting or where it stopped, work so far, files as
-// they appear, Stop, Refresh, and the checkpoint card when the run pauses. A finished run shows its
-// coverage. The page and the panel share one copy of the run's polling and event stream.
+// Research progress (redesign 2026-11-07): the research's steps in plain words with done, running,
+// waiting or where it stopped, the work and tokens so far, Stop, the checkpoint card when it
+// pauses, and its files as they appear. The quality check's codes and the coverage table are not
+// shown here: what could not be found is on the account's Coverage table. The page and the panel
+// share one copy of the run's polling and event stream.
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { RunFiles, RunPanel, useRun } from "@/components/ws/RunSteps";
-import { PageHead, Status } from "@/ui/primitives";
 import { m } from "@/lib/messages";
-import { humanize } from "@/lib/ws-format";
 import { cellText } from "@/lib/render";
 
 export default function RunPage() {
@@ -15,48 +15,31 @@ export default function RunPage() {
   const runId = params.run_id;
   const live = useRun(runId);
   const { run, status, terminal } = live;
-  const label = run?.input_mode === "file" ? m.account.fromFiles : null;
+  const account = run?.domain ? `/accounts/${encodeURIComponent(run.domain)}` : null;
+  const title = run?.domain ? `${terminal ? "Research of" : "Researching"} ${cellText(run.domain)}` : m.run.title;
   return (
-    <div className="page narrow">
-      <PageHead
-        crumb={run?.domain ? <Link href={`/accounts/${encodeURIComponent(run.domain)}`}>{cellText(run.domain)}</Link> : <Link href="/accounts">{m.run.back}</Link>}
-        title={m.run.title}
-        sub={label}
-        actions={run?.domain && terminal ? <Link className="btn" href={`/accounts/${encodeURIComponent(run.domain)}`}>{m.run.openAccount}</Link> : null}
-      />
-      <RunPanel runId={runId} state={live} />
-      {run?.models_line ? <p className="mut sm-text">{run.models_line}</p> : null}
-      <section className="section">
-        <h2>{m.run.files}</h2>
-        <RunFiles domain={run?.domain ?? null} runId={runId} status={status} />
-      </section>
-      {run?.gate ? (
-        <section className="section">
-          <h2>{m.run.gate}</h2>
-          <p>{run.gate.verdict.toLowerCase() === "pass" || run.gate.verdict.toLowerCase() === "passed" ? <Status tone="ok">{m.run.gatePassed}</Status> : <Status tone="bad">{m.run.gateFailed}</Status>}</p>
-          {run.gate.defects.length ? <ul className="rows">{run.gate.defects.map((d, i) => <li key={i}><span>{humanize(d.check)}</span><span className="end">{cellText(d.item, 80)}</span></li>)}</ul> : null}
-        </section>
-      ) : null}
-      {terminal && run && run.coverage.rows.length ? (
-        <section className="section">
-          <h2>{m.run.coverage}</h2>
-          <div className="table-wrap">
-            <table className="table">
-              <thead><tr><th scope="col">{m.run.coverageRow}</th><th scope="col">{m.run.status}</th><th scope="col">{m.run.reason}</th></tr></thead>
-              <tbody>
-                {run.coverage.rows.map((row) => (
-                  <tr key={row.row}>
-                    <td>{humanize(row.row)}</td>
-                    <td><Status tone={row.status.toLowerCase() === "done" ? "ok" : row.status.toLowerCase() === "blocked" ? "bad" : "warn"}>{humanize(row.status)}</Status></td>
-                    <td>{row.reason ? humanize(row.reason) : row.results === null ? "No proof recorded" : `${row.results} result${row.results === 1 ? "" : "s"}`}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      ) : null}
-      {status === "FAILED" && run?.stop_detail ? <p className="small muted">{cellText(run.stop_detail, 300)}</p> : null}
+    <div className="pg">
+      <div className="head">
+        <div className="ttl">
+          <div className="crumb"><Link href="/research" prefetch={false}>Research</Link></div>
+          <h1>{title}</h1>
+          <div className="sub">{run?.input_mode === "file" ? m.account.fromFiles : terminal ? "Finished. Everything it found is on the account." : "You can leave this page. You are notified when it finishes."}</div>
+        </div>
+        {account ? <Link className="btn" href={account} prefetch={false}>{m.run.openAccount}</Link> : null}
+      </div>
+      <div className="run-grid">
+        <div className="stack-22">
+          <RunPanel runId={runId} state={live} />
+          {terminal && account ? (
+            <p className="mut sm-text">What this research could not find, and why, is on the account&apos;s <Link href={`${account}/coverage`} prefetch={false}>Coverage</Link> table.</p>
+          ) : null}
+        </div>
+        <aside className="stack-14" aria-label={m.run.files}>
+          <h2 className="h-sm">{m.run.files}</h2>
+          <RunFiles domain={run?.domain ?? null} runId={runId} status={status} />
+          {run?.models_line ? <p className="mut xs-text">{run.models_line}</p> : null}
+        </aside>
+      </div>
     </div>
   );
 }

@@ -74,14 +74,34 @@ export interface PitchPoint {
   grades?: boolean;
 }
 
-/** The right column: heading, one line of text and a card of points, each with an icon tile. */
-export function AuthPitch({ title, lead, points }: { title: string; lead: string; points: PitchPoint[] }) {
+/** A sample line of a brief, as the product writes it: each fact with its source number, and
+ * the four grades under it (redesign 2026-11-07, the client sign-in's right column). */
+export function PitchExample() {
+  return (
+    <figure className="pitch-example">
+      <p>
+        Synthetic Holdings named a new CIO in September<span className="cite" aria-label="Source 3">3</span> and is hiring four data platform roles<span className="cite" aria-label="Source 1">1</span>.
+      </p>
+      <figcaption className="pitch-grades">
+        <Grade grade="confirmed" />
+        <Grade grade="probable" />
+        <Grade grade="hypothesis" />
+        <Grade grade="lead" />
+      </figcaption>
+    </figure>
+  );
+}
+
+/** The right column: heading, one line of text, then a card of points (each with an icon tile)
+ * or, for the client, a sample line of a brief (``example``). */
+export function AuthPitch({ title, lead, points = [], example }: { title: string; lead: string; points?: PitchPoint[]; example?: ReactNode }) {
   return (
     <aside className="auth-pitch" aria-labelledby="pitch-title">
       <div className="pitch-body">
         <h2 id="pitch-title">{title}</h2>
         <p className="pitch-lead">{lead}</p>
-        <ul className="pitch-card">
+        {example}
+        {points.length ? <ul className="pitch-card">
           {points.map((p) => (
             <li key={p.title}>
               <span className="pitch-tile" aria-hidden="true">
@@ -101,7 +121,7 @@ export function AuthPitch({ title, lead, points }: { title: string; lead: string
               </div>
             </li>
           ))}
-        </ul>
+        </ul> : null}
       </div>
     </aside>
   );

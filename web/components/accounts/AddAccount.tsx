@@ -87,7 +87,7 @@ export function AddAccount({ estimate, library }: { estimate: ResearchEstimate |
           <div className="lbl" id="way-3">3 · Analyze your own file</div>
           <p className="mut sm-text mt-6">Upload account notes, a plan or an export and get an analysis from the file alone.</p>
         </div>
-        <Link className="btn" href="/research/new?tab=file">Upload a file</Link>
+        <Link className="btn" href="/research?tab=file">Upload a file</Link>
       </section>
     </>
   );

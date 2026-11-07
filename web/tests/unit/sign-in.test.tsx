@@ -30,10 +30,10 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 test("the page shows the design's copy and keeps me signed in by default", () => {
   render(<LoginPage />);
   expect(screen.getByRole("heading", { level: 1, name: "Sign in" })).toBeTruthy();
-  expect(screen.getByText("6th is a go-to-market consultancy.")).toBeTruthy();
+  expect(screen.getByText("Every account brief, with the proof behind each line.")).toBeTruthy();
   expect((screen.getByLabelText("Keep me signed in on this device") as HTMLInputElement).checked).toBe(true);
   expect(screen.getByRole("link", { name: "Forgot password?" }).getAttribute("href")).toBe("/forgot");
-  expect(screen.getByRole("link", { name: "Sign in to the admin console" }).getAttribute("href")).toBe("/operator/login");
+  expect(screen.getByRole("link", { name: "6th staff sign in" }).getAttribute("href")).toBe("/operator/login");
   for (const grade of ["Confirmed", "Probable", "Hypothesis", "Lead"]) expect(screen.getByText(grade)).toBeTruthy();
 });
 

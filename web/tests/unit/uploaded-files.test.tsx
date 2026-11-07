@@ -21,10 +21,10 @@ const doc = (over: Partial<DocumentStatus>): DocumentStatus => ({
 test("each uploaded file shows its name, size, passages and status", () => {
   render(<UploadedFilesCard docs={[doc({}), doc({ document_id: "d2", name: "Tech.xlsx", stage: "parsed", status: "parsed", passages: 0 })]} />);
   expect(screen.getByText("Workday_People_List.xlsx")).toBeTruthy();
-  expect(screen.getByText(/420 passages/)).toBeTruthy();
+  expect(screen.getByText(/420 sections/)).toBeTruthy();
   expect(screen.getByText("Ready")).toBeTruthy();
-  expect(screen.getByText("Indexing")).toBeTruthy(); // bound to the account, on its way to Ready
-  expect(screen.getByRole("link", { name: "Add files" }).getAttribute("href")).toBe("/research/new?tab=file");
+  expect(screen.getByText("Getting ready")).toBeTruthy(); // bound to the account, on its way to Ready
+  expect(screen.getByRole("link", { name: "Add files" }).getAttribute("href")).toBe("/research?tab=file");
   // each file can be deleted on its own (it asks first)
   expect(screen.getByRole("button", { name: "Delete Workday_People_List.xlsx" })).toBeTruthy();
 });
@@ -50,7 +50,7 @@ test("a zip lists the files inside it, each with its role, status and reason, wh
   expect(apiMock).toHaveBeenCalledWith("GET", "/v1/documents/d3/members");
   expect(screen.getByText("ws/deliverables/BD_Job_Postings.xlsx")).toBeTruthy();
   expect(screen.getByText("Job postings")).toBeTruthy();
-  expect(screen.getByText("Read: 1,898 passages, 2 tables")).toBeTruthy();
+  expect(screen.getByText("Read: 1,898 sections, 2 tables")).toBeTruthy();
   expect(screen.getByText("Owner-only file · owner only")).toBeTruthy();
   expect(screen.getByText("Skipped: an owner-only file; upload it on its own")).toBeTruthy();
 });

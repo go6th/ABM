@@ -60,7 +60,7 @@ async def exclusion_rule(s: Any) -> settings.ExclusionFilter:
             409,
             "settings_invalid",
             "Settings need attention",
-            "An admin must save the tenant settings again.",
+            "An admin must save the workspace settings again.",
         ) from None
 
 
@@ -149,7 +149,7 @@ async def add_account(
                 409,
                 "excluded_company",
                 "Excluded company",
-                "This company is on the tenant's exclusion list.",
+                "This company is on your workspace's exclusion list.",
             )
         account_id, created = await lifecycle.add_account(
             s, ident.tenant_id, body.domain, added_by=ident.user_id

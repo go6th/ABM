@@ -1,35 +1,8 @@
-// Schedules: how often each account is refreshed from the web; each scheduled refresh is one of
-// the user's researches (owner decision 2026-10-14).
-import type { Metadata } from "next";
-import type { Schedules } from "@/lib/gen/api.gen";
-import { serverGet, ServerApiError } from "@/lib/server-api";
-import { StateCard } from "@/ui/design";
-import { SchedulesView } from "@/components/accounts/SchedulesView";
+// Moved into Settings as Auto refresh (redesign 2026-11-07); the old address still works and keeps
+// the account it pointed at.
+import { redirect } from "next/navigation";
 
-export const dynamic = "force-dynamic";
-export const metadata: Metadata = { title: "Schedules · Account Intelligence" };
-
-export default async function SchedulesPage({ searchParams }: { searchParams: Promise<{ account?: string }> }) {
-  const { account } = await searchParams;
-  let data: Schedules | null = null;
-  let failed = false;
-  try {
-    data = await serverGet<Schedules>("/v1/schedules", "/schedules");
-  } catch (e) {
-    if (!(e instanceof ServerApiError)) throw e;
-    failed = true;
-  }
-  return (
-    <div className="pg">
-      <div>
-        <h1>Schedules</h1>
-        <p className="intro">Scheduled refreshes go to the web on your behalf. Each one uses one of your researches. Between refreshes, everything stays local.</p>
-      </div>
-      {failed || !data ? (
-        <StateCard title="Schedules could not be loaded" body="Reload the page in a moment." action={<a className="btn" href="/schedules">Reload</a>} />
-      ) : (
-        <SchedulesView initial={data} focus={account ?? null} />
-      )}
-    </div>
-  );
+export default async function Moved({ searchParams }: { searchParams: Promise<{ account?: string }> }) {
+  const account = (await searchParams).account;
+  redirect(account ? `/settings/auto-refresh?${new URLSearchParams({ account }).toString()}#${encodeURIComponent(account)}` : "/settings/auto-refresh");
 }

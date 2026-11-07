@@ -22,7 +22,7 @@ vi.mock("@/components/accounts/SupportAccess", () => ({
 
 import { ServerApiError } from "@/lib/server-api";
 import ClientLayout from "@/app/(client)/layout";
-import SupportAccessPage from "@/app/(client)/support-access/page";
+import SupportAccessPage from "@/app/(client)/settings/support-access/page";
 
 const ME: Me = {
   capabilities: [], display_name: "Ann", email: "ann@acme.example", feature_flags: {}, isolation_tier: "shared",
