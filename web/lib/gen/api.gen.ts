@@ -26,7 +26,7 @@ export const AccountBody = z.object({
 export type AccountBody = z.infer<typeof AccountBody>;
 
 export const AccountDeleteBody = z.object({
-  "confirm": z.string(),
+  "confirm": z.literal(true),
 }).strict();
 export type AccountDeleteBody = z.infer<typeof AccountDeleteBody>;
 

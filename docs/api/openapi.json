@@ -87,12 +87,12 @@
       },
       "AccountDeleteBody": {
         "additionalProperties": false,
-        "description": "The confirmation: the domain typed back. No tenant field.",
+        "description": "The confirmation: the user ticked \"I understand this cannot be undone\". No tenant field.",
         "properties": {
           "confirm": {
-            "maxLength": 253,
+            "const": true,
             "title": "Confirm",
-            "type": "string"
+            "type": "boolean"
           }
         },
         "required": [
@@ -19804,7 +19804,7 @@
     },
     "/v1/accounts/{domain}": {
       "delete": {
-        "description": "Remove an account from the workspace. The user confirms by sending the domain back; a\nconfirmation that does not match is refused before anything happens. The account's research\nstays stored and hidden; a research still running on it must be stopped first.",
+        "description": "Delete an account and erase it (owner order 2026-11-08). The user confirms with a tick\n(``confirm: true``). In ONE transaction the account is marked deleted and its rows are erased\n(``purge_own_deleted_account``, migration 0113: what goes and what billing keeps is\n``config/deletion.yaml`` ``account_purge``); its row becomes a ``deleted-<id>.invalid``\ntombstone, so adding the domain again starts an empty account. Then, in the background, the\nresearch-cache entries and stored objects go (objects that other accounts' calls still point\nat are kept). A research still running on it must be stopped first.",
         "operationId": "delete_account_v1_accounts__domain__delete",
         "parameters": [
           {

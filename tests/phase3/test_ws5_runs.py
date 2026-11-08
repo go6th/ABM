@@ -166,19 +166,19 @@ async def test_a_client_run_takes_the_tenant_settings(plane: Plane, browser: Bro
 
 @pytest.mark.requires_postgres
 @pytest.mark.asyncio
-async def test_an_account_is_deleted_only_with_its_domain_typed_back_and_comes_back_on_add(
+async def test_an_account_is_deleted_only_when_ticked_and_is_erased_not_revived(
     plane: Plane, browser: Browser
 ) -> None:
-    """Deleting asks for the domain as confirmation and refuses a mismatch; the account then
-    leaves every list and lookup (its runs stay stored); a running research blocks it; adding
-    the same domain again revives it."""
+    """Deleting needs the tick (``confirm: true``) and refuses anything else; a running research
+    blocks it; the delete erases the account (its row is a tombstone, its run's billing record
+    is emptied) and adding
+    the same domain again starts a new, empty account (owner order 2026-11-08)."""
     t, _ = await _admin(plane, browser, "ws5-delete")
     added = await browser.call("POST", "/v1/accounts", json={"domain": "gone-ws5.example"})
     assert added.status_code == 201, added.text
-    wrong = await browser.call(
-        "DELETE", "/v1/accounts/gone-ws5.example", json={"confirm": "other.example"}
-    )
-    assert wrong.status_code == 422 and wrong.json()["type"].endswith("confirmation_mismatch")
+    for wrong in ({"confirm": False}, {"confirm": "gone-ws5.example"}, {}):
+        refused = await browser.call("DELETE", "/v1/accounts/gone-ws5.example", json=wrong)
+        assert refused.status_code == 422, (wrong, refused.text)
     assert [a["domain"] for a in (await browser.client.get("/v1/accounts")).json()["accounts"]] == [
         "gone-ws5.example"
     ]
@@ -189,9 +189,7 @@ async def test_an_account_is_deleted_only_with_its_domain_typed_back_and_comes_b
         headers={"Idempotency-Key": uuid4().hex},
     )
     assert started.status_code == 202, started.text
-    busy = await browser.call(
-        "DELETE", "/v1/accounts/gone-ws5.example", json={"confirm": "gone-ws5.example"}
-    )
+    busy = await browser.call("DELETE", "/v1/accounts/gone-ws5.example", json={"confirm": True})
     assert busy.status_code == 409 and busy.json()["type"].endswith("account_busy")
     with psycopg.connect(ADMIN_DSN) as c:
         c.execute(
@@ -199,27 +197,25 @@ async def test_an_account_is_deleted_only_with_its_domain_typed_back_and_comes_b
             (started.json()["run_id"],),
         )
         c.commit()
-    gone = await browser.call(
-        "DELETE", "/v1/accounts/gone-ws5.example", json={"confirm": " Gone-WS5.example "}
-    )
+    gone = await browser.call("DELETE", "/v1/accounts/gone-ws5.example", json={"confirm": True})
     assert gone.status_code == 200, gone.text
     assert gone.json()["domain"] == "gone-ws5.example" and gone.json()["deleted_at"]
     assert (await browser.client.get("/v1/accounts")).json()["accounts"] == []
     assert (await browser.client.get("/v1/accounts/gone-ws5.example")).status_code == 404
     assert (await browser.client.get("/v1/accounts/gone-ws5.example/workspace")).status_code == 404
-    again = await browser.call(
-        "DELETE", "/v1/accounts/gone-ws5.example", json={"confirm": "gone-ws5.example"}
-    )
+    again = await browser.call("DELETE", "/v1/accounts/gone-ws5.example", json={"confirm": True})
     assert again.status_code == 404
     with psycopg.connect(ADMIN_DSN) as c:
-        kept = c.execute(
-            "SELECT deleted_by, (SELECT count(*) FROM account_runs r WHERE r.account_id = a.id)"
-            " FROM accounts a WHERE a.tenant_id = %s AND a.domain = %s",
-            (t, "gone-ws5.example"),
+        erased = c.execute(
+            "SELECT a.domain, (SELECT r.run_input FROM account_runs r WHERE r.account_id = a.id)"
+            " FROM accounts a WHERE a.id = %s",
+            (added.json()["account_id"],),
         ).fetchone()
-    assert kept is not None and kept[0] and kept[1] == 1  # marked, with its run kept
+    # a tombstone; the run's billing record stays, emptied (config/deletion.yaml)
+    assert erased is not None and erased[0].startswith("deleted-") and erased[1] == {}
     back = await browser.call("POST", "/v1/accounts", json={"domain": "gone-ws5.example"})
     assert back.status_code == 201 and back.json()["created"] is True
+    assert back.json()["account_id"] != added.json()["account_id"]
     assert [a["domain"] for a in (await browser.client.get("/v1/accounts")).json()["accounts"]] == [
         "gone-ws5.example"
     ]

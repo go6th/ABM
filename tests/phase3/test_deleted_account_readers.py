@@ -1,8 +1,9 @@
 """A deleted account disappears from every listing and lookup (merge review 2026-10-30).
 
-The delete route marks the account (``accounts.deleted_at``); each reader of the account list,
-its pages, its archive, its exports, its runs, the schedules, the notifications and the Ask
-route must hide it, and adding the same domain again brings it back with its history.
+The delete route marks the account (``accounts.deleted_at``) and erases it (migration 0113): each
+reader of the account list, its pages, its archive, its exports, its runs, the schedules, the
+notifications and the Ask route must hide it, and adding the same domain again starts a new,
+empty account (owner order 2026-11-08: a deleted account's history never comes back).
 SYNTHETIC only.
 """
 
@@ -42,7 +43,7 @@ def _sql(sql: str, *params: object) -> list[Any]:
 
 @pytest.mark.requires_postgres
 @pytest.mark.asyncio
-async def test_a_deleted_account_is_hidden_from_every_reader_and_comes_back_on_add(
+async def test_a_deleted_account_is_hidden_from_every_reader_and_comes_back_empty_on_add(
     plane: Plane, browser: Browser
 ) -> None:
     t = await _admin(plane, browser, "deleted-readers")
@@ -77,7 +78,7 @@ async def test_a_deleted_account_is_hidden_from_every_reader_and_comes_back_on_a
         for n in (await browser.client.get("/v1/notifications")).json()["notifications"]
     )
 
-    gone = await browser.call("DELETE", f"/v1/accounts/{DOMAIN}", json={"confirm": DOMAIN})
+    gone = await browser.call("DELETE", f"/v1/accounts/{DOMAIN}", json={"confirm": True})
     assert gone.status_code == 200, gone.text
 
     get = browser.client.get
@@ -117,18 +118,21 @@ async def test_a_deleted_account_is_hidden_from_every_reader_and_comes_back_on_a
     )
     assert ask.status_code in (404, 422), ask.text
     assert (await get(f"/v1/documents?account_id={account_id}")).json()["documents"] == []
-    assert _sql("SELECT deleted_at IS NOT NULL FROM accounts WHERE id = %s", account_id) == [
-        (True,)
-    ]
+    # the row is the erased tombstone; the run keeps only its emptied billing record
+    tomb = _sql("SELECT deleted_at IS NOT NULL, domain FROM accounts WHERE id = %s", account_id)
+    assert tomb[0][0] is True and tomb[0][1].startswith("deleted-")
+    assert _sql("SELECT run_input FROM account_runs WHERE account_id = %s", account_id) == [({},)]
+    assert _sql("SELECT count(*) FROM notifications WHERE account_id = %s", account_id) == [(0,)]
 
-    # adding the same domain again brings the account and its history back
+    # adding the same domain again starts a new, empty account: nothing of the old one returns
     back = await browser.call("POST", "/v1/accounts", json={"domain": DOMAIN})
     assert back.status_code == 201 and back.json()["created"] is True
+    assert back.json()["account_id"] != str(account_id)
     assert (await get(base)).status_code == 200
     assert sorted(a["domain"] for a in (await get("/v1/accounts")).json()["accounts"]) == sorted(
         [DOMAIN, KEPT]
     )
-    assert any(r["domain"] == DOMAIN for r in (await get("/v1/runs")).json()["runs"])
+    assert all(r["domain"] != DOMAIN for r in (await get("/v1/runs")).json()["runs"])
 
 
 @pytest.mark.requires_postgres
@@ -150,11 +154,11 @@ async def test_a_queued_research_job_blocks_the_delete_like_a_running_research(
         t,
         account_id,
     )
-    busy = await browser.call("DELETE", f"/v1/accounts/{domain}", json={"confirm": domain})
+    busy = await browser.call("DELETE", f"/v1/accounts/{domain}", json={"confirm": True})
     assert busy.status_code == 409 and busy.json()["type"].endswith("account_busy")
     _sql(
         "UPDATE research_jobs SET status = 'failed', finished_at = now() WHERE account_id = %s",
         account_id,
     )
-    done = await browser.call("DELETE", f"/v1/accounts/{domain}", json={"confirm": domain})
+    done = await browser.call("DELETE", f"/v1/accounts/{domain}", json={"confirm": True})
     assert done.status_code == 200, done.text

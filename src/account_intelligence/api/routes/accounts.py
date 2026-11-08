@@ -15,14 +15,18 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
+import os
 import re
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError
 
 from account_intelligence.api import contract as C
 from account_intelligence.api.audit_log import audit_action
@@ -48,6 +52,11 @@ register("DELETE", "/v1/accounts/{domain}", tenant_route("add_account", "run"))
 register("GET", "/v1/accounts/{domain}/tables/{table}", tenant_route("read_public", "read"))
 register("GET", "/v1/accounts/{domain}", tenant_route("read_public", "read"))
 DOMAIN = r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9-]+)+$"
+log = logging.getLogger(__name__)
+# the stored-object cleanups of erased accounts in flight (an unreferenced task may be collected)
+_ERASING: set[asyncio.Task[None]] = set()
+# object deletion passes per erased account (each pass deletes up to the lifecycle batch cap)
+ERASE_OBJECT_PASSES = 5
 _TERMINAL = sorted(s.value for s in TERMINAL)
 
 
@@ -173,10 +182,65 @@ async def add_account(
 
 
 class AccountDeleteBody(BaseModel):
-    """The confirmation: the domain typed back. No tenant field."""
+    """The confirmation: the user ticked "I understand this cannot be undone". No tenant field."""
 
     model_config = ConfigDict(extra="forbid")
-    confirm: str = Field(max_length=253)
+    confirm: Literal[True]
+
+
+async def _purge(s: Any, account_id: UUID, *, execute: bool, allow_shared: bool) -> dict[str, Any]:
+    """One call of the user's own purge (migration 0113) inside the caller's transaction."""
+    row = await s.execute(
+        text("SELECT purge_own_deleted_account(:a, :x, :sh)"),
+        {"a": account_id, "x": execute, "sh": allow_shared},
+    )
+    summary: dict[str, Any] = row.scalar_one()
+    return summary
+
+
+async def _erase_stored(
+    tenant_id: UUID, account_id: UUID, summary: dict[str, Any], *, keep_objects: bool
+) -> None:
+    """After the rows are gone: the research-cache index entries of the account's calls and its
+    stored objects (the operator purge tool's own stores and steps). A failure leaves orphan
+    objects, never rows; it is logged with identifiers only."""
+    from account_intelligence.ops.purge_account import default_cache, default_store
+    from tenancy import lifecycle as tenancy_lifecycle
+
+    try:
+        hashes = [str(h) for h in summary.get("cache_args_hashes") or ()]
+        cache = default_cache(os.environ) if hashes else None
+        if cache is not None:
+            await asyncio.to_thread(cache.delete, tenant_id, hashes)
+        store = None if keep_objects else default_store(os.environ)
+        deleted, clean = 0, True
+        if store is not None:
+            # LOOP(erased account objects): cap=ERASE_OBJECT_PASSES passes; exit=clean
+            for _ in range(ERASE_OBJECT_PASSES):
+                done = await tenancy_lifecycle.erase_account_objects(
+                    store, tenant_id, account_id, summary
+                )
+                deleted += done.deleted
+                clean = done.clean
+                if clean:
+                    break
+        log.info(
+            "account.erased_objects",
+            extra={
+                "tenant_id": str(tenant_id),
+                "account_id": str(account_id),
+                "objects_deleted": deleted,
+                "objects_clean": clean,
+                "objects_kept_shared": keep_objects,
+                "object_store": store is not None,
+                "cache_entries": len(hashes),
+            },
+        )
+    except Exception:  # noqa: BLE001 - the rows are gone; only orphan objects can remain
+        log.exception(
+            "account.erase_objects_failed",
+            extra={"tenant_id": str(tenant_id), "account_id": str(account_id)},
+        )
 
 
 @router.delete("/{domain}", response_model=C.AccountDeleted)
@@ -186,18 +250,15 @@ async def delete_account(
     request: Request,
     ident: Identity = Depends(authorize),
 ) -> dict[str, Any]:
-    """Remove an account from the workspace. The user confirms by sending the domain back; a
-    confirmation that does not match is refused before anything happens. The account's research
-    stays stored and hidden; a research still running on it must be stopped first."""
+    """Delete an account and erase it (owner order 2026-11-08). The user confirms with a tick
+    (``confirm: true``). In ONE transaction the account is marked deleted and its rows are erased
+    (``purge_own_deleted_account``, migration 0113: what goes and what billing keeps is
+    ``config/deletion.yaml`` ``account_purge``); its row becomes a ``deleted-<id>.invalid``
+    tombstone, so adding the domain again starts an empty account. Then, in the background, the
+    research-cache entries and stored objects go (objects that other accounts' calls still point
+    at are kept). A research still running on it must be stopped first."""
     if not re.fullmatch(DOMAIN, domain):
         raise HTTPException(404, "not found")
-    if body.confirm.strip().lower() != domain:
-        raise APIProblem(
-            422,
-            "confirmation_mismatch",
-            "Confirmation did not match",
-            "Type the account's domain exactly to confirm the deletion.",
-        )
     async with tenant_txn(ident.tenant_id) as s:
         try:
             removed = await lifecycle.delete_account(s, domain, deleted_by=ident.user_id)
@@ -210,6 +271,19 @@ async def delete_account(
             ) from None
         if removed is None:
             raise HTTPException(404, "not found")
+        account_id = removed[0]
+        try:
+            plan = await _purge(s, account_id, execute=False, allow_shared=False)
+            shared = int(plan.get("shared_payload_refs") or 0) > 0
+            done = await _purge(s, account_id, execute=True, allow_shared=shared)
+        except DBAPIError:
+            log.exception("account.erase_failed", extra={"account_id": str(account_id)})
+            raise APIProblem(
+                503,
+                "delete_failed",
+                "The account could not be deleted",
+                "Nothing was changed. Try again in a moment.",
+            ) from None
         await audit_action(
             s,
             request,
@@ -218,6 +292,11 @@ async def delete_account(
             resource_type="account",
             resource_id=domain,
         )
+    task = asyncio.create_task(
+        _erase_stored(ident.tenant_id, account_id, done, keep_objects=shared)
+    )
+    _ERASING.add(task)
+    task.add_done_callback(_ERASING.discard)
     return {"domain": domain, "deleted_at": removed[1].isoformat()}
 
 

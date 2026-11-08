@@ -347,6 +347,9 @@ functions:
   purge_deleted_account:
     returns: a jsonb of counts and storage targets for one deleted account of one tenant; refuses a live account; execute for the operator role only
     proof: tests/db/test_purge_deleted_account.py
+  purge_own_deleted_account:
+    returns: purge_deleted_account's summary for the caller's own deleted account only; tenant and user from the caller's transaction, never an argument
+    proof: tests/db/test_purge_own_deleted_account.py
   reset_view_run:
     returns: a row count; the caller's context tenant and one run only, derived web-table rows
     proof: tests/exports/test_leak_wave_d2.py
@@ -592,7 +595,7 @@ routes:
   DELETE /v1/accounts/{domain}:
     probe: tenant
     params: {domain: accounts.domain}
-    body: {confirm: accounts.domain}
+    body: {confirm: true}
   GET /v1/accounts/{domain}/tables/{table}:
     probe: tenant
     params: {domain: accounts.domain, table: people}
