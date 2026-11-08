@@ -1,6 +1,6 @@
 {
-  "tag": "rel-7418a617-live",
-  "commit": "7418a617b8fe3fa22a8ab133a4ca1841826780f2",
+  "tag": "rel-1f40f97a-11081316",
+  "commit": "1f40f97a2c3d8d0249358118c1461a0344e85db7",
   "patches": [],
   "migrations": [
     "0001_core.sql",
@@ -229,9 +229,11 @@
     "0114_service_roles_sync_iam_names.sql"
   ],
   "digests": {
-    "worker": "sha256:772abd78bb30bc7fd40ea49caddf70a9b8bf1b5f32609b829fd1ec10d3cf94f8",
-    "api": "sha256:39def888534a0b0a1261ee9562a49634b090a2648e79601d8373111569a35f3d",
+    "worker": "sha256:32cad5eb3bce96a91f922b7217b4c39c81d67021ced791ccd3e7b5b2a6aabf8a",
+    "api": "sha256:816cd7bdadf70917627bb61f74085d47460b846ffd2aef21759906462727f7c7",
     "web": "sha256:1fa9a56df7e6bc6ad1b69ed4ea766262d98f82dec6bb8f2bbd00c8cfb29c57c7"
   },
-  "adopted_at": "2026-11-08T12:58:20+00:00"
+  "adopted_at": "2026-11-08T12:58:20+00:00",
+  "build": "b0e4e080-b2b5-4f86-b64e-fbb09f56547a",
+  "built_at": "2026-11-08T13:23:18+00:00"
 }
