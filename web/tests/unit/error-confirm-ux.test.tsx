@@ -146,17 +146,12 @@ test("a saved auto refresh is announced; a failed one shows a plain sentence, no
   expect((await screen.findByRole("alert")).textContent).toBe("Not saved. Try again.");
 });
 
-test("adding ready-made accounts: an empty conflict message reads as a sentence, and a missing list offers Try again", async () => {
-  const library = { accounts: [{ id: "L1", name: "Globex", in_workspace: false }] } as never;
-  apiMock.mockRejectedValue(new ApiError(409, "conflict", ""));
-  render(<AddAccount estimate={null} library={library} />);
-  fireEvent.click(screen.getByRole("button", { name: "Globex" }));
-  fireEvent.click(screen.getByRole("button", { name: "Add 1 to workspace" }));
-  expect((await screen.findByRole("alert")).textContent).toBe("The accounts could not be added. Try again in a moment.");
-  cleanup();
-  render(<AddAccount estimate={null} library={null} />);
-  fireEvent.click(screen.getByRole("button", { name: "Try again" }));
-  expect(refresh).toHaveBeenCalled();
+test("add account offers only a new research: no ready-made research, no file section", () => {
+  apiMock.mockReturnValue(new Promise(() => undefined)); // the model list stays loading
+  render(<AddAccount estimate={null} />);
+  expect(screen.getByRole("heading", { name: "Research a new company" })).toBeTruthy();
+  expect(screen.queryByText(/Ready-made research/)).toBeNull();
+  expect(screen.queryByText(/Analyze your own file/)).toBeNull();
 });
 
 async function tabs(role: string | null) {
