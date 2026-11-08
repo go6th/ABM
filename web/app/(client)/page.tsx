@@ -1,8 +1,6 @@
-// Ask. ?thread opens a chat, ?account preselects an account (by domain) and ?q asks that question
-// on arrival (the account page's composer sends people here). Ask left the sidebar on 2026-11-08
-// (owner order), so a plain visit to the home address opens Accounts instead.
+// Ask (home). ?thread opens a recent chat, ?account preselects an account (by domain) and ?q asks
+// that question on arrival (the account page's composer sends people here).
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import type { Metadata } from "next";
 import type { AccountPage, ChatThread, Me } from "@/lib/gen/api.gen";
 import { serverGet, ServerApiError } from "@/lib/server-api";
@@ -15,7 +13,6 @@ export const metadata: Metadata = { title: "Ask · Account Intelligence" };
 
 export default async function Home({ searchParams }: { searchParams: Promise<{ thread?: string; account?: string; q?: string }> }) {
   const { thread, account, q } = await searchParams;
-  if (!thread && !account && !q) redirect("/accounts");
   let accounts: AccountPage | null = null;
   let opened: ChatThread | null = null;
   let me: Me | null = null;

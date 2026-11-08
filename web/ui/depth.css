@@ -335,3 +335,4 @@ html.modal-open { overflow: hidden; }
 .ui-pastel .rs-bar::-moz-progress-bar { background: var(--grad-primary); }
 .ui-pastel .mps-row { box-shadow: var(--sh-1); }
 .ui-pastel .rs-detail { animation: rise 220ms ease-out both; }
+.ui-pastel .fc, .ui-pastel .dl-all { box-shadow: var(--sh-2), var(--hl); }

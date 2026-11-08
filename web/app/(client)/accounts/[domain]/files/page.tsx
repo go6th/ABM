@@ -1,5 +1,6 @@
-// The account's Files tab (redesign 2026-11-07): the research files to download, the delivered
-// files read on screen, and your own uploads with their analysis. Was spread over the account
+// The account's Files tab (redesign 2026-11-07): the research files to download and the delivered
+// files read on screen on the left; on the right, Download everything as its own card (2026-11-08)
+// above your own uploads with their analysis. Was spread over the account
 // page's right column and its middle; the analysis of your files keeps its own address
 // (/file-analysis).
 import type { Metadata } from "next";
@@ -9,6 +10,7 @@ import type { AccountWorkspace, DocumentList, ParityScreen } from "@/lib/gen/api
 import { serverGet, ServerApiError } from "@/lib/server-api";
 import { StateCard } from "@/ui/design";
 import { FilesCard } from "@/components/accounts/FilesCard";
+import { DownloadEverythingCard } from "@/components/accounts/DownloadEverything";
 import { UploadedFilesCard } from "@/components/accounts/UploadedFilesCard";
 import { LiveSync, RetryRefresh, TryAgain } from "@/components/accounts/LiveSync";
 import { ParityWorkspace } from "@/components/accounts/ParityWorkspace";
@@ -89,7 +91,8 @@ export default async function FilesPage({ params }: Params) {
         <FilesCard domain={ws.domain} files={ws.files} />
         <Suspense fallback={null}><Delivered domain={ws.domain} here={here} /></Suspense>
       </div>
-      <aside className="side-col stack-14" aria-label="Your uploaded files">
+      <aside className="side-col stack-14" aria-label="Downloads and your files">
+        <DownloadEverythingCard domain={ws.domain} />
         {ws.id ? <Suspense fallback={null}><Uploads accountId={ws.id} domain={ws.domain} here={here} /></Suspense> : null}
       </aside>
     </div>

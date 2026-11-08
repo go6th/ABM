@@ -16,10 +16,15 @@ import { ZipMembers } from "./ZipMembers";
 export function UploadedFilesCard({ docs, domain = null }: { docs: DocumentStatus[]; domain?: string | null }) {
   const pageOf = (id: string) => (domain ? `/accounts/${encodeURIComponent(domain)}/documents/${encodeURIComponent(id)}` : null);
   return (
-    <section className="card files-card" aria-labelledby="uploaded-title">
-      <div className="lbl" id="uploaded-title">Your uploaded files</div>
+    <section className="card fc" aria-labelledby="uploaded-title">
+      <div className="fc-head">
+        <div className="stack-4">
+          <h2 id="uploaded-title">Your uploaded files</h2>
+          <span className="mut xs-text">Private to your workspace. Never shared in research files.</span>
+        </div>
+      </div>
       {docs.length === 0 ? (
-        <p className="mut small files-empty">Files you upload for this account appear here.</p>
+        <p className="mut sm-text fc-empty">Files you upload for this account appear here.</p>
       ) : (
         <ul className="rows uploads" aria-label="Your uploaded files">
           {docs.map((d) => {
@@ -50,7 +55,7 @@ export function UploadedFilesCard({ docs, domain = null }: { docs: DocumentStatu
           })}
         </ul>
       )}
-      <div className="files-actions">
+      <div className="fc-actions">
         <Link className="btn" href="/accounts/import" prefetch={false}>Add files</Link>
       </div>
     </section>

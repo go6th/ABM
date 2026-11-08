@@ -1,6 +1,6 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
-import type { Me, ModelChoices, Notifications } from "@/lib/gen/api.gen";
+import type { ChatThreads, Me, ModelChoices, Notifications } from "@/lib/gen/api.gen";
 import { ModelChoicesProvider } from "@/lib/model-choices";
 import { shellNotes } from "@/lib/notifications";
 import { serverGet, ServerApiError } from "@/lib/server-api";
@@ -11,11 +11,11 @@ export const dynamic = "force-dynamic";
 export default async function ClientLayout({ children }: { children: React.ReactNode }) {
   // one round trip for everything the shell needs (2026-10-24: three sequential rounds before
   // made every page change wait on the API three times); the optional reads fail to "none".
-  // The recent chats are no longer read: Ask left the sidebar (2026-11-08).
   // A signed-out visit comes back to the page it opened after sign in (proxy.ts sets the path).
   const here = (await headers()).get("x-return-to") ?? "/";
-  const [meRead, notificationsRead, choicesRead] = await Promise.allSettled([
+  const [meRead, threadsRead, notificationsRead, choicesRead] = await Promise.allSettled([
     serverGet<Me>("/v1/me", here),
+    serverGet<ChatThreads>("/v1/chat/threads", here),
     serverGet<Notifications>("/v1/notifications", here),
     serverGet<ModelChoices>("/v1/models/choices", here),
   ]);
@@ -26,8 +26,14 @@ export default async function ClientLayout({ children }: { children: React.React
   const me = meRead.status === "fulfilled" ? meRead.value : undefined;
   if (me === null) redirect("/login");
   const choices = choicesRead.status === "fulfilled" ? choicesRead.value : null;
+  const threads = threadsRead.status === "fulfilled" ? threadsRead.value : null;
   const notifications = notificationsRead.status === "fulfilled" ? notificationsRead.value : null;
   const notes = shellNotes(notifications);
+  const recent = (threads?.threads ?? [])
+    .slice()
+    .sort((a, b) => b.updated_at.localeCompare(a.updated_at))
+    .slice(0, 6)
+    .map((t) => ({ id: t.id, title: t.title }));
   return (
     <WorkspaceShell
       user={me ? {
@@ -38,6 +44,7 @@ export default async function ClientLayout({ children }: { children: React.React
         modelReady: me.model_ready ?? true,
         isAdmin: me.role === "admin",
       } : { clientName: "Your workspace", userName: null, email: null, modelReady: true, isAdmin: false }}
+      recent={recent}
       notes={notes}
     >
       <ModelChoicesProvider initial={choices}>{children}</ModelChoicesProvider>

@@ -21,7 +21,7 @@ test("a note says what happened, where it leads and whether it is a warning", ()
   const [failed] = shellNotes(wrap(note({ kind: "research_failed", reason: "The source was unreachable." })));
   expect(failed).toMatchObject({ text: "Acme: research did not finish", meta: "The source was unreachable.", href: "/accounts/acme.example", warn: true });
   const [expiring] = shellNotes(wrap(note({ kind: "access_expiring" })));
-  expect(expiring).toMatchObject({ href: "/accounts", warn: true });
+  expect(expiring).toMatchObject({ href: "/", warn: true });
   const [raised] = shellNotes(wrap(note({ kind: "limit_request_approved" })));
   expect(raised).toMatchObject({ href: "/research", warn: false });
   const [refresh] = shellNotes(wrap(note({ kind: "refresh_finished", scope: "jobs", account_domain: null })));

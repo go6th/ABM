@@ -92,7 +92,7 @@ export function DownloadEverything({ domain }: { domain: string }) {
   if (!job) {
     return (
       <div className="stack-8">
-        <button type="button" className="btn" disabled={busy} aria-busy={busy} onClick={() => void start()}>{busy ? "Starting…" : "Download everything"}</button>
+        <button type="button" className="btn primary" disabled={busy} aria-busy={busy} onClick={() => void start()}>{busy ? "Starting…" : "Download everything"}</button>
         {message ? <p className="sm-text bad-text" role="alert">{message}</p> : null}
       </div>
     );
@@ -159,5 +159,24 @@ export function DownloadEverything({ domain }: { domain: string }) {
         })}
       </ul>
     </div>
+  );
+}
+
+/** "Download everything" as its own card in the right column of the Files tab (2026-11-08): what
+ * the archive holds, then the button, its progress and its links. */
+export function DownloadEverythingCard({ domain }: { domain: string }) {
+  return (
+    <section className="card dl-all" aria-labelledby="dl-all-title">
+      <div className="dl-all-head">
+        <span className="dl-ic" aria-hidden="true">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12" /><path d="m7 10 5 5 5-5" /><path d="M5 21h14" /></svg>
+        </span>
+        <div className="stack-4">
+          <h2 id="dl-all-title">Everything in one archive</h2>
+          <span className="mut xs-text">Every research file, every table in full (CSV and Excel) and your own uploads.</span>
+        </div>
+      </div>
+      <DownloadEverything domain={domain} />
+    </section>
   );
 }

@@ -1,7 +1,8 @@
 // The account's Overview tab (redesign 2026-11-07; the frame, actions and tabs are the account
 // layout's): research status, the summary (each sentence links to its source), Key findings on a
-// first scan or What changed after a refresh, and on the right At a glance, coverage and the
-// account's Ask box. The delivered files and uploads live on the Files tab. Another client's
+// first scan or What changed after a refresh, and on the right At a glance and coverage. The
+// account's own Ask box was removed on 2026-11-08 (owner order); questions go through Ask in the
+// sidebar. The delivered files and uploads live on the Files tab. Another client's
 // account and a missing one look the same: not found.
 import type { Metadata } from "next";
 import Link from "next/link";
@@ -11,7 +12,6 @@ import { serverGet, ServerApiError } from "@/lib/server-api";
 import { LINK_REL, safeLink } from "@/lib/render";
 import { Grade, Pill, StateCard } from "@/ui/design";
 import { LiveSync, RetryRefresh, TryAgain } from "@/components/accounts/LiveSync";
-import { AccountAsk } from "@/components/accounts/AccountAsk";
 import { ResumeResearch } from "@/components/accounts/ResumeResearch";
 import { ResearchProgress } from "@/components/accounts/ResearchProgress";
 import { ImportProblems } from "@/components/accounts/ImportProblems";
@@ -76,7 +76,6 @@ export default async function AccountWorkspacePage({ params }: Params) {
       </div>
     );
   }
-  const name = ws.name ?? ws.domain;
   const findings = ws.findings ?? [];
   const sentences = ws.narrative?.sentences ?? [];
   const coverage = ws.counts.coverage_total ? `${ws.counts.coverage_done} of ${ws.counts.coverage_total} areas covered` : null;
@@ -179,10 +178,6 @@ export default async function AccountWorkspacePage({ params }: Params) {
             </div>
           </section>
         ) : null}
-        <section className="stack-10">
-          <h2 className="h-sm">Ask about {name}</h2>
-          <AccountAsk account={{ id: ws.id ?? "", domain: ws.domain, name }} />
-        </section>
       </aside>
     </div>
   );

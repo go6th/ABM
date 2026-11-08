@@ -16,7 +16,6 @@ vi.mock("next/navigation", () => ({ redirect: (to: string) => { throw new Error(
 
 vi.mock("@/components/accounts/FilesCard", () => ({ FilesCard: () => <div /> }));
 vi.mock("@/components/accounts/UploadedFilesCard", () => ({ UploadedFilesCard: () => <div /> }));
-vi.mock("@/components/accounts/AccountAsk", () => ({ AccountAsk: () => <div /> }));
 vi.mock("@/components/accounts/ResumeResearch", () => ({ ResumeResearch: () => <div /> }));
 vi.mock("@/components/accounts/ResearchProgress", () => ({ ResearchProgress: () => <div /> }));
 vi.mock("@/components/accounts/DeleteAccount", () => ({ DeleteAccount: () => <div /> }));
