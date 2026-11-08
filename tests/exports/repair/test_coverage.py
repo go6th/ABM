@@ -25,7 +25,7 @@ ACCOUNTS = {
 }
 
 
-def make_profile(key: str = "a", *, people: bool = True, mail: bool = True) -> WorkspaceProfile:
+def make_profile(key: str = "a", *, people: bool = True) -> WorkspaceProfile:
     name, short, domain = ACCOUNTS[key]
     return WorkspaceProfile(
         account_name=name,
@@ -35,7 +35,6 @@ def make_profile(key: str = "a", *, people: bool = True, mail: bool = True) -> W
         window_from=date(2025, 11, 1),
         window_to=date(2026, 10, 31),
         people_consent=people,
-        mail_drive_connected=mail,
     )
 
 
@@ -204,40 +203,14 @@ def test_consent_missing_people_table_blocks_even_with_consent_flag() -> None:
     assert any("People data consent needed" in n for n in table.notes)
 
 
-def test_mail_not_connected_blocks_items_one_and_two_only() -> None:
-    profile = make_profile(mail=False)
+def test_items_one_and_two_keep_their_tracker_status() -> None:
+    """No connection blocks the first tracker items any more (the per-user connection was
+    removed, 2026-11-08): each item keeps the status its tracker row and evidence give it."""
     records = [
         rec(f"k{i}", f"Item {i}", number=i, status="Done", evidence_rows=3) for i in (1, 2, 3)
     ]
-    got = rows_by_item(build_coverage(profile, records, {}))
-    for label in ("Item 1", "Item 2"):
-        assert got[label]["Status"] == "Not done"
-        assert got[label]["Reason"] == "Mail and drive not connected"
-    assert got["Item 3"]["Status"] == "Done"
-
-
-def test_mail_table_reporting_not_connected_also_blocks() -> None:
-    mail = RepairedTable(
-        "mail", "Mail", [Sheet("Mail", core.MAIL_COLUMNS)], stats={"connected": False}
-    )
-    table = build_coverage(
-        make_profile(mail=True),
-        [rec("k", "Mail search", number=1, status="Done", evidence_rows=2)],
-        {"mail": mail},
-    )  # fmt: skip
-    assert table.main.rows[0]["Status"] == "Not done"
-
-
-def test_both_blockers_join_reasons() -> None:
-    profile = make_profile(people=False, mail=False)
-    table = build_coverage(
-        profile,
-        [rec("k", "Mail about the buying group", number=1, status="Done", evidence_rows=2)],
-        {},
-    )
-    assert (
-        table.main.rows[0]["Reason"] == "Mail and drive not connected; People data consent needed"
-    )
+    got = rows_by_item(build_coverage(make_profile(), records, {}))
+    assert {got[f"Item {i}"]["Status"] for i in (1, 2, 3)} == {"Done"}
 
 
 # ---- claims ------------------------------------------------------------------------------------

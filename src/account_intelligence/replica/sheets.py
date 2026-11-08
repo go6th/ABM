@@ -1,5 +1,5 @@
 """The deep-dive tables of an account, as spreadsheet sheets: People, Signals, Job postings,
-Tech stack and teams, News, From your mail and drive, Sources, Web searches, Uploaded files,
+Tech stack and teams, News, Sources, Web searches, Uploaded files,
 Platform teams, Connections, Findings, Calls made, Notes and Coverage (the 33-item research
 tracker of the latest finished run, with each item's status and reason). An imported workspace
 fills the last six from its own files (``documents.workspace_import``).
@@ -8,9 +8,6 @@ Each sheet is a fixed definition: a base query over the account's rows, its colu
 allow-listed sort expression), and its filter chips (each a fixed SQL predicate with a live
 count). Sorting, filtering and paging run in SQL; nothing from the request is ever put into SQL
 except through these allow-lists and bound parameters. Row numbers are absolute (offset + 1).
-
-"From your mail and drive" holds only the signed-in user's own matched items, and the export of
-that sheet is labelled private.
 """
 
 from __future__ import annotations
@@ -97,8 +94,15 @@ class Sheet:
     table: str | None = None
     sheet_name: str = "Sheet 1"
 
+    def __post_init__(self) -> None:
+        # a scope built as "<sentence>. {SORT_HINT}" ends without a stray space
+        object.__setattr__(self, "scope", self.scope.strip())
 
-SORT_HINT = "Click a column heading to sort."
+
+# The "Click a column heading to sort." sentence is no longer part of any scope line (the headings
+# say so themselves). The name stays because ``file_tabs`` still appends it to its scope; the
+# empty text and the strip in ``Sheet`` leave nothing behind.
+SORT_HINT = ""
 _MONTH = "date_trunc('month', CAST(:now AS timestamptz))"
 
 
@@ -134,6 +138,42 @@ def _member_cases() -> tuple[str, str]:
 
 _ROLE_CASE, _REASON_CASE = _member_cases()
 
+# What a call of the research is called on the Calls made sheet: the operation named in the stored
+# tool code ("p_search:web_search" is the operation "web_search"; the part before the colon names
+# the provider and is never shown), in plain words. An operation not listed shows its own name
+# with spaces and a capital letter.
+TOOL_LABELS: dict[str, str] = {
+    "web_search": "Web search",
+    "read_page": "Page read",
+    "scrape_job_page": "Job page read",
+    "news_events": "News lookup",
+    "job_openings": "Job postings lookup",
+    "tech_detections": "Technology lookup",
+    "people_by_title": "People search by title",
+    "people_by_technology": "People search by technology",
+    "profile_enrichment": "Profile lookup",
+    "org_resolve": "Organisation lookup",
+    "org_tech_stack": "Organisation technology lookup",
+    "org_teams": "Organisation teams lookup",
+    "document_read": "File read",
+}
+_TOOL_OP = "coalesce(nullif(split_part(t.tool, ':', 2), ''), t.tool)"
+_TOOL_CASE = _sql_case(
+    _TOOL_OP,
+    TOOL_LABELS,
+    f"upper(left(replace({_TOOL_OP}, '_', ' '), 1)) || substr(replace({_TOOL_OP}, '_', ' '), 2)",
+)
+# A call's stored arguments as words: "queries: a | b; objective: ..." (a list reads as its items
+# joined by " | ", any other value as its text) instead of the JSON the call was sent as.
+_ARGS_TEXT = (
+    "CASE WHEN jsonb_typeof(t.response->'args') = 'object' THEN coalesce((SELECT"
+    " string_agg(replace(kv.k, '_', ' ') || ': ' || CASE WHEN jsonb_typeof(kv.v) = 'array' THEN"
+    " (SELECT string_agg(e, ' | ') FROM jsonb_array_elements_text(kv.v) e)"
+    " ELSE kv.v #>> '{}' END, '; ' ORDER BY kv.k)"
+    " FROM jsonb_each(t.response->'args') AS kv(k, v)), '')"
+    " ELSE coalesce(t.response->>'args', '') END"
+)
+
 # which import part a package file feeds (documents.import_status.PARTS), and what the Uploaded
 # files sheet shows for it: the part's status, with the count when rows were not imported
 _PART_CASE = (
@@ -159,7 +199,7 @@ SHEETS: dict[str, Sheet] = {
         key="people",
         title="People",
         file="People list.xlsx",
-        scope=f"Director and above, global, security excluded. {SORT_HINT}",
+        scope="Director and above, global, security excluded.",
         base=(
             "SELECT p.id AS _id, coalesce(p.name, '[Name]') AS name, p.title,"  # nosec B608 -- configured SQL and quoted configured words; values are bound.
             " coalesce(p.classification_json->>'area', '') AS area, coalesce(p.priority, '') AS"
@@ -228,7 +268,7 @@ SHEETS: dict[str, Sheet] = {
         key="signals",
         title="Signals",
         file="Signals.xlsx",
-        scope=f"Hiring, leadership, technology, news and speaking signals. {SORT_HINT}",
+        scope="Hiring, leadership, technology, news and speaking signals.",
         base=(
             "SELECT s.id AS _id, s.title, initcap(s.signal_type) AS type, s.grade, s.detected_at"  # nosec B608 -- configured SQL and quoted configured words; values are bound.
             " AS detected,"
@@ -280,7 +320,7 @@ SHEETS: dict[str, Sheet] = {
         key="jobs",
         title="Job postings",
         file="Job postings.xlsx",
-        scope=f"Open roles from the account's careers pages and job feeds. {SORT_HINT}",
+        scope="Open roles from the account's careers pages and job feeds.",
         base=(
             "SELECT j.id AS _id, j.title, array_to_string(j.lanes, ', ') AS lanes,"  # nosec B608 -- configured SQL and quoted configured words; values are bound.
             " coalesce(j.location, '') AS location,"
@@ -323,7 +363,7 @@ SHEETS: dict[str, Sheet] = {
         key="technology",
         title="Tech stack and teams",
         file="Tech stack and teams.xlsx",
-        scope=f"Technologies detected, with how many sources show each. {SORT_HINT}",
+        scope="Technologies detected, with how many sources show each.",
         base=(
             "SELECT t.id AS _id, t.technology, t.source_count AS sources,"  # nosec B608 -- configured SQL and quoted configured words; values are bound.
             " CASE t.cross_check_result WHEN 'confirmed' THEN 'Confirmed' WHEN 'contradicted' THEN"
@@ -371,7 +411,7 @@ SHEETS: dict[str, Sheet] = {
         key="news",
         title="News",
         file="News.xlsx",
-        scope=f"Announcements and coverage about the account. {SORT_HINT}",
+        scope="Announcements and coverage about the account.",
         # the graded news facts of the research, then the news events of an imported workspace
         # (``news_events``, the feed's own fields; an event is not a graded fact)
         base=(
@@ -409,46 +449,11 @@ SHEETS: dict[str, Sheet] = {
             " news feed as you uploaded it, not a graded fact."
         ),
     ),
-    "mail-and-drive": Sheet(
-        key="mail-and-drive",
-        title="From your mail and drive",
-        file="From your mail and drive.xlsx",
-        scope="Your own threads and files that mention this account. Shown only to you.",
-        base=(
-            "SELECT i.id AS _id, coalesce(i.title, '') AS title, CASE i.item_kind WHEN 'file' THEN"
-            " 'File'"
-            "   ELSE 'Thread' END AS kind, coalesce(i.location, '') AS location, i.item_date AS"
-            " dated,"
-            " coalesce(i.snippet, '') AS snippet"
-            " FROM connector_items i WHERE i.tenant_id = :t AND i.account_id = :a AND"
-            " i.owner_user_id = :u AND i.state"
-            " = 'matched'"
-        ),
-        cols=(
-            Col("title", "Title", "s.title", "strong"),
-            Col("kind", "Kind", "s.kind"),
-            Col("location", "From", "s.location"),
-            Col("dated", "Date", "s.dated", "date"),
-            Col("snippet", "Summary", None),
-        ),
-        filters=(
-            Filter("all", "All", "true"),
-            Filter("threads", "Mail threads", "s.kind = 'Thread'"),
-            Filter("files", "Files", "s.kind = 'File'"),
-        ),
-        default_sort="dated",
-        default_dir="desc",
-        private=True,
-        footnote=(
-            "From your mail and drive. Private to you, and never included in the research files"
-            " you share."
-        ),
-    ),
     "sources": Sheet(
         key="sources",
         title="Sources",
         file="Sources.xlsx",
-        scope=f"Every page the research read for this account. {SORT_HINT}",
+        scope="Every page the research read for this account.",
         # graded sources, plus pages a run read that were not graded yet (a run that stopped
         # before grading still shows what it read; audit 2026-10-15)
         base=(
@@ -505,7 +510,7 @@ SHEETS: dict[str, Sheet] = {
         file="Web searches.xlsx",
         scope=(
             "Every web search the research made for this account: what it searched for, when,"
-            f" how many pages it returned and the sites they came from. {SORT_HINT}"
+            " how many pages it returned and the sites they came from."
         ),
         base=(
             "SELECT t.id AS _id,"
@@ -546,9 +551,9 @@ SHEETS: dict[str, Sheet] = {
         title="Uploaded files",
         file="Uploaded files.xlsx",
         scope=(
-            "Every file inside the zips you uploaded for this account (``document_members``):"
-            " which package file it is, whether it was read, skipped or failed and why, and what"
-            f" it produced. An owner-only file is listed but never read. {SORT_HINT}"
+            "Every file inside the zips you uploaded for this account: which package file it is,"
+            " whether it was read, skipped or failed and why, and what it produced. An owner-only"
+            " file is listed but never read."
         ),
         base=(
             "SELECT m.id AS _id, d.name AS document, m.member_path AS member,"  # nosec B608 -- labels from fixed mappings, no input.
@@ -606,8 +611,8 @@ SHEETS: dict[str, Sheet] = {
         title="Platform teams",
         file="Platform teams.xlsx",
         scope=(
-            "The teams whose public records name a lane platform (``platform_teams``: the"
-            f" Platform teams sheet of the Tech stack workbook, live). {SORT_HINT}"
+            "The teams whose public records name a lane platform, as the Platform teams sheet of"
+            " the Tech stack workbook lists them."
         ),
         base=(
             "SELECT t.id AS _id, t.team, coalesce(t.function, '') AS function,"
@@ -646,7 +651,7 @@ SHEETS: dict[str, Sheet] = {
         ),
         default_sort="postings",
         default_dir="desc",
-        footnote="Teams as the research or your uploaded workspace recorded them.",
+        footnote="",
     ),
     "connections": Sheet(
         key="connections",
@@ -654,7 +659,7 @@ SHEETS: dict[str, Sheet] = {
         file="Connections.xlsx",
         scope=(
             "Organisations the account's public records connect it to: partners, customers,"
-            f" vendors and peers (``org_connections``). {SORT_HINT}"
+            " vendors and peers."
         ),
         base=(
             "SELECT c.id AS _id, coalesce(c.company_name, c.company_domain) AS company,"
@@ -681,7 +686,7 @@ SHEETS: dict[str, Sheet] = {
             ),  # fmt: skip
         ),
         default_sort="company",
-        footnote="Connections as the research or your uploaded workspace recorded them.",
+        footnote="",
     ),
     "findings": Sheet(
         key="findings",
@@ -689,8 +694,7 @@ SHEETS: dict[str, Sheet] = {
         file="Findings.xlsx",
         scope=(
             "Every written finding of the Account Summary: the narrative, hypotheses, cautions,"
-            " first-call questions and the other sections, with the sources each one cites"
-            f" (``report_sections``). {SORT_HINT}"
+            " first-call questions and the other sections, with the sources each one cites."
         ),
         base=(
             "SELECT r.id AS _id, replace(initcap(replace(r.kind, '_', ' ')), 'Ai ', 'AI ') AS"
@@ -732,13 +736,13 @@ SHEETS: dict[str, Sheet] = {
         title="Calls made",
         file="Calls made.xlsx",
         scope=(
-            "Every call the research made for this account: the tool, what it was asked and what"
-            " came back (``tool_calls``), and the pull log of an imported workspace"
-            f" (``pull_log_calls``). No cost is shown. {SORT_HINT}"
+            "Every call the research made for this account: what kind of call it was, what it was"
+            " asked and what came back, and the pull log of an imported workspace. No cost is"
+            " shown."
         ),
         base=(
-            "SELECT t.id::text AS _id, t.created_at AS made, '' AS step, t.tool,"
-            " coalesce(t.response->>'args', '') AS parameters,"
+            f"SELECT t.id::text AS _id, t.created_at AS made, '' AS step, {_TOOL_CASE} AS tool,"  # nosec B608 -- labels from a fixed mapping, no input.
+            f" {_ARGS_TEXT} AS parameters,"
             " coalesce(t.response->>'record_count', '') AS result, '' AS output,"
             " (t.cost_source = 'cache') AS reused, false AS imported"
             " FROM tool_calls t JOIN account_runs r ON r.tenant_id = t.tenant_id AND r.id ="
@@ -767,9 +771,7 @@ SHEETS: dict[str, Sheet] = {
         ),
         default_sort="made",
         default_dir="desc",
-        footnote=(
-            "Calls as the research made them, or as the pull log of your workspace lists them."
-        ),
+        footnote="",
     ),
     "notes": Sheet(
         key="notes",
@@ -777,7 +779,7 @@ SHEETS: dict[str, Sheet] = {
         file="Notes.xlsx",
         scope=(
             "The research notes of your uploaded workspace: the hand-off, pass notes, the pull log"
-            f" and sense checks (``research_notes``). {SORT_HINT}"
+            " and sense checks."
         ),
         base=(
             "SELECT n.id AS _id, n.title, replace(initcap(replace(n.kind, '_', ' ')), 'Ai ',"
@@ -813,7 +815,7 @@ SHEETS: dict[str, Sheet] = {
         file="Coverage tracker.xlsx",
         scope=(
             "The research tracker of the latest finished run: every item, whether it was covered"
-            f" and why not. {SORT_HINT}"
+            " and why not."
         ),
         base=(
             "SELECT c.row_key AS _id,"
@@ -1014,7 +1016,7 @@ def file_sheet(key: str) -> Sheet:
         key=key,
         title=title,
         file=file_name,
-        scope=f"The table of your delivered files, row for row. {SORT_HINT}",
+        scope="The table of your delivered files, row for row.",
         base=base,
         cols=tuple(cols),
         filters=tuple(chips),
@@ -1721,8 +1723,8 @@ def workbook(sheet: dict[str, Any], account_name: str) -> bytes:
     and counted on the About sheet), and no cell a spreadsheet would run as a formula; every
     text cell is stored as text. The finished file is scanned once more as a whole
     (``exports.verify.scan_package``) and refused with ``ExportBlocked`` if anything is left.
-    The private sheet (the user's own mail and drive) is labelled private on both sheets and
-    is never scanned as shareable: it is exported only to the user it belongs to."""
+    A private sheet is labelled private on both sheets and is never scanned as shareable: it
+    is exported only to the user it belongs to."""
     import io
 
     from openpyxl import Workbook

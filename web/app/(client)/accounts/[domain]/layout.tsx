@@ -1,5 +1,5 @@
 // Every account screen's frame (redesign 2026-11-07): the company, one main action (Refresh), a
-// Download link, a … menu (Auto refresh, Delete account) and the tabs: Overview, People, Jobs,
+// … menu (Auto refresh, Delete account) and the tabs: Overview, People, Jobs,
 // Technology, Signals, News, Sources, Files, then More for the rest of the deep-dive tables. It
 // reads only the account's name (the light GET /v1/accounts/{domain}); an account that is not in
 // the workspace draws no frame and the page says so.
@@ -7,6 +7,7 @@ import Link from "next/link";
 import type { AccountDetail } from "@/lib/gen/api.gen";
 import { serverGet, ServerApiError } from "@/lib/server-api";
 import { PageTabs } from "@/ui/PageTabs";
+import { AccountMore } from "@/components/accounts/AccountMore";
 import { DeleteAccount } from "@/components/accounts/DeleteAccount";
 import { RefreshDialog } from "@/components/accounts/RefreshDialog";
 
@@ -54,7 +55,6 @@ export default async function AccountLayout({ params, children }: { params: Prom
     ["Notes", `${here}/notes`],
     ["Searches run", `${here}/searches`],
     ["Uploaded files", `${here}/uploaded-files`],
-    ["From your mail and drive", `${here}/mail-and-drive`],
     ["Coverage", `${here}/coverage`],
     ["Archive", `${here}/archive`],
   ];
@@ -71,12 +71,13 @@ export default async function AccountLayout({ params, children }: { params: Prom
             </div>
           </div>
           <div className="acct-actions">
-            <Link className="btn" href={`${here}/files`} prefetch={false}>Download files</Link>
             <RefreshDialog domain={account.domain} />
             <details className="dmenu">
-              <summary className="btn icon" aria-label="More actions">…</summary>
-              <div className="menu-list" role="menu">
-                <Link className="menu-item" role="menuitem" href={`/settings/auto-refresh?account=${d}#${d}`} prefetch={false}>Auto refresh</Link>
+              <summary className="btn icon" aria-label="More actions" title="More actions">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8" /><circle cx="12" cy="12" r="1.8" /><circle cx="19" cy="12" r="1.8" /></svg>
+              </summary>
+              <div className="menu-list">
+                <Link className="menu-item" href={`/settings/auto-refresh?account=${d}#${d}`} prefetch={false}>Auto refresh</Link>
                 <DeleteAccount domain={account.domain} name={name} inMenu />
               </div>
             </details>
@@ -84,12 +85,7 @@ export default async function AccountLayout({ params, children }: { params: Prom
         </div>
         <div className="acct-tabs">
           <PageTabs tabs={tabs} label={`${name} sections`} />
-          <details className="dmenu more">
-            <summary className="ptab-more">More</summary>
-            <div className="menu-list" role="menu">
-              {more.map(([label, href]) => <Link key={href} className="menu-item" role="menuitem" href={href} prefetch={false}>{label}</Link>)}
-            </div>
-          </details>
+          <AccountMore items={more} />
         </div>
       </div>
       {children}

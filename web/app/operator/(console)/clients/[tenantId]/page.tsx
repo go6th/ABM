@@ -1,6 +1,6 @@
 "use client";
 // Client detail (A3): limits per user (account cap, idle expiry, monthly credit pool), the 6th
-// Library accounts published to this client, features (mail and drive, web refresh by users,
+// Library accounts published to this client, features (web refresh by users,
 // fastest schedule), and THIS CLIENT NOW with Save changes, See users and the isolation status.
 // While the invited user has not accepted, a new invite link can be made here. Invite user adds
 // one more person (an existing account without a link).
@@ -284,10 +284,6 @@ function Editor({ detail, reload }: { detail: ConsoleClientDetail; reload: () =>
         <section className="card pad stack-20" aria-labelledby="features-title">
           <h2 id="features-title" className="card-title">Features</h2>
           <div className="row-16 wrap">
-            <b className="grow-240">Mail and drive connections</b>
-            <Seg label="Mail and drive connections" value={s.mail_drive_allowed} options={[[true, "Allowed"], [false, "Not allowed"]] as const} onChange={(v) => set("mail_drive_allowed", v)} />
-          </div>
-          <div className="row-16 wrap line-top">
             <b className="grow-240">Web refresh by users</b>
             <Seg label="Web refresh by users" value={s.web_refresh_allowed} options={[[true, "Allowed, with confirmation"], [false, "Not allowed"]] as const} onChange={(v) => set("web_refresh_allowed", v)} />
           </div>

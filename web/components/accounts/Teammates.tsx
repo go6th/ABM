@@ -8,6 +8,7 @@ import { useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import type { TeamInvite, TeamMember } from "@/lib/gen/api.gen";
 import { Pill } from "@/ui/design";
+import { announce } from "@/ui/Toaster";
 
 const ROLES = [
   ["analyst", "Analyst: researches and asks"],
@@ -39,6 +40,7 @@ export function Teammates({ members }: { members: TeamMember[] }) {
 
   const invite = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (busy) return;
     setBusy(true);
     setResult(null);
     setCopied(false);
@@ -52,6 +54,7 @@ export function Teammates({ members }: { members: TeamMember[] }) {
         setResult({ ok: true, text: `Send this link to ${made.email}. It works for 24 hours and only once.`, link: made.invite_url ?? undefined });
       }
       setEmail("");
+      announce("Invite sent");
       router.refresh();
     } catch (cause) {
       setResult({ ok: false, text: inviteFailure(cause) });
@@ -89,7 +92,7 @@ export function Teammates({ members }: { members: TeamMember[] }) {
             ) : null}
           </div>
         ) : null}
-        <button type="submit" className="btn primary align-start" disabled={busy}>{busy ? "Inviting…" : "Invite"}</button>
+        <button type="submit" className="btn primary align-start" disabled={busy} aria-busy={busy || undefined}>{busy ? "Inviting…" : "Invite"}</button>
       </form>
       <section className="card list" aria-labelledby="team-title">
         <h2 id="team-title" className="card-title lrow">People in this workspace</h2>

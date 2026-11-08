@@ -1,21 +1,22 @@
 "use client";
-// "This refresh will use about 2.5M tokens (about $11.00). Proceed?" with Proceed and Cancel
-// (owner decision 2026-10-21, while the research caps are off): nothing starts until Proceed.
-// What the research cannot do yet (people consent missing) is listed above Proceed with where to
-// fix it, so nobody pays for a research that leaves those rows empty (staging 2026-11-05).
-// Proceed then asks a second time, "Are you sure?" (owner's rule 2026-11-05, after an upload
-// started a paid run unasked): onProceed runs only after both, and the server refuses a start
-// that does not carry both confirmations (``runs.start_guard``).
+// The confirm before anything that spends money (owner's rules 2026-10-21 and 2026-11-05: show
+// the expected tokens and dollars, then ask "Proceed?" and "Are you sure?"; the server refuses a
+// start without both confirmations, ``runs.start_guard``). Redesigned 2026-11-07 so the two
+// questions no longer swap the screen: the cost line is always shown above one button. The first
+// press (Proceed) arms it: it glows, says what a yes starts, and Cancel appears. The second press
+// (Are you sure) starts it. Changing the form (the parent passes a new ``key``) or Cancel disarms.
+// What the research cannot do yet (people consent missing) is listed above with where to fix it.
 import Link from "next/link";
-import { useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import type { ResearchGap, UsageEstimate } from "@/lib/gen/api.gen";
 import { dollars, tokenCount, usageBasis } from "@/lib/usage";
 
 /** The two confirmations every research start sends; spread into the request body only from
- * the handler that runs after the second "Yes". */
+ * the handler that runs after the second press. */
 export const CONFIRMED_TWICE = { confirm: true, confirm_again: true } as const;
 
-/** The second question, shared by every start (research, refresh, resume, file analysis). */
+/** The second question on its own, for a start whose first question was asked elsewhere
+ * (Resume asks "Resume?" on its own button first). */
 export function SecondConfirm({ cost, doing = "starts research on the web", busy, message, yes = "Yes, start it", onYes, onNo }: {
   /** "about $11.00", or null when there is no estimate. */
   cost: string | null;
@@ -28,78 +29,95 @@ export function SecondConfirm({ cost, doing = "starts research on the web", busy
   onNo: () => void;
 }) {
   return (
-    <div className="usage-ask" role="group" aria-label="Confirm again">
-      <p className="sm-text">
-        <strong>Are you sure?</strong> This {doing} and spends real money{cost ? <> (<strong>{cost}</strong>)</> : null}. It cannot be undone once it starts.
+    <div className="spend armed" role="group" aria-label="Confirm again">
+      <p className="spend-ask" role="status">
+        <strong>Are you sure?</strong> This {doing} and spends real money{cost ? <> ({cost})</> : null}. It cannot be undone once it starts.
       </p>
-      {message ? <p className="sm-text" role="alert">{message}</p> : null}
-      <div className="row-12">
-        <button type="button" className="btn primary" disabled={busy} onClick={onYes}>
+      {message ? <p className="notice error" role="alert">{message}</p> : null}
+      <div className="spend-actions">
+        <button type="button" className="btn primary go" autoFocus /* the step replaced the button that had focus */ aria-busy={busy || undefined} onClick={() => { if (!busy) onYes(); }}>
           {busy ? "Starting…" : yes}
         </button>
-        <button type="button" className="btn" disabled={busy} onClick={onNo}>No, cancel</button>
+        <button type="button" className="btn" disabled={busy} onClick={onNo}>Cancel</button>
       </div>
     </div>
   );
 }
 
-export function UsageProceed({ usage, what, doing, busy, message, note, gaps, onProceed, onCancel }: {
+export function UsageProceed({ usage, what, doing = "starts research on the web", label, busy, disabled = false, reason, message, note, gaps, extra, onProceed, onCancel }: {
   /** The expected use; null when it could not be estimated (both questions are still asked). */
   usage: UsageEstimate | null;
-  /** What this research cannot do yet, each with where to fix it. */
-  gaps?: ResearchGap[];
   /** "This refresh", "Researching Acme", ... */
   what: string;
-  /** What the second question says a yes starts (``SecondConfirm``). */
+  /** What a yes starts, after "This": "starts research on the web" by default. */
   doing?: string;
+  /** The button before it is armed: "Start research", "Refresh", "Analyze file". */
+  label: string;
   busy: boolean;
+  /** The form is not ready; ``reason`` says why, under the button. */
+  disabled?: boolean;
+  reason?: ReactNode;
   message?: string | null;
   /** A line under the estimate, e.g. the researches left. */
-  note?: React.ReactNode;
+  note?: ReactNode;
+  /** What this research cannot do yet, each with where to fix it. */
+  gaps?: ResearchGap[];
+  /** Beside the button while it is not armed, e.g. "Not now". */
+  extra?: ReactNode;
   onProceed: () => void;
-  onCancel: () => void;
+  onCancel?: () => void;
 }) {
-  const [sure, setSure] = useState(false);
-  if (sure) {
-    return (
-      <SecondConfirm
-        cost={usage ? `about ${dollars(usage.cost_usd)}` : null}
-        doing={doing}
-        busy={busy}
-        message={message}
-        onYes={onProceed}
-        onNo={() => { setSure(false); onCancel(); }}
-      />
-    );
-  }
+  const [armed, setArmed] = useState(false);
+  const button = useRef<HTMLButtonElement>(null);
+  const cost = usage ? dollars(usage.cost_usd) : null;
+  const disarm = () => { setArmed(false); onCancel?.(); button.current?.focus(); };
+  const press = () => {
+    if (busy || disabled) return;
+    if (!armed) { setArmed(true); return; }
+    onProceed();
+  };
   return (
-    <div className="usage-ask" role="group" aria-label="Confirm the expected use">
-      {usage ? (
-        <>
-          <p className="sm-text">
-            {what} will use about <strong>{tokenCount(usage.tokens)} tokens</strong> (about <strong>{dollars(usage.cost_usd)}</strong>). Proceed?
-          </p>
-          <p className="mut xs-text">{usageBasis(usage)}</p>
-        </>
-      ) : (
-        <p className="sm-text">{what} spends real money. The cost could not be estimated. Proceed?</p>
-      )}
+    <div className={armed ? "spend armed" : "spend"} role="group" aria-label="Confirm the expected use">
+      <p className="spend-cost">
+        {usage ? (
+          <>{what} uses about <strong>{tokenCount(usage.tokens)} tokens</strong> (about <strong>{cost}</strong>).</>
+        ) : (
+          <>{what} spends real money. The cost could not be estimated.</>
+        )}
+        {usage ? <span className="mut xs-text"> {usageBasis(usage)}</span> : null}
+      </p>
       {note}
       {gaps && gaps.length > 0 ? (
-        <ul className="stack-4" aria-label="Before you start">
+        <ul className="spend-gaps" aria-label="Before you start">
           {gaps.map((g) => (
             <li key={g.code} className="sm-text">
               {g.text}
-              {g.fix_path ? <> <Link href={g.fix_path}>Fix it first</Link></> : null}
+              {g.fix_path ? <> <Link href={g.fix_path} target="_blank" rel="noopener">Fix it first</Link></> : null}
             </li>
           ))}
         </ul>
       ) : null}
-      {message ? <p className="sm-text" role="alert">{message}</p> : null}
-      <div className="row-12">
-        <button type="button" className="btn primary" disabled={busy} onClick={() => setSure(true)}>Proceed</button>
-        <button type="button" className="btn" disabled={busy} onClick={onCancel}>Cancel</button>
+      {armed ? (
+        <p className="spend-ask" role="status">
+          <strong>Are you sure?</strong> This {doing} and spends real money{cost ? <> (about {cost})</> : null}. It cannot be undone once it starts.
+        </p>
+      ) : null}
+      {message ? <p className="notice error" role="alert">{message}</p> : null}
+      <div className="spend-actions">
+        <button
+          ref={button}
+          type="button"
+          className={armed ? "btn primary wide go" : "btn primary wide"}
+          disabled={disabled && !busy}
+          aria-busy={busy || undefined}
+          aria-describedby={disabled && reason ? "spend-reason" : undefined}
+          onClick={press}
+        >
+          {busy ? "Starting…" : armed ? `Yes, start${cost ? ` · about ${cost}` : ""}` : label}
+        </button>
+        {armed ? <button type="button" className="btn" disabled={busy} onClick={disarm}>Cancel</button> : extra}
       </div>
+      {disabled && reason ? <p className="mut xs-text" id="spend-reason">{reason}</p> : null}
     </div>
   );
 }

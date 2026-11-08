@@ -29,12 +29,13 @@ export default async function TeamPage() {
     <>
         <header>
           <h2>Team</h2>
-          <p className="intro">Invite the people who work on your accounts. Everyone sees the same accounts and research; what each person can change depends on their role.</p>
+          <p className="intro">Each person has their own accounts, research and chats; their role decides what they can change.</p>
         </header>
         {team ? <Teammates members={team.members} /> : (
           <StateCard
             title={forbidden ? "Only your administrator can manage teammates" : "Teammates are unavailable right now"}
-            body={forbidden ? "Ask an administrator of your workspace to invite people." : "Reload the page in a moment."}
+            body={forbidden ? "Ask an administrator of your workspace to invite people." : "This is usually brief."}
+            action={forbidden ? undefined : <a className="btn" href="/settings/team">Try again</a>}
           />
         )}
         {consent ? <PeopleConsentCard consent={consent} canChange={team !== null} /> : null}

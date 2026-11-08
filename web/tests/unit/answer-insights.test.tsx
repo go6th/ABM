@@ -68,7 +68,7 @@ test("the thinking summary opens under its own heading and renders as text", () 
     offer: null,
     paragraphs: [[{ t: "text", v: "Three signals" }]],
     sources: [],
-    used: { mail_drive: "not_connected", web: "not_used", workspace: "used" },
+    used: { web: "not_used", workspace: "used" } as ChatAnswer["used"],
     thinking: "Start from the Tier 1 table.\n\n<img src=x onerror=alert(1)>",
   };
   const { container } = render(

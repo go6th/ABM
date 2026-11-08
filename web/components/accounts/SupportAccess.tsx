@@ -28,6 +28,7 @@ export function SupportAccess({ grants, events }: { grants: SupportGrant[]; even
 
   const give = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (busy) return;
     setBusy(true);
     setMessage(null);
     try {
@@ -45,7 +46,7 @@ export function SupportAccess({ grants, events }: { grants: SupportGrant[]; even
     }
   };
   const revoke = async (id: string) => {
-    if (!window.confirm("Revoke this support access? Support staff lose access to your workspace straight away.")) return;
+    if (busy || !window.confirm("Revoke this support access? Support staff lose access to your workspace straight away.")) return;
     setBusy(true);
     try {
       await api("POST", `/v1/support/grants/${id}/revoke`);
@@ -67,7 +68,7 @@ export function SupportAccess({ grants, events }: { grants: SupportGrant[]; even
           <div className="field grow-220"><label htmlFor="minutes">For how long</label><select id="minutes" className="input" value={minutes} onChange={(e) => setMinutes(Number(e.target.value))}>{DURATIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
         </div>
         {message ? <p className={`sm-text ${message.ok ? "" : "bad-text"}`} role={message.ok ? "status" : "alert"}>{message.text}</p> : null}
-        <button type="submit" className="btn primary align-start" disabled={busy}>Give access</button>
+        <button type="submit" className="btn primary align-start" disabled={busy} aria-busy={busy || undefined}>Give access</button>
       </form>
       <section className="card list" aria-labelledby="grants-title">
         <h2 id="grants-title" className="card-title lrow">Access given</h2>
@@ -75,7 +76,7 @@ export function SupportAccess({ grants, events }: { grants: SupportGrant[]; even
           <div key={g.id} className="lrow">
             <span className="grow">{g.grantee}<span className="sub mut xs-text">Reference {g.id}</span></span>
             {live(g) ? <Pill tone="ok" small>Until {started(g.expires_at).replace("Today ", "")}</Pill> : <Pill small>{g.revoked_at ? "Revoked" : "Ended"}</Pill>}
-            {live(g) ? <button type="button" className="link-danger sm-text" disabled={busy} onClick={() => void revoke(g.id)}>Revoke</button> : null}
+            {live(g) ? <button type="button" className="link-danger sm-text" disabled={busy} aria-busy={busy || undefined} onClick={() => void revoke(g.id)}>Revoke</button> : null}
           </div>
         )) : <div className="lrow mut">No one has been given access.</div>}
       </section>

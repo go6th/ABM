@@ -4,7 +4,7 @@
 * ``POST /v1/connectors`` {kind}: start a consent (fresh step-up); returns where to send the admin.
 * ``GET /v1/connectors/oauth/callback``: finish the consent (the state is bound to this tenant,
   this admin and the connection; PKCE; exact scopes) and return to the connectors page.
-* ``POST /v1/connectors/{id}/grants``: allow a Drive folder, a CRM object or a CRM field.
+* ``POST /v1/connectors/{id}/grants``: allow a CRM object or a CRM field.
 * ``POST /v1/connectors/{id}/fetch``: one bounded, read-only fetch pass into quarantine.
 * ``GET /v1/connectors/{id}/quarantine``; ``POST .../quarantine/{item_id}/clear`` or ``/refuse``.
 * ``POST /v1/connectors/{id}/disconnect``: revoke upstream where possible and purge the token.
@@ -31,7 +31,6 @@ from account_intelligence.api.policy import register, tenant_route
 from account_intelligence.api.tenant_plane import plane_of
 from account_intelligence.db.session import tenant_txn
 from connectors_client import framework, oauth, quarantine
-from connectors_client.scopes import spec
 from metering import limits
 
 router = APIRouter(prefix="/connectors", tags=["connectors"])
@@ -64,7 +63,7 @@ register(
     "POST", "/v1/connectors/{connection_id}/disconnect", tenant_route("manage_connectors", "admin")
 )
 
-Kind = Literal["google_drive", "salesforce", "hubspot", "gmail", "call_notes"]
+Kind = Literal["salesforce", "hubspot", "call_notes"]
 
 
 def _redirect_uri(request: Request) -> str:
@@ -127,18 +126,8 @@ async def start(
     body: StartBody, request: Request, ident: Identity = Depends(authorize)
 ) -> dict[str, Any]:
     """Start a consent for one source."""
-    if spec(body.kind).family == "mail":
-        # a mailbox is personal: only its owner connects it, on the Mail and drive page
-        raise APIProblem(
-            409,
-            "personal_source",
-            "Personal source",
-            "Mail is connected by each person on the Mail and drive page.",
-        )
     plane = plane_of(request)
-    client_id = (
-        plane.connector_client_id(body.kind) if body.kind not in ("gmail", "call_notes") else ""
-    )
+    client_id = plane.connector_client_id(body.kind) if body.kind != "call_notes" else ""
     try:
         async with tenant_txn(ident.tenant_id) as s:
             try:
@@ -204,10 +193,10 @@ async def callback(
 
 
 class GrantBody(BaseModel):
-    """One allowed folder, object or field."""
+    """One allowed CRM object or field."""
 
     model_config = ConfigDict(extra="forbid")
-    grant_kind: Literal["drive_folder", "crm_object", "crm_field"]
+    grant_kind: Literal["crm_object", "crm_field"]
     resource_id: str = Field(min_length=1, max_length=300, pattern=r"^[A-Za-z0-9_.:-]+$")
 
 
@@ -216,7 +205,7 @@ class GrantBody(BaseModel):
 async def grant(
     connection_id: UUID, body: GrantBody, request: Request, ident: Identity = Depends(authorize)
 ) -> dict[str, Any]:
-    """Allow one folder, object or field."""
+    """Allow one CRM object or field."""
     try:
         async with tenant_txn(ident.tenant_id) as s:
             await framework.add_grant(

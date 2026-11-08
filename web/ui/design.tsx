@@ -54,7 +54,6 @@ const ICON_PATHS: Record<string, ReactNode> = {
       <path d="M12 8v4l3 2" />
     </>
   ),
-  mail: <path d="M9 7V4M15 7V4M7 7h10v4a5 5 0 0 1-10 0zM12 16v4" />,
 };
 
 export type IconName = keyof typeof ICON_PATHS;

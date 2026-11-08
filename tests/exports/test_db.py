@@ -615,3 +615,65 @@ async def test_the_workspace_zip_carries_the_accounts_archived_copies() -> None:
     assert again.reused and {d.sha256 for d in again.deliverables} == {
         d.sha256 for d in result.deliverables
     }
+
+
+def _refresh_run(w: World, scope: tuple[str, ...]) -> World:
+    """A later run of the world's account that searched only ``scope`` (a topic refresh)."""
+    run = uuid4()
+    with psycopg.connect(admin_dsn(), autocommit=True) as c:
+        c.execute(
+            "INSERT INTO runs (id, tenant_id, account_id, run_type, status, config_version,"
+            " credit_cap, started_at) VALUES (%s, %s, %s, 'full', 'running', 'cfg', 100, now())",
+            (run, w.tenant, w.account),
+        )
+        c.execute(
+            "INSERT INTO account_runs (id, tenant_id, account_id, status, graph_version,"
+            " budget_json, reserved_credits, idempotency_key, budget_usd, tool_call_cap,"
+            " run_input, created_at) VALUES (%s, %s, %s, 'RUNNING', 'test', '{}', 1, %s, 5, 60,"
+            " %s, now() + interval '1 minute')",
+            (
+                run,
+                w.tenant,
+                w.account,
+                "k-" + uuid4().hex,
+                psycopg.types.json.Jsonb({"scope": "topic", "scope_rows": list(scope)}),
+            ),
+        )
+    return World(w.tenant, w.account, run, w.domain)
+
+
+async def test_a_topic_refresh_is_built_on_the_previous_delivered_research() -> None:
+    """Staging 2026-11-07: a topic refresh's files had 0 people and 0 postings because the build
+    read the refresh's own rows only (``exports.carry``)."""
+    w, payloads = await seed_world()
+    first = await builder(w, payloads).build_all(str(w.tenant), str(w.run))
+    assert first.status == "complete", first.errors
+    full = await PgContentReader(payloads, batch=2).read(str(w.tenant), str(w.run))
+    topic = ("company_news", "competitor_moves", "technology_detections")
+    r = _refresh_run(w, topic)
+    async with txn(r) as tracker:
+        await tracker.seed(r.run, r.tenant)
+    with psycopg.connect(admin_dsn()) as c, c.transaction():
+        source = _source(c, r, 900, "news/refresh", "secondary")
+        _fact(c, r, source, "Synthetic refresh finding")
+
+    content = await PgContentReader(payloads, batch=2).read(str(r.tenant), str(r.run))
+
+    assert content.run_id == str(r.run)
+    assert content.people and content.people == full.people
+    assert content.postings and content.postings == full.postings
+    assert content.stack == full.stack
+    values = [f.value_text for f in content.facts]
+    assert values[0] == "Synthetic refresh finding"
+    assert set(values) == {"Synthetic refresh finding", *(f.value_text for f in full.facts)}
+    assert content.sections == full.sections
+    # rows outside the refresh's scope keep the research's tracker lines, not "not planned"
+    by_key = {line.key: line for line in content.tracker}
+    for line in full.tracker:
+        if line.key not in topic:
+            assert by_key[line.key] == line
+    result = await builder(r, payloads).build_all(str(r.tenant), str(r.run))
+    assert result.status == "complete", result.errors
+    assert result.manifest is not None
+    assert result.manifest.rows_per_file["people"] == len(full.people)
+    assert result.manifest.rows_per_file["jobs"] > 0

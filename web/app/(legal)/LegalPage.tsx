@@ -1,5 +1,5 @@
 // The public legal pages' frame (privacy policy, terms): readable without signing in, linked from
-// sign-in and from Mail and drive, and named on the Google and Microsoft OAuth consent screens.
+// sign-in.
 import Link from "next/link";
 import { Logo } from "@/ui/design";
 

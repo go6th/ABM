@@ -25,7 +25,6 @@ NOT_JSON = {
     ("get", "/v1/runs/{run_id}/events"),
     ("get", "/v1/research/live/stream"),  # the Research screen's live stream
     ("get", "/v1/connectors/oauth/callback"),
-    ("get", "/v1/mail-and-drive/callback"),  # a redirect back to the page
     ("get", "/v1/sso/{slug}/start"),
     ("get", "/v1/sso/oidc/callback"),
     ("post", "/v1/sso/saml/acs"),

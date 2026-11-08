@@ -1,5 +1,5 @@
 // A deep-dive table of an account (People, Signals, Job postings, Tech stack and teams, News,
-// From your mail and drive, Sources, Platform picture by lane, Coverage), sorted, filtered and
+// Sources, Platform picture by lane, Coverage), sorted, filtered and
 // paged on the server. Once files are delivered, People, Job postings, Tech stack, the Platform
 // picture and Coverage are the delivered files' own tables (their columns, order and cells), and
 // People, Job postings and Tech stack show every sheet of their workbook as a tab (?tab=).
@@ -17,7 +17,7 @@ export const dynamic = "force-dynamic";
 
 const TITLES: Record<string, string> = {
   people: "People", signals: "Signals", jobs: "Job postings", technology: "Tech stack and teams",
-  news: "News", "mail-and-drive": "From your mail and drive", sources: "Sources", searches: "Searches run",
+  news: "News", sources: "Sources", searches: "Searches run",
   facts: "Platforms by area", coverage: "Coverage", "uploaded-files": "Uploaded files",
   teams: "Platform teams", connections: "Connections", findings: "Findings", calls: "Calls made", notes: "Notes",
 };
@@ -154,7 +154,7 @@ export default async function SheetPage({ params, searchParams }: Props) {
           {next ? <Link className="btn sm" href={next} prefetch={false}>Next rows ›</Link> : null}
         </nav>
       ) : null}
-      <div className="fine">{sheet.footnote}</div>
+      {sheet.footnote && sheet.footnote.trim() !== sheet.scope.trim() ? <div className="fine">{sheet.footnote}</div> : null}
     </div>
   );
 }

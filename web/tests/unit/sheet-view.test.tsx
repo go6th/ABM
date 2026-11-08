@@ -181,7 +181,6 @@ test("the buttons of a file-shaped tab keep the view: chips, sort headings, Show
   expect(title.getAttribute("href")).toBe("/accounts/synthetic.example/jobs?filter=status_open&sort=c1&dir=desc");
   expect(screen.queryByRole("link", { name: /^Archived link/ })).toBeNull();
   // the downloads and Show more rows carry the filter and the sort
-  expect(screen.getByRole("link", { name: "Download CSV" }).getAttribute("href")).toBe("/v1/accounts/synthetic.example/sheets/jobs/csv?filter=status_open&sort=c1&dir=asc");
   expect(screen.getByRole("link", { name: "Download table as Excel" }).getAttribute("href")).toBe("/v1/accounts/synthetic.example/sheets/jobs/xlsx?filter=status_open&sort=c1&dir=asc");
   expect(screen.getByRole("link", { name: "Show more rows" }).getAttribute("href")).toBe("/accounts/synthetic.example/jobs?limit=400");
 });
@@ -260,7 +259,6 @@ test("a matched sheet shows a removable chip and keeps the match on every link i
   // the chips, the sort headings and the downloads stay within the match
   expect(screen.getByRole("link", { name: "Open · 1" }).getAttribute("href")).toBe(`/accounts/synthetic.example/jobs?filter=status_open&sort=c1&dir=asc&${m}`);
   expect(screen.getByRole("link", { name: /^Title/ }).getAttribute("href")).toBe(`/accounts/synthetic.example/jobs?filter=all&sort=c1&dir=desc&${m}`);
-  expect(screen.getByRole("link", { name: "Download CSV" }).getAttribute("href")).toBe(`/v1/accounts/synthetic.example/sheets/jobs/csv?filter=all&sort=c1&dir=asc&${m}`);
   expect(screen.getByRole("link", { name: "Download table as Excel" }).getAttribute("href")).toBe(`/v1/accounts/synthetic.example/sheets/jobs/xlsx?filter=all&sort=c1&dir=asc&${m}`);
   // a cut cell is fetched under the same match (the row number counts within it)
   fireEvent.click(screen.getByRole("button", { name: /Show the whole Full description cell of row 1/ }));
@@ -272,5 +270,5 @@ test("a matched sheet shows a removable chip and keeps the match on every link i
 test("a sheet without a match has no match chip and no match in its links", () => {
   render(<SheetView sheet={{ ...jobs, match: null }} domain="synthetic.example" base="/accounts/synthetic.example/jobs" moreHref={null} />);
   expect(screen.queryByRole("link", { name: /Remove the match/ })).toBeNull();
-  expect(screen.getByRole("link", { name: "Download CSV" }).getAttribute("href")).not.toContain("match");
+  expect(screen.getByRole("link", { name: "Download table as Excel" }).getAttribute("href")).not.toContain("match");
 });

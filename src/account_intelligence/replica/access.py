@@ -5,8 +5,8 @@ an admin can re-enable them in one click (``identity.membership.reenable``).
 Activity is any signed-in use (``replica.settings.touch_activity``: each page load and each
 question). A member who never signed in has no activity yet and is not expired: they are still an
 invite. Ending access goes through ``identity.membership.end_access`` (so every sign-in method and
-every API call refuses them) and ends their sessions; ``on_expired`` (the access-expiry task
-passes the Mail and drive purge) runs for each expired user in the same transaction.
+every API call refuses them) and ends their sessions; ``on_expired``, when given, runs for each
+expired user in the same transaction.
 
 ``expire_idle`` runs in one client's transaction; ``expire_everywhere`` loops over the clients,
 each in its own transaction, and one client's failure never stops the others.

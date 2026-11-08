@@ -4,11 +4,15 @@
 // whole screen: the server reads it from the database every second and sends it only when it
 // changed. The stream ends on purpose (its duration cap, or nothing running) and the browser
 // reconnects on its own at the server's ``retry``. Only when the stream cannot be opened at all
-// does this read the snapshot every two seconds, and it tries the stream again with a backoff.
-// Every event is checked against the generated contract before it is shown.
+// does this read the snapshot (one read at a time, every two seconds, slowing to 30 s while it
+// keeps failing), and it tries the stream again with a backoff. A signed-out session ends all of
+// it, and a hidden tab holds no stream and reads nothing: when it comes back the stream opens
+// again and sends the current snapshot. Every event is checked against the generated contract
+// before it is shown.
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api } from "@/lib/api";
+import { api, ApiError } from "@/lib/api";
 import { ResearchLive } from "@/lib/gen/api.gen";
+import { useVisible } from "@/lib/useVisible";
 
 export type LiveState = "live" | "connecting" | "polling";
 
@@ -38,6 +42,7 @@ export function useResearchLive(initial: ResearchLive | null, selected: string |
   const [data, setData] = useState<ResearchLive | null>(initial);
   const [state, setState] = useState<LiveState>("connecting");
   const [epoch, setEpoch] = useState(0);
+  const visible = useVisible();
   // a newer request's answer always wins over an older one still in flight
   const seq = useRef(0);
   const apply = useCallback((next: ResearchLive) => {
@@ -50,26 +55,49 @@ export function useResearchLive(initial: ResearchLive | null, selected: string |
 
   useEffect(() => {
     if (typeof EventSource === "undefined") return;
+    // a hidden tab keeps no stream open: it opens again, with the current snapshot, when shown
+    if (!visible) return;
+    const controller = new AbortController();
     let closed = false;
+    let halted = false; // signed out: nothing more is asked
     let source: EventSource | null = null;
-    let poll: ReturnType<typeof setInterval> | null = null;
+    let poll: ReturnType<typeof setTimeout> | null = null;
+    let polling = false;
+    let inFlight = false;
+    let pollFails = 0;
     let retry: ReturnType<typeof setTimeout> | null = null;
     let backoff = RETRY_MIN_MS;
     let stale: ReturnType<typeof setTimeout> | null = null;
     const fresh = () => { if (stale) { clearTimeout(stale); stale = null; } };
 
+    // one snapshot read; a failure slows the next read down, a 401 ends everything
     const read = async () => {
+      if (closed || halted || inFlight) return;
+      inFlight = true;
       const mine = seq.current;
       try {
-        const next = await api<ResearchLive>("GET", `/v1/research/live?selected=${sel(selected)}`);
+        const next = await api<ResearchLive>("GET", `/v1/research/live?selected=${sel(selected)}`, undefined, {}, controller.signal);
+        pollFails = 0;
         if (!closed && seq.current === mine) apply(next);
-      } catch {
-        /* the next read tries again */
+      } catch (cause) {
+        if (closed) return;
+        if (cause instanceof ApiError && cause.status === 401) {
+          halted = true;
+          stopPolling();
+          if (retry) { clearTimeout(retry); retry = null; }
+          source?.close();
+          source = null;
+          return;
+        }
+        pollFails += 1;
+      } finally {
+        inFlight = false;
       }
+      if (polling && !closed && !halted) poll = setTimeout(() => void read(), Math.min(POLL_MS * 2 ** Math.max(pollFails - 1, 0), RETRY_MAX_MS));
     };
-    const stopPolling = () => { if (poll) { clearInterval(poll); poll = null; } };
+    const stopPolling = () => { polling = false; if (poll) { clearTimeout(poll); poll = null; } };
     const open = () => {
-      if (closed) return;
+      if (closed || halted) return;
       source = new EventSource(`/v1/research/live/stream?selected=${sel(selected)}`);
       source.onopen = () => { backoff = RETRY_MIN_MS; fresh(); stopPolling(); setState("live"); };
       source.addEventListener("snapshot", (event) => {
@@ -87,7 +115,7 @@ export function useResearchLive(initial: ResearchLive | null, selected: string |
         source.close();
         source = null;
         setState("polling");
-        if (!poll) { void read(); poll = setInterval(() => void read(), POLL_MS); }
+        if (!polling) { polling = true; pollFails = 0; void read(); }
         retry = setTimeout(open, backoff);
         backoff = Math.min(backoff * 2, RETRY_MAX_MS);
       };
@@ -95,12 +123,13 @@ export function useResearchLive(initial: ResearchLive | null, selected: string |
     open();
     return () => {
       closed = true;
+      controller.abort();
       source?.close();
       stopPolling();
       fresh();
       if (retry) clearTimeout(retry);
     };
-  }, [selected, epoch, apply]);
+  }, [selected, epoch, apply, visible]);
 
   return { data, state, restart };
 }

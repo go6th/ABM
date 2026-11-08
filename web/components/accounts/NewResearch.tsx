@@ -1,6 +1,6 @@
 "use client";
 // New research as designed: Company name | Upload a file tabs. The company tab is the shared
-// ResearchCompany form. The file tab: "Add files" or "Connect Google Drive", the file list
+// ResearchCompany form. The file tab: "Add files", the file list
 // (Uploading, Scanning, Reading, Ready, Failed). When the files name one company they are attached
 // to it (its account is created when needed; owner decision 2026-10-14), with "Change"; otherwise
 // "Which company is this file for?" with just a company name and website (no list of detected
@@ -18,14 +18,14 @@ import { LimitNote, LimitReached, limitReached, useMyLimits } from "@/components
 import { CONFIRMED_TWICE, UsageProceed } from "@/components/UsageProceed";
 import { DocumentDrop } from "@/components/ws/DocumentDrop";
 import { ResearchCompany } from "./ResearchCompany";
-import { reasonOr } from "./ResumeResearch";
+import { errorText } from "@/lib/api";
 
 function startError(error: unknown): string {
   if (!(error instanceof ApiError)) return "The analysis could not be started. Try again.";
   if (error.type === "documents_not_ready") return "Some files are still being read. Wait until every file shows Ready.";
   if (error.type === "company_confirmation_required") return "Choose which company these files are about first.";
-  if (error.status === 409) return error.detail || "An analysis of these files is already starting.";
-  return error.detail || "The analysis could not be started. Try again.";
+  if (error.status === 409) return errorText(error, "An analysis of these files is already starting.");
+  return errorText(error, "The analysis could not be started. Try again.");
 }
 
 function CompanyChoice({ docs, onConfirmed }: { docs: DocumentStatus[]; onConfirmed: (accountId: string, company: Company) => void }) {
@@ -47,7 +47,7 @@ function CompanyChoice({ docs, onConfirmed }: { docs: DocumentStatus[]; onConfir
       const done = await api<CompanyConfirmed>("POST", "/v1/documents/confirm-company", { document_ids: docs.map((d) => d.document_id), company_name: name.trim(), domain });
       onConfirmed(done.account_id, { name: name.trim(), domain });
     } catch (e) {
-      setError(reasonOr(e, "The company could not be confirmed. Try again."));
+      setError(errorText(e, "The company could not be confirmed. Try again."));
       setBusy(false);
     } finally {
       inFlight.current = false;
@@ -95,7 +95,7 @@ export function useAttachLate(waiting: DocumentStatus[], company: Company | null
   }, [waiting, company, accountId, onDone]);
 }
 
-function FileTab({ initialDrive, estimate }: { initialDrive: boolean; estimate: ResearchEstimate | null }) {
+function FileTab({ estimate }: { estimate: ResearchEstimate | null }) {
   const router = useRouter();
   const [docs, setDocs] = useState<DocumentStatus[]>([]);
   const [accountId, setAccountId] = useState<string | null>(null);
@@ -103,7 +103,6 @@ function FileTab({ initialDrive, estimate }: { initialDrive: boolean; estimate: 
   const [company, setCompany] = useState<Company | null>(null);
   const [changing, setChanging] = useState(false);
   const [enrich, setEnrich] = useState(false);
-  const [asking, setAsking] = useState(false);
   const [hit, setHit] = useState<{ kind: "researches" | "chats"; message: string } | null>(null);
   const { limits } = useMyLimits();
   const [busy, setBusy] = useState(false);
@@ -163,15 +162,10 @@ function FileTab({ initialDrive, estimate }: { initialDrive: boolean; estimate: 
   };
 
   const usage = estimate ? (enrich ? estimate.file_public_usage : estimate.file_usage) : null;
-  const analyze = () => {
-    // every analysis asks twice before it starts (UsageProceed), with or without an estimate
-    if (!ready || busy) return;
-    setAsking(true);
-  };
 
   return (
     <div className="stack-20">
-      <DocumentDrop picker={false} onChange={onChange} disabled={busy} initialDrive={initialDrive} refresh={refresh} />
+      <DocumentDrop picker={false} onChange={onChange} disabled={busy} refresh={refresh} />
       {attached && !changing ? (
         <div className="card pad-sm row-space wrap" role="status">
           <span>These files are about <b>{attached}</b>.</span>
@@ -192,40 +186,26 @@ function FileTab({ initialDrive, estimate }: { initialDrive: boolean; estimate: 
               <p className="mut sm-text mt-2">Off by default. Your files stay inside your workspace either way; checking public sources also uses one research.</p>
             </div>
             <button type="button" className="sw" role="switch" aria-checked={enrich} aria-label="Also check public sources"
-              onClick={() => { setEnrich((v) => !v); setAsking(false); }} />
+              onClick={() => setEnrich((v) => !v)} />
           </section>
-          <p className="sm-text" role="note">Uploading starts nothing: no web research and no model reading. Analyze file asks you twice before anything is paid for.</p>
-          <div className="card pad-sm row-space wrap">
-            <span className="mut">This analysis uses</span>
-            <b>{uses}</b>
-          </div>
           {hit ? <LimitReached kind={hit.kind} message={hit.message} pending={limits?.pending_requests.includes(hit.kind)} /> : null}
-          {error && !asking ? <p className="sm-text bad-text" role="alert">{error}</p> : null}
           <LimitNote limits={limits} kind="chats" />
-          {asking && hit === null ? (
+          {hit === null ? (
             <UsageProceed
+              key={`${enrich}:${docs.map((d) => d.document_id).join(",")}`}
               usage={usage}
               what="This analysis"
               doing={enrich ? "starts the model reading your files and research on the web" : "starts the model reading your files"}
+              label="Analyze file"
               busy={busy}
+              disabled={!ready || !bound}
+              reason={!bound ? "Choose which company these files are about first." : "Wait until every file shows Ready."}
               message={error}
-              note={enrich ? (
-                <>
-                  <p className="sm-text">Checking public sources researches the company on the web as well, and uses one of your researches.</p>
-                  <LimitNote limits={limits} kind="researches" />
-                </>
-              ) : null}
+              note={<p className="mut xs-text">Uses {uses.toLowerCase()}. Results are marked From your files and stay private to your workspace.{enrich ? " Checking public sources also researches the company on the web." : ""}</p>}
               onProceed={() => void start()}
-              onCancel={() => { setAsking(false); setError(null); }}
+              onCancel={() => setError(null)}
             />
-          ) : (
-            <div className="row-12 wrap">
-              <button type="button" className="btn primary" disabled={!ready || busy || !bound || hit !== null} onClick={analyze}>
-                {busy ? "Starting…" : "Analyze file"}
-              </button>
-              <span className="mut sm-text">Results are marked <b>From your files</b> and kept private to your workspace.</span>
-            </div>
-          )}
+          ) : null}
         </>
       ) : null}
     </div>
@@ -235,8 +215,12 @@ function FileTab({ initialDrive, estimate }: { initialDrive: boolean; estimate: 
 const TABS = ["company", "file"] as const;
 type Tab = (typeof TABS)[number];
 
-export function NewResearch({ estimate, initialTab, initialDrive = false }: { estimate: ResearchEstimate | null; initialTab: Tab; initialDrive?: boolean }) {
-  const [tab, setTab] = useState<Tab>(initialTab);
+export function NewResearch({ estimate, initialTab }: { estimate: ResearchEstimate | null; initialTab: Tab }) {
+  const [tab, setTabNow] = useState<Tab>(initialTab);
+  // a panel mounts on its first visit and then stays (hidden when not shown), so switching tabs
+  // never drops typed text or files mid-upload
+  const [seen, setSeen] = useState<Record<Tab, boolean>>({ company: initialTab === "company", file: initialTab === "file" });
+  const setTab = (t: Tab) => { setTabNow(t); setSeen((v) => (v[t] ? v : { ...v, [t]: true })); };
   const list = useRef<HTMLDivElement>(null);
   // the tab pattern: one stop in the tab order, arrow keys (and Home, End) move between tabs
   const onKey = (e: React.KeyboardEvent<HTMLDivElement>) => {
@@ -259,15 +243,16 @@ export function NewResearch({ estimate, initialTab, initialDrive = false }: { es
         <button {...tabProps("company")}>Company name</button>
         <button {...tabProps("file")}>Upload a file</button>
       </div>
-      {tab === "company" ? (
-        <section id="nr-panel-company" role="tabpanel" aria-labelledby="nr-tab-company" className="card pad-lg stack-14">
+      {seen.company ? (
+        <section id="nr-panel-company" role="tabpanel" aria-labelledby="nr-tab-company" className="card pad-lg stack-14" hidden={tab !== "company"}>
           <ResearchCompany estimate={estimate} idPrefix="nr" />
         </section>
-      ) : (
-        <div id="nr-panel-file" role="tabpanel" aria-labelledby="nr-tab-file">
-          <FileTab initialDrive={initialDrive} estimate={estimate} />
+      ) : null}
+      {seen.file ? (
+        <div id="nr-panel-file" role="tabpanel" aria-labelledby="nr-tab-file" hidden={tab !== "file"}>
+          <FileTab estimate={estimate} />
         </div>
-      )}
+      ) : null}
     </>
   );
 }

@@ -3,8 +3,9 @@
 // same choices and limits as Settings, Auto refresh, saved at once. Options faster than the
 // workspace allows are disabled.
 import { useState } from "react";
-import { api, ApiError } from "@/lib/api";
+import { api, errorText } from "@/lib/api";
 import type { ScheduleRow, Schedules } from "@/lib/gen/api.gen";
+import { announce } from "@/ui/Toaster";
 
 const LABEL: Record<string, string> = { "3d": "Every 3 days", weekly: "Weekly", "2w": "Every 2 weeks", monthly: "Monthly", off: "Off" };
 
@@ -14,6 +15,7 @@ export function AutoRefreshSelect({ row }: { row: ScheduleRow }) {
   const [error, setError] = useState<string | null>(null);
 
   const save = async (next: string) => {
+    if (busy) return;
     const before = cadence;
     setCadence(next);
     setBusy(true);
@@ -21,9 +23,10 @@ export function AutoRefreshSelect({ row }: { row: ScheduleRow }) {
     try {
       const saved = await api<Schedules>("PUT", `/v1/schedules/${encodeURIComponent(row.account_id)}`, { cadence: next });
       setCadence(saved.rows.find((r) => r.account_id === row.account_id)?.cadence ?? next);
+      announce("Auto refresh saved");
     } catch (cause) {
       setCadence(before);
-      setError(cause instanceof ApiError && cause.status === 422 ? cause.detail : "Not saved. Try again.");
+      setError(errorText(cause, "Not saved. Try again."));
     } finally {
       setBusy(false);
     }
@@ -31,7 +34,7 @@ export function AutoRefreshSelect({ row }: { row: ScheduleRow }) {
 
   return (
     <span className="ar-cell">
-      <select className="select sm" aria-label={`Auto refresh for ${row.name}`} value={cadence} disabled={busy} onChange={(e) => void save(e.target.value)}>
+      <select className="select sm" aria-label={`Auto refresh for ${row.name}`} value={cadence} disabled={busy} aria-busy={busy || undefined} onChange={(e) => void save(e.target.value)}>
         {row.options.map((o) => (
           <option key={o.cadence} value={o.cadence} disabled={!o.allowed}>{o.label || LABEL[o.cadence] || o.cadence}</option>
         ))}

@@ -1,8 +1,8 @@
 """Database readers of the repair stage: one workspace's raw tables as ``records.py`` values.
 
 Raw stores only (the job pipeline's postings, the people pipeline's rows, detections, graded
-facts with their evidence, the sources register, the tool-call ledger, the tracker, matched mail
-and drive items), the same for every account. Rows are read whole and left to the builders to
+facts with their evidence, the sources register, the tool-call ledger and the tracker), the
+same for every account. Rows are read whole and left to the builders to
 de-duplicate and judge; a reader never drops a row for being wrong, it only labels where the row
 came from (``origin``, ``source_kind``, ``from_fact``) so the builders can tell research text from
 pipeline data. Each query selects ``to_jsonb(row)`` so a column that a database has not migrated
@@ -29,7 +29,6 @@ from exports.repair.records import (
     FactLine,
     JobRecord,
     LeadershipRecord,
-    MailItem,
     PersonRecord,
     RepairInput,
     SearchCall,
@@ -884,30 +883,6 @@ async def read_coverage(
     ]
 
 
-async def read_mail(s: Any, account_id: UUID, user_id: str) -> list[MailItem]:
-    """The user's own matched mail threads and drive files for the account."""
-    rows = (
-        await s.execute(
-            text(
-                "SELECT i.title, i.item_kind, i.location, i.item_date, i.snippet"
-                " FROM connector_items i WHERE i.account_id = :a AND i.owner_user_id = :u"
-                " AND i.state = 'matched' ORDER BY i.item_date DESC NULLS LAST"
-            ),
-            {"a": account_id, "u": user_id},
-        )
-    ).all()
-    return [
-        MailItem(
-            title=_text(r.title),
-            kind="File" if r.item_kind == "file" else "Thread",
-            sender=_text(r.location),
-            date=_day(r.item_date),
-            summary=_text(r.snippet),
-        )
-        for r in rows
-    ]
-
-
 async def load_input(
     s: Any,
     profile: WorkspaceProfile,
@@ -930,6 +905,4 @@ async def load_input(
     inp.searches = await read_searches(s, account_id)
     inp.signal_seeds = await read_signals(s, account_id)
     inp.coverage = await read_coverage(s, account_id, tracker_labels)
-    if profile.mail_drive_connected:
-        inp.mail = await read_mail(s, account_id, user_id)
     return inp

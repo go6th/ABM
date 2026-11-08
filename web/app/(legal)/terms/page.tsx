@@ -22,8 +22,7 @@ export default function TermsPage() {
       <h2>Your content</h2>
       <p>
         Content you and your organisation add stays yours. You give 6th the rights needed to run the service
-        for you. Connected mail and drive items are handled as the{" "}
-        <a href="/privacy">privacy policy</a> describes.
+        for you. Your information is handled as the <a href="/privacy">privacy policy</a> describes.
       </p>
       <h2>Availability and changes</h2>
       <p>We work to keep the service available and secure, and may change features over time. We will tell your organisation about significant changes.</p>

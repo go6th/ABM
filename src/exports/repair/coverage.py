@@ -21,10 +21,8 @@ CLAIM_COLUMNS = (
 )  # fmt: skip
 
 STATUSES = ("Done", "Partial", "Not done", "Blocked", "None found", "Not checked")
-MAIL_ITEMS = (1, 2)
 REASON_NO_EVIDENCE = "no evidence rows"
 REASON_PEOPLE = "People data consent needed"
-REASON_MAIL = "Mail and drive not connected"
 
 _STATUS_WORDS: dict[str, str] = {
     "done": "Done", "complete": "Done", "completed": "Done", "ok": "Done", "yes": "Done",
@@ -110,11 +108,6 @@ def _people_blocked(profile: WorkspaceProfile, tables: Mapping[str, RepairedTabl
     return not profile.people_consent
 
 
-def _mail_blocked(profile: WorkspaceProfile, tables: Mapping[str, RepairedTable]) -> bool:
-    mail = tables.get("mail")
-    return (not profile.mail_drive_connected) or bool(mail and mail.stats.get("connected") is False)
-
-
 def _join_reasons(parts: Sequence[str]) -> str:
     seen: list[str] = []
     for part in parts:
@@ -162,11 +155,10 @@ def build_coverage(
     """Build the Coverage table (sheet ``Coverage``) and the ``Deliverable claims`` sheet."""
     items, exclusions = _dedupe(records)
     people_blocked = _people_blocked(profile, tables)
-    mail_blocked = _mail_blocked(profile, tables)
     sheet = Sheet(TABLE_TITLE, core.COVERAGE_COLUMNS)
     by_key: dict[str, dict[str, str]] = {}
     notes: list[str] = []
-    downgraded = people_set = mail_set = 0
+    downgraded = people_set = 0
 
     for seq, rec in enumerate(items, start=1):
         status = normalise_status(rec.status)
@@ -191,9 +183,6 @@ def build_coverage(
             downgraded += 1
 
         blockers: list[str] = []
-        if mail_blocked and rec.number in MAIL_ITEMS:
-            blockers.append(REASON_MAIL)
-            mail_set += 1
         if people_blocked and _PEOPLE_ITEM.search(rec.item):
             blockers.append(REASON_PEOPLE)
             people_set += 1
@@ -236,8 +225,6 @@ def build_coverage(
         )
     if people_set:
         notes.append(f"{REASON_PEOPLE}: {people_set} people item(s) cannot be Done.")
-    if mail_set:
-        notes.append(f"{REASON_MAIL}: Coverage items 1 and 2 are Not done.")
     if not sheet.rows:
         notes.append("No coverage tracker rows were recorded for the latest run.")
 

@@ -12,6 +12,8 @@ import { api, clearSession } from "@/lib/api";
 import type { ShellNote } from "@/lib/notifications";
 import { setUploadOwner } from "@/lib/upload-store";
 import { Logo, NavIcon } from "@/ui/design";
+import { NavProgress } from "@/ui/NavProgress";
+import { Toaster } from "@/ui/Toaster";
 
 export interface RecentChat { id: string; title: string }
 
@@ -23,7 +25,6 @@ export interface ShellUser {
   clientName: string;
   userName: string | null;
   email: string | null;
-  mailDriveAllowed: boolean;
   /** False when the AI model is not set up (``/v1/me`` ``model_ready``). */
   modelReady?: boolean;
   /** A client admin: may give 6th support read-only access. */
@@ -84,6 +85,17 @@ export function WorkspaceShell({ user, recent, notes = [], children }: { user: S
     menuButton.current?.focus();
   }, [open]);
 
+  // the overlay menu closes when the page changes and when the window grows past phone width
+  // (where its scrim and Menu button are hidden, so it could not be closed and the page stayed inert)
+  const [shownPath, setShownPath] = useState(pathname);
+  if (shownPath !== pathname) { setShownPath(pathname); setOpen(false); }
+  useEffect(() => {
+    const wide = window.matchMedia("(min-width: 760px)");
+    const onChange = () => { if (wide.matches) setOpen(false); };
+    wide.addEventListener("change", onChange);
+    return () => wide.removeEventListener("change", onChange);
+  }, []);
+
   useEffect(() => {
     if (!open) return;
     const first = side.current?.querySelector<HTMLElement>("a, button");
@@ -118,7 +130,8 @@ export function WorkspaceShell({ user, recent, notes = [], children }: { user: S
   };
 
   return (
-    <div className="app">
+    <div className="app ui-pastel">
+      <NavProgress />
       <a className="skip-link" href="#main">Skip to content</a>
       <div className="topbar" inert={open || undefined}>
         <Link href="/" aria-label="Account Intelligence home"><Logo /></Link>
@@ -190,6 +203,7 @@ export function WorkspaceShell({ user, recent, notes = [], children }: { user: S
         ) : null}
         {children}
       </main>
+      <Toaster />
     </div>
   );
 }

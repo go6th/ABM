@@ -151,11 +151,11 @@ async def test_client_settings_change_from_its_page(world: dict[str, Any], staff
         plane,
         "PUT",
         path,
-        json={"account_cap_per_user": 12, "idle_expiry_days": 14, "mail_drive_allowed": False},
+        json={"account_cap_per_user": 12, "idle_expiry_days": 14, "web_refresh_allowed": False},
     )
     assert changed.status_code == 200, changed.text
     s = changed.json()["settings"]
-    assert (s["account_cap_per_user"], s["idle_expiry_days"], s["mail_drive_allowed"]) == (
+    assert (s["account_cap_per_user"], s["idle_expiry_days"], s["web_refresh_allowed"]) == (
         12,
         14,
         False,
@@ -387,3 +387,59 @@ async def test_the_schedule_tick_limits_are_edited_on_the_defaults_page(staff_en
             before["schedule_tick_max_starts"],
             before["schedule_tick_max_per_tenant"],
         )
+
+
+@pytest.mark.requires_postgres
+@pytest.mark.asyncio
+async def test_a_slow_rebuild_sends_its_headers_at_once_and_keeps_the_relay_alive(
+    world: dict[str, Any], staff_env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Staging 2026-11-07: the Olympus rebuild took 328 s, the web relay gave up at 300 s waiting
+    for headers and the card said it failed though the build finished. The reply now starts at
+    once, sends a space while the build runs and ends with the same JSON."""
+    import asyncio
+    import json
+    from types import SimpleNamespace
+
+    from account_intelligence.api.routes import admin_console
+    from account_intelligence.replica import sheets as SH
+
+    run = uuid4()
+
+    async def delivered(_s: Any, _account: Any) -> Any:
+        return run
+
+    async def account(_s: Any, _domain: str) -> Any:
+        return uuid4()
+
+    async def not_imported(_s: Any, _run: Any) -> bool:
+        return False
+
+    class SlowBuilder:
+        reader = object()
+
+        async def build_all(self, _tenant: str, _run: str) -> Any:
+            await asyncio.sleep(0.2)
+            return SimpleNamespace(status="refused", reason="synthetic", deliverables=())
+
+    monkeypatch.setattr(SH, "account_of_domain", account)
+    monkeypatch.setattr(SH, "delivered_run", delivered)
+    monkeypatch.setattr(SH, "imported_run", not_imported)
+    monkeypatch.setattr(admin_console, "KEEPALIVE_S", 0.02)
+    plane = make_app()
+    plane.app.state.container.builder = SlowBuilder()
+    reply = await _staff(
+        plane,
+        "POST",
+        f"/operator/v1/console/clients/{world['b']}/rebuild-files",
+        json={"domain": "slow.example.com"},
+    )
+    assert reply.status_code == 200, reply.text
+    assert reply.text.startswith(" ")  # keepalive spaces came before the result
+    assert json.loads(reply.text) == {
+        "run_id": str(run),
+        "status": "refused",
+        "reason": "synthetic",
+        "files": [],
+        "rows": {},
+    }

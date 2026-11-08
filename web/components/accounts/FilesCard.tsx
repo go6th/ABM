@@ -1,14 +1,15 @@
 "use client";
-// FILES on the Account workspace: the account's deliverables with checkboxes, "Download
-// selected (N)" (one file downloads as itself, several as one zip), "Download all", and
-// "Download everything" (deliverables, every table whole, and your own files).
+// FILES on the Account workspace: the account's deliverables with checkboxes (none ticked until the
+// user picks: a download they did not choose is a surprise), "Download selected (N)" (one file
+// downloads as itself, several as one zip), "Download all", and "Download everything"
+// (deliverables, every table whole, and your own files).
 import { useState } from "react";
 import type { DeliverableFile } from "@/lib/gen/api.gen";
 import { DownloadEverything } from "./DownloadEverything";
 
 export function FilesCard({ domain, files: given }: { domain: string; files: DeliverableFile[] | null | undefined }) {
   const files = given ?? [];
-  const [chosen, setPicked] = useState<string[]>(() => files.slice(0, 2).map((f) => f.id));
+  const [chosen, setPicked] = useState<string[]>([]);
   // after a reload with newer files, a pick of a file no longer listed is dropped
   const picked = chosen.filter((id) => files.some((f) => f.id === id));
   const base = `/v1/accounts/${encodeURIComponent(domain)}/deliverables/download?ids=`;

@@ -47,7 +47,7 @@ def test_parse_takes_a_match_on_a_matchable_column_of_that_sheet() -> None:
     assert marked["sources"] == {"title", "publisher"}
     assert marked["teams"] == {"team", "function", "locations"}
     assert marked["connections"] == {"company", "domain", "category"}
-    assert not marked["signals"] and not marked["calls"] and not marked["mail-and-drive"]
+    assert not marked["signals"] and not marked["calls"]
 
 
 @pytest.mark.parametrize(
@@ -179,7 +179,7 @@ def test_a_tables_sheet_comes_from_its_zip_role_or_its_research_kind() -> None:
         assert A.table_sheet(_jobs_table(acct, member)) is None, member
     view = ViewSource("tech", (uuid4(),), (acct.id,))
     assert A.table_sheet(_jobs_table(acct, None, view)) == "technology"
-    rows = A.table_rows(A.Workspace([acct], [], [], [], [], [], [], {}, False), [_jobs_table(acct)])
+    rows = A.table_rows(A.Workspace([acct], [], [], [], [], [], {}), [_jobs_table(acct)])
     assert rows[0].extra["sheet"] == {"key": "jobs"}
     # the sheet link is not part of what a question matches the row on
     assert "{'key'" not in rows[0].haystack()
@@ -191,7 +191,7 @@ def _stored(table: Any, where: list[dict[str, Any]], **extra: Any) -> dict[str, 
 
 
 def _row(table: Any, acct: A.Acct) -> A.Row:
-    (row,) = A.table_rows(A.Workspace([acct], [], [], [], [], [], [], {}, False), [table])
+    (row,) = A.table_rows(A.Workspace([acct], [], [], [], [], [], {}), [table])
     return row
 
 
@@ -300,7 +300,7 @@ async def test_an_answer_about_an_imported_workspace_cites_the_jobs_sheet_with_i
     query's filter carried onto the citation, then the numbered sources."""
     acct = _acct()
     table = _jobs_table(acct)
-    ws = A.Workspace([acct], [], [], [], [], [], [], {}, False)
+    ws = A.Workspace([acct], [], [], [], [], [], {})
     ws.tables = A.table_rows(ws, [table])
     q, local = A.draft_local(
         "How many job openings are there in San Francisco?", ws, datetime.now(UTC)
@@ -335,7 +335,7 @@ def test_a_research_table_of_several_accounts_is_cited_without_a_sheet_link() ->
     acct, other = _acct(), _acct()
     view = ViewSource("jobs", (uuid4(), uuid4()), (acct.id, other.id))
     (row,) = A.table_rows(
-        A.Workspace([acct, other], [], [], [], [], [], [], {}, False),
+        A.Workspace([acct, other], [], [], [], [], [], {}),
         [_jobs_table(acct, None, view)],
     )
     assert "sheet" not in row.extra

@@ -86,7 +86,6 @@ COVERAGE_COLUMNS = (
     "#", "Research item", "Priority", "Status", "Reason", "Evidence (row counts / source codes)",
     "Last run",
 )  # fmt: skip
-MAIL_COLUMNS = ("Title", "Kind", "From", "Date", "Summary", "Relevance", "Link")
 
 SIGNAL_TYPES = (
     "Leadership change", "Platform hiring spike", "Build-role hiring", "M&A / divestiture",
@@ -141,7 +140,6 @@ class WorkspaceProfile:
     # platform names never searched, listed or counted for this account
     out_of_scope_platforms: tuple[str, ...] = ()
     people_consent: bool = False
-    mail_drive_connected: bool = False
     # (host suffix, publisher) pairs; the generic map is added by ``sources.PUBLISHERS``
     publishers: tuple[tuple[str, str], ...] = ()
     # a pulled posting host that is the account's own careers board (for the Source type)
@@ -186,7 +184,7 @@ class RepairedTable:
     """One table of the export: its sheets (the first is the main one), what was dropped, and the
     numbers the report and the deliverable cross-check use."""
 
-    key: str  # jobs, people, tech, news, sources, searches, signals, coverage, mail
+    key: str  # jobs, people, tech, news, sources, searches, signals, coverage
     title: str  # the file stem in Tables/
     sheets: list[Sheet]
     exclusions: list[Exclusion] = field(default_factory=list)

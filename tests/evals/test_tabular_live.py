@@ -176,7 +176,7 @@ async def _ask(
     """One end-to-end turn (router → tools → streamed answer): the tool trace (name plus the
     payload the model sent, plus the row count a query answered with), the answer's text and
     the route taken."""
-    ws = A.Workspace([acct], [], [], [], [], [], [], {}, False)
+    ws = A.Workspace([acct], [], [], [], [], [], {})
     async with tenant_txn(tenant, user="user-1") as s:
         found = await T.list_tables(s, [account])
     decision = await R.route(question, found)

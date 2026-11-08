@@ -5,6 +5,12 @@ import AxeBuilder from "@axe-core/playwright";
 export const API = process.env.E2E_API_ORIGIN ?? "http://127.0.0.1:8088";
 const GROUP: Record<string, string> = { admin: "admins", analyst: "analysts", seller: "sales", viewer: "readers" };
 
+/** A seeded workspace's sign-in slug: the harness adds a fresh suffix each time it starts. */
+export async function seededSlug(page: Page, which: "a" | "b"): Promise<string> {
+  const seeded = await (await page.request.get(`${API}/fake-idp/tenants`)).json();
+  return seeded[`slug_${which}`];
+}
+
 export async function signIn(page: Page, slug: string, subject: string, role: string) {
   await page.request.post(`${API}/fake-idp/next`, { data: { subject, groups: [GROUP[role] ?? "none"] } });
   // The IdP lives at https://idp.synthetic.test (the database refuses http IdPs) and does not
@@ -30,7 +36,11 @@ export async function signIn(page: Page, slug: string, subject: string, role: st
 }
 
 export async function noSeriousA11y(page: Page) {
+  // judge the page as it settles: mid fade-in (depth.css rise) text is still part transparent
+  await page.evaluate(() => Promise.all(document.getAnimations()
+    .filter((a) => a.effect?.getTiming().iterations !== Infinity)
+    .map((a) => a.finished.catch(() => undefined))));
   const result = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
   const serious = result.violations.filter((v) => v.impact === "serious" || v.impact === "critical");
-  expect(serious.map((v) => `${v.id}: ${v.nodes.length}`)).toEqual([]);
+  expect(serious.map((v) => `${v.id}: ${v.nodes.length} (${v.nodes.slice(0, 3).map((n) => n.target.join(" ")).join(", ")})`)).toEqual([]);
 }

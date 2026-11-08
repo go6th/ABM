@@ -127,10 +127,6 @@ def table_numbers(tables: Mapping[str, RepairedTable] | Iterable[RepairedTable])
 _UNBLOCK: tuple[tuple[tuple[str, ...], str], ...] = (
     (("consent",), "Approve people data consent for this workspace."),
     (
-        ("mail", "drive", "not connected", "connect"),
-        "Connect the mail and drive source (read only) for this workspace.",
-    ),
-    (
         ("cap", "budget", "limit", "ceiling", "execution", "token"),
         "Raise or lift the execution cap / approve the token and cost estimate.",
     ),

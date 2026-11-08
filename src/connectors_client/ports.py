@@ -1,8 +1,8 @@
 """The outbound boundary of the connectors: OAuth and the sources' read APIs.
 
-No port has a method that writes to a tenant's CRM, Drive or mailbox (CN4: fetch is read-only by
-construction). The production adapters do not exist yet: every ``Unconfigured*`` raises
-``NotConfigured`` (no real OAuth app is registered, D-65), never a fake success.
+No port has a method that writes to a tenant's CRM (CN4: fetch is read-only by construction).
+The production adapters do not exist yet: every ``Unconfigured*`` raises ``NotConfigured`` (no
+real OAuth app is registered, D-65), never a fake success.
 
 GUARANTEE(test_connector_ports_are_read_only_and_fail_closed)
 """
@@ -35,23 +35,6 @@ class TokenSet:
     refresh_token: str | None
     scopes: tuple[str, ...]
     expires_in: int
-
-
-@dataclass(frozen=True)
-class DriveMeta:
-    """A Drive file's identity and ancestry facts."""
-
-    id: str
-    name: str
-    mime_type: str
-    parents: tuple[str, ...] = ()
-    drive_id: str | None = None
-    shortcut_target: str | None = None
-
-    @property
-    def is_folder(self) -> bool:
-        """True for a folder."""
-        return self.mime_type == "application/vnd.google-apps.folder"
 
 
 @dataclass(frozen=True)
@@ -92,18 +75,6 @@ class OAuthClient(Protocol):
 class ConnectorClient(Protocol):
     """A source's read API (no write method exists)."""
 
-    async def list_folder(self, access_token: str, folder_id: str, page_token: str | None) -> Page:
-        """One page of a Drive folder's children (DriveMeta items)."""
-        ...
-
-    async def file_meta(self, access_token: str, file_id: str) -> DriveMeta | None:
-        """A Drive file's metadata, or None when it is not visible."""
-        ...
-
-    async def fetch(self, access_token: str, file_id: str, max_bytes: int) -> bytes:
-        """A Drive file's content (SourceError ``too_large`` above max_bytes)."""
-        ...
-
     async def list_records(
         self, access_token: str, obj: str, fields: tuple[str, ...], page_token: str | None
     ) -> Page:
@@ -139,18 +110,6 @@ class UnconfiguredOAuthClient:
 
 class UnconfiguredConnectorClient:
     """No source read adapter is built yet."""
-
-    async def list_folder(self, access_token: str, folder_id: str, page_token: str | None) -> Page:
-        """Refuse: not configured."""
-        raise NotConfigured("Drive adapter is not configured")
-
-    async def file_meta(self, access_token: str, file_id: str) -> DriveMeta | None:
-        """Refuse: not configured."""
-        raise NotConfigured("Drive adapter is not configured")
-
-    async def fetch(self, access_token: str, file_id: str, max_bytes: int) -> bytes:
-        """Refuse: not configured."""
-        raise NotConfigured("Drive adapter is not configured")
 
     async def list_records(
         self, access_token: str, obj: str, fields: tuple[str, ...], page_token: str | None

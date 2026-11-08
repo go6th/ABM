@@ -1,22 +1,23 @@
 "use client";
 // Refresh from web as designed, plus research on one topic the user types. Three scopes and the
 // topic are radio cards (arrow keys move between them); typing in the topic box selects it. Then
-// the two model chips, Confirm refresh and Not now, and the researches left this month (a
-// refresh is one research; owner decision 2026-10-14: researches, not credits, are shown). With
-// none left, the refusal and "Request more from admin" show instead. Each scope shows the tokens
-// and dollars it is expected to use, and Confirm asks "this refresh will use about N tokens
-// (about $X). Proceed?" first (owner decision 2026-10-21). Nothing leaves the workspace until
-// Proceed.
+// the model chips, the cost of the picked scope with Refresh and Not now (UsageProceed: the
+// first press arms, the second starts), and the researches left this month (a refresh is one
+// research; owner decision 2026-10-14). With none left, the refusal and "Request more from
+// admin" show instead. A started refresh closes the pop-up and opens the account's Overview,
+// where its progress shows.
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { LimitNote, LimitReached, limitReached, useMyLimits } from "@/components/Limits";
 import { ResearchModelChips, useResearchModels } from "@/components/ModelMenu";
 import { CONFIRMED_TWICE, UsageProceed } from "@/components/UsageProceed";
 import { api, ApiError } from "@/lib/api";
 import type { RefreshOptions, RefreshStarted } from "@/lib/gen/api.gen";
 import { dollars, tokenCount } from "@/lib/usage";
-import { reasonOr, useRequestKey } from "./ResumeResearch";
+import { useRequestKey } from "./ResumeResearch";
+import { errorText } from "@/lib/api";
+import { announce } from "@/ui/Toaster";
 
 type Option = RefreshOptions["options"][number];
 type Scope = Option["scope"] | "topic";
@@ -31,7 +32,7 @@ function minutes(m: number): string {
 
 /** ``onClose``: the form sits in the account's Refresh pop-up (redesign 2026-11-07); Not now and a
  * started refresh close it instead of leaving the page. */
-export function RefreshForm({ view, initialTopic, onClose }: { view: RefreshOptions; initialTopic: string; onClose?: () => void }) {
+export function RefreshForm({ view, initialTopic, onClose, onBusy }: { view: RefreshOptions; initialTopic: string; onClose?: () => void; onBusy?: (busy: boolean) => void }) {
   const router = useRouter();
   const options: Option[] = view.options ?? [];
   const topicCost = view.topic;
@@ -41,9 +42,9 @@ export function RefreshForm({ view, initialTopic, onClose }: { view: RefreshOpti
     ? "topic"
     : (options.find((o) => o.scope === "people") ?? options[0])?.scope ?? "topic";
   const [scope, setScopeNow] = useState<Scope>(start);
-  const [asking, setAsking] = useState(false);
-  const setScope = (next: Scope) => { setScopeNow(next); setAsking(false); };
+  const setScope = (next: Scope) => setScopeNow(next);
   const [busy, setBusy] = useState(false);
+  useEffect(() => { onBusy?.(busy); }, [busy, onBusy]);
   const [message, setMessage] = useState<string | null>(null);
   const [hit, setHit] = useState<string | null>(null);
   const { limits } = useMyLimits();
@@ -58,6 +59,7 @@ export function RefreshForm({ view, initialTopic, onClose }: { view: RefreshOpti
   const topicText = topic.trim().replace(/\s+/g, " ");
   const needsTopic = scope === "topic" && topicText.length < 3;
   const back = `/accounts/${encodeURIComponent(view.domain)}`;
+  const topicOn = scope === "topic";
   const usage = scope === "topic" ? topicCost.usage : (options.find((o) => o.scope === scope)?.usage ?? topicCost.usage);
 
   const focusScope = (next: Scope) => {
@@ -75,8 +77,11 @@ export function RefreshForm({ view, initialTopic, onClose }: { view: RefreshOpti
     try {
       await api<RefreshStarted>("POST", `/v1/accounts/${encodeURIComponent(view.domain)}/refresh`, { request_id: request.key(body), ...body });
       request.done();
-      if (onClose) onClose();
-      else router.push(back);
+      announce(topicOn ? "Research started. You will be notified when it finishes." : "Refresh started. You will be notified when it finishes.");
+      setBusy(false);
+      onClose?.();
+      // the Overview shows the progress; a tab like People has no progress card
+      router.push(back);
       router.refresh();
     } catch (cause) {
       // a network error or a 5xx keeps the request id, so trying again cannot start it twice
@@ -85,7 +90,7 @@ export function RefreshForm({ view, initialTopic, onClose }: { view: RefreshOpti
       if (reached) {
         setHit(reached.message);
       } else if (cause instanceof ApiError && (cause.status === 409 || cause.status === 422)) {
-        setMessage(cause.status === 422 ? "Describe the topic in 3 to 300 characters." : reasonOr(cause, "A refresh of this account is already running."));
+        setMessage(cause.status === 422 ? "Describe the topic in 3 to 300 characters." : errorText(cause, "A refresh of this account is already running."));
       } else if (cause instanceof ApiError && cause.status === 403) {
         setMessage("Web refreshes are turned off for your workspace.");
       } else {
@@ -97,7 +102,6 @@ export function RefreshForm({ view, initialTopic, onClose }: { view: RefreshOpti
     }
   };
 
-  const topicOn = scope === "topic";
   return (
     <>
       <div
@@ -172,18 +176,16 @@ export function RefreshForm({ view, initialTopic, onClose }: { view: RefreshOpti
               placeholder={`For example: ${view.name}'s plans for its customer data platform this year`}
               onFocus={() => setScope("topic")}
               onChange={(e) => { setTopic(e.target.value); setScope("topic"); }}
-              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); if (!needsTopic) setAsking(true); } }}
+              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) e.preventDefault(); }}
               aria-describedby="topic-hint"
             />
             <div className="topic-hint mut" id="topic-hint">
-              <span>{topicOn && needsTopic ? "Describe the topic in a few words." : "Only this topic is researched. Enter confirms."}</span>
+              <span>{topicOn && needsTopic ? "Describe the topic in a few words." : "Only this topic is researched."}</span>
               <span className="count">{topic.length}/{TOPIC_MAX}</span>
             </div>
           </div>
         </div>
       </div>
-
-      {message && !asking ? <div className="notice error" role="alert"><p>{message}</p></div> : null}
 
       <ResearchModelChips state={models} />
       {hit || (none && limits) ? (
@@ -192,25 +194,21 @@ export function RefreshForm({ view, initialTopic, onClose }: { view: RefreshOpti
           message={hit ?? `You have used your ${limits!.researches.limit} ${limits!.researches.limit === 1 ? "research" : "researches"}. Ask your admin to increase your limit.`}
           pending={limits?.pending_requests.includes("researches")}
         />
-      ) : null}
-      {asking && !hit && !none ? (
+      ) : (
         <UsageProceed
+          key={`${scope}:${topicText}:${JSON.stringify(models.body)}`}
           usage={usage}
           gaps={scope === "people" || scope === "full" ? view.gaps : []}
           what={topicOn ? "This research" : "This refresh"}
+          label={topicOn ? "Research this topic" : "Refresh"}
           busy={busy}
+          disabled={needsTopic}
+          reason="Describe the topic in a few words first."
           message={message}
+          extra={onClose ? <button type="button" className="btn" onClick={onClose}>Not now</button> : <Link className="btn" href={back} prefetch={false}>Not now</Link>}
           onProceed={() => void confirm()}
-          onCancel={() => { setAsking(false); setMessage(null); }}
+          onCancel={() => setMessage(null)}
         />
-      ) : (
-        <div className="actions">
-          <button type="button" className="btn primary wide" onClick={() => setAsking(true)} disabled={busy || needsTopic || none || hit !== null} aria-describedby="refresh-note">
-            {topicOn ? "Confirm research" : "Confirm refresh"}
-          </button>
-          {onClose ? <button type="button" className="btn" onClick={onClose}>Not now</button> : <Link className="btn" href={back} prefetch={false}>Not now</Link>}
-          <span className="mut small" id="refresh-note">You will be notified when it finishes.</span>
-        </div>
       )}
       <LimitNote limits={limits} kind="researches" />
     </>

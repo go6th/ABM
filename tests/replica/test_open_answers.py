@@ -192,11 +192,11 @@ def test_suggestions_never_offer_an_account_with_no_research() -> None:
     own, ucb = _acct("6th", "6th.example"), _acct("UCB Inc", "ucb.example")
     now = datetime.now(UTC)
     facts = [A.Row("fact:1", "fact", ucb, "Veeva CRM", "Summary", "UCB", now, None, "internal")]
-    ws = A.Workspace([own, ucb], facts, [], [], [], [], [], {}, False)
+    ws = A.Workspace([own, ucb], facts, [], [], [], [], {})
     chips = A.suggestions(ws, now)
     assert not any("6th" in c for c in chips)
     assert "First call questions for UCB Inc" in chips
-    empty = A.Workspace([own], [], [], [], [], [], [], {}, False)
+    empty = A.Workspace([own], [], [], [], [], [], {})
     assert A.suggestions(empty, now) == []
 
 
@@ -219,7 +219,7 @@ async def test_an_open_question_reaches_the_model_with_its_rules_and_setting() -
     acct = _acct("UCB", "ucb.example")
     now = datetime.now(UTC)
     facts = [A.Row("fact:1", "fact", acct, "Veeva CRM", "Summary", "UCB", now, None, "confirmed")]
-    ws = A.Workspace([acct], facts, [], [], [], [], [], {}, False)
+    ws = A.Workspace([acct], facts, [], [], [], [], {})
     question = OPEN[0][0]
     q, local = A.draft_local(question, ws, now)
     shape = open_question(question)

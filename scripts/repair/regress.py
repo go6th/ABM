@@ -46,7 +46,6 @@ KEYS = {
     "searches": ("Web searches", ("Searched for",)),
     "signals": ("Signals", ("Signal",)),
     "coverage": ("Coverage", ("Research item",)),
-    "mail": ("From your mail and drive", ("Title",)),
 }
 
 

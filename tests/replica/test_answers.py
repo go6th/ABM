@@ -113,9 +113,7 @@ def workspace() -> tuple[A.Workspace, dict[str, A.Acct]]:
         people=[],
         signals=signals,
         tech=[],
-        mail=[],
         questions={},
-        mail_connected=False,
     )
     return ws, {"hm": hm, "cb": cb, "cg": cg}
 
@@ -132,7 +130,7 @@ def test_hiring_answer_cites_each_posting_and_names_accounts():
     assert "Highmark" in body and "Cambia Health" in body and "Cigna" not in body.split("\n\n")[0]
     assert [s["n"] for s in out["sources"]] == list(range(1, len(out["sources"]) + 1))
     assert {"bold"} <= {p["t"] for p in out["paragraphs"][0]}
-    assert out["used"] == {"workspace": "used", "web": "not_used", "mail_drive": "not_connected"}
+    assert out["used"] == {"workspace": "used", "web": "not_used"}
 
 
 def test_citations_are_numbered_by_first_use():

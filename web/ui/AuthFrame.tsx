@@ -16,7 +16,7 @@ export function AuthFrame({
   below?: ReactNode;
   children: ReactNode;
 }) {
-  const classes = ["auth", plane === "operator" ? "auth-admin" : "", pitch ? "auth-split" : "auth-solo"].filter(Boolean).join(" ");
+  const classes = ["auth", plane === "operator" ? "auth-admin" : "ui-pastel", pitch ? "auth-split" : "auth-solo"].filter(Boolean).join(" ");
   return (
     <div className={classes}>
       <main className="auth-main" id="main">

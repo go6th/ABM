@@ -51,6 +51,9 @@ READERS: frozenset[str] = frozenset(
         "evalgate.config",
         "evalgate.golden",
         "exports.config",
+        # added 2026-11-08: research_scopes.yaml once (lru_cache); exports may not import the
+        # replica.jobs reader, which pulls in the agents layer
+        "exports.carry",
         "governance.monitoring_budget",
         "identity.local_password",
         "identity.rate_limit",

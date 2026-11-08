@@ -66,9 +66,9 @@ tables:
   connector_access_log:
     plant: {purpose: fetch, outcome: ok}
   connector_connections:
-    plant: {kind: google_drive, status: active}
+    plant: {kind: salesforce, status: active}
   connector_grants:
-    plant: {grant_kind: drive_folder}
+    plant: {grant_kind: crm_object}
   connector_items:
     plant: {object_key: "tenants/{tenant}/connector-quarantine/{uuid}/{hex64}", state: quarantined}
   connector_oauth_states:
@@ -335,7 +335,9 @@ functions:
   tenants_with_waiting_jobs: {returns: tenant_id identifiers only, proof: tests/replica/test_schedules.py}
   tenants_with_credit_activity: {returns: tenant_id identifiers only, proof: tests/worker/test_nightly.py}
   library_publication_counts: {returns: (library_account_id, count) pairs only, proof: tests/replica/test_library.py}
-  maildrive_connections_due: {returns: (tenant_id, connection_id) pairs only, proof: tests/replica/test_maildrive.py}
+  # the Mail and drive feature is removed from the code (2026-11-08); the function stays until a
+  # migration drops it, and only its owner is checked (tests/isolation/test_definer_owners.py)
+  maildrive_connections_due: {returns: (tenant_id, connection_id) pairs only, proof: tests/isolation/test_definer_owners.py}
   erase_rows:
     returns: a row count; the caller's context tenant only, allow-listed tables, approved requests
     proof: tests/phase3/test_ws1_tenancy.py
@@ -433,13 +435,6 @@ routes:
   GET /v1/research/live: {probe: tenant}
   GET /v1/research/live/stream: {probe: tenant}
   GET /v1/library/available: {probe: tenant}
-  GET /v1/mail-and-drive: {probe: tenant}
-  POST /v1/mail-and-drive/{kind}/connect: {probe: tenant, params: {kind: gmail}}
-  GET /v1/mail-and-drive/callback:
-    probe: tenant
-    query: {state: matrix-state-0000000000, code: matrix-code}
-  POST /v1/mail-and-drive/{family}/sync: {probe: tenant, params: {family: google}}
-  POST /v1/mail-and-drive/{family}/disconnect: {probe: tenant, params: {family: mail}}
   POST /v1/accounts/from-library:
     probe: tenant
     body: {library_account_ids: ["00000000-0000-4000-8000-000000000009"]}
@@ -522,10 +517,6 @@ routes:
   GET /v1/runs/{run_id}: {probe: tenant, params: {run_id: account_runs.id}}
   GET /v1/runs/{run_id}/collected: {probe: tenant, params: {run_id: account_runs.id}}
   POST /v1/documents/uploads: {probe: tenant, body: {name: synthetic-b.pdf, size_bytes: 10, account_id: accounts.id}}
-  GET /v1/documents/drive-files: {probe: tenant, query: {source: onedrive}}
-  POST /v1/documents/from-drive:
-    probe: tenant
-    body: {file_id: matrix-drive-file-0000, account_id: accounts.id, source: onedrive}
   PUT /v1/documents/{document_id}/content:
     probe: tenant
     params: {document_id: documents.id}
@@ -795,7 +786,7 @@ routes:
   POST /v1/connectors/{connection_id}/grants:
     probe: tenant
     params: {connection_id: connector_connections.id}
-    body: {grant_kind: drive_folder, resource_id: folder-1}
+    body: {grant_kind: crm_object, resource_id: Account}
   POST /v1/connectors/{connection_id}/fetch:
     probe: tenant
     params: {connection_id: connector_connections.id}
@@ -911,7 +902,6 @@ routes:
   POST /tasks/download-everything: {probe: machine, body: {tenant_id: owner, job_id: download_jobs.id}}
   POST /tasks/research-job: {probe: machine, body: {tenant_id: owner, job_id: research_jobs.id}}
   POST /tasks/schedules-tick: {probe: machine, body: {}}
-  POST /tasks/maildrive-sync: {probe: machine, body: {}}
   POST /tasks/access-expiry: {probe: machine, body: {}}
   POST /tasks/isolation-check: {probe: machine, body: {}}
   POST /tasks/documents-abandon: {probe: machine, body: {}}

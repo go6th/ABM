@@ -325,14 +325,6 @@ def make_coverage() -> RepairedTable:
     )
 
 
-def make_mail() -> RepairedTable:
-    cols = K.MAIL_COLUMNS
-    rows = [vals(cols, {"Title": K.not_collected("mail and drive not connected")})]
-    return RepairedTable(
-        "mail", "From your mail and drive", [Sheet("Mail", cols, rows, private=True)], internal=True
-    )
-
-
 def make_world() -> tuple[WorkspaceProfile, dict[str, RepairedTable], RepairInput]:
     tables = {
         t.key: t
@@ -345,7 +337,6 @@ def make_world() -> tuple[WorkspaceProfile, dict[str, RepairedTable], RepairInpu
             make_searches(),
             make_signals(),
             make_coverage(),
-            make_mail(),
         )
     }
     inp = RepairInput(

@@ -113,7 +113,6 @@ export const DeepDiveCounts = z.object({
   "files": z.number().int().optional(),
   "findings": z.number().int().optional(),
   "jobs": z.number().int(),
-  "mail_drive": z.number().int(),
   "news": z.number().int(),
   "notes": z.number().int().optional(),
   "people": z.number().int(),
@@ -322,7 +321,6 @@ export const AnswerStructured = z.object({
 export type AnswerStructured = z.infer<typeof AnswerStructured>;
 
 export const AnswerUsed = z.object({
-  "mail_drive": z.string(),
   "model_name": z.string().nullable().optional(),
   "web": z.string(),
   "workspace": z.string(),
@@ -620,7 +618,6 @@ export const ClientChange = z.object({
   "idle_expiry_days": z.string().nullable().optional(),
   "library_account_ids": z.array(z.string()).nullable().optional(),
   "limit_reset": z.string().nullable().optional(),
-  "mail_drive_allowed": z.boolean().nullable().optional(),
   "monthly_credit_pool": z.number().int().nullable().optional(),
   "research_limit_default": z.number().int().nullable().optional(),
   "web_refresh_allowed": z.boolean().nullable().optional(),
@@ -806,7 +803,6 @@ export const ConsoleClientSettings = z.object({
   "fastest_schedule": z.string(),
   "idle_expiry_days": z.number().int(),
   "limit_reset": z.string(),
-  "mail_drive_allowed": z.boolean(),
   "monthly_credit_pool": z.number().int(),
   "research_limit_default": z.number().int(),
   "web_refresh_allowed": z.boolean(),
@@ -1340,21 +1336,6 @@ export const DownloadJob = z.object({
 }).strict();
 export type DownloadJob = z.infer<typeof DownloadJob>;
 
-export const DriveFile = z.object({
-  "google_native": z.boolean(),
-  "id": z.string(),
-  "modified_at": z.string().nullable(),
-  "name": z.string(),
-  "size_bytes": z.number().int().nullable(),
-  "type": z.string(),
-}).strict();
-export type DriveFile = z.infer<typeof DriveFile>;
-
-export const DriveFileList = z.object({
-  "files": z.array(DriveFile),
-}).strict();
-export type DriveFileList = z.infer<typeof DriveFileList>;
-
 export const EmailBody = z.object({
   "email": z.string(),
 }).strict();
@@ -1552,13 +1533,6 @@ export const Flags = z.object({
   "flags": z.array(Flag),
 }).strict();
 export type Flags = z.infer<typeof Flags>;
-
-export const FromDrive = z.object({
-  "account_id": z.string().nullable().optional(),
-  "file_id": z.string(),
-  "source": z.string().optional(),
-}).strict();
-export type FromDrive = z.infer<typeof FromDrive>;
 
 export const FromLibrary = z.object({
   "library_account_ids": z.array(z.string()),
@@ -1845,84 +1819,6 @@ export const LogoUploaded = z.object({
 }).strict();
 export type LogoUploaded = z.infer<typeof LogoUploaded>;
 
-export const MailDriveOption = z.object({
-  "available": z.boolean(),
-  "kind": z.string(),
-  "label": z.string(),
-}).strict();
-export type MailDriveOption = z.infer<typeof MailDriveOption>;
-
-export const MailDriveFamily = z.object({
-  "accounts": z.number().int(),
-  "broken_reason": z.string().nullable().optional(),
-  "items": z.number().int(),
-  "kind": z.string().nullable(),
-  "last_error": z.string().nullable().optional(),
-  "last_error_at": z.string().nullable().optional(),
-  "last_sync_listed": z.number().int().nullable().optional(),
-  "last_sync_matched": z.number().int().nullable().optional(),
-  "last_sync_status": z.string().nullable().optional(),
-  "last_synced_at": z.string().nullable(),
-  "options": z.array(MailDriveOption),
-  "source": z.string().nullable(),
-  "status": z.string(),
-}).strict();
-export type MailDriveFamily = z.infer<typeof MailDriveFamily>;
-
-export const MailDriveSource = z.object({
-  "accounts": z.number().int(),
-  "available": z.boolean(),
-  "broken_reason": z.string().nullable().optional(),
-  "family": z.string(),
-  "group": z.string(),
-  "items": z.number().int(),
-  "kind": z.string(),
-  "label": z.string(),
-  "last_error": z.string().nullable().optional(),
-  "last_error_at": z.string().nullable().optional(),
-  "last_sync_listed": z.number().int().nullable().optional(),
-  "last_sync_matched": z.number().int().nullable().optional(),
-  "last_sync_status": z.string().nullable().optional(),
-  "last_synced_at": z.string().nullable(),
-  "status": z.string(),
-}).strict();
-export type MailDriveSource = z.infer<typeof MailDriveSource>;
-
-export const MailAndDrive = z.object({
-  "allowed": z.boolean(),
-  "drive": MailDriveFamily,
-  "mail": MailDriveFamily,
-  "sources": z.array(MailDriveSource).optional(),
-}).strict();
-export type MailAndDrive = z.infer<typeof MailAndDrive>;
-
-export const MailDriveConnect = z.object({
-  "authorize_url": z.string(),
-}).strict();
-export type MailDriveConnect = z.infer<typeof MailDriveConnect>;
-
-export const MailDriveDisconnected = z.object({
-  "disconnected": z.number().int(),
-  "items_deleted": z.number().int(),
-}).strict();
-export type MailDriveDisconnected = z.infer<typeof MailDriveDisconnected>;
-
-export const MailDriveSyncedSource = z.object({
-  "kind": z.string(),
-  "label": z.string(),
-  "listed": z.number().int(),
-  "matched": z.number().int(),
-  "reason": z.string().nullable(),
-  "state": z.string(),
-}).strict();
-export type MailDriveSyncedSource = z.infer<typeof MailDriveSyncedSource>;
-
-export const MailDriveSynced = z.object({
-  "family": z.string(),
-  "sources": z.array(MailDriveSyncedSource),
-}).strict();
-export type MailDriveSynced = z.infer<typeof MailDriveSynced>;
-
 export const MappingBody = z.object({
   "domain": z.string(),
   "record_id": z.string(),
@@ -1945,7 +1841,6 @@ export const Me = z.object({
   "email": z.string().nullable(),
   "feature_flags": z.record(z.string(), z.boolean()),
   "isolation_tier": z.string(),
-  "mail_drive_allowed": z.boolean().optional(),
   "mfa_enabled": z.boolean(),
   "mfa_required": z.boolean(),
   "mfa_step_up_fresh": z.boolean(),
@@ -3381,17 +3276,11 @@ export const KNOWN_VALUES = {
     "person",
     "signal",
     "technology",
-    "mail_drive",
     "file",
     "tracker",
     "report",
     "knowledge",
     "web"
-  ],
-  "AnswerUsed.mail_drive": [
-    "used",
-    "not_used",
-    "not_connected"
   ],
   "AnswerUsed.web": [
     "used",
@@ -3567,10 +3456,6 @@ export const KNOWN_VALUES = {
     "is_empty",
     "not_empty"
   ],
-  "FromDrive.source": [
-    "google_drive",
-    "onedrive"
-  ],
   "InviteBody.role": [
     "admin",
     "analyst",
@@ -3580,47 +3465,6 @@ export const KNOWN_VALUES = {
   "LimitRequestSent.kind": [
     "researches",
     "chats"
-  ],
-  "MailDriveFamily.last_sync_status": [
-    "ok",
-    "partial",
-    "failed"
-  ],
-  "MailDriveFamily.status": [
-    "connected",
-    "not_connected",
-    "not_available",
-    "broken"
-  ],
-  "MailDriveSource.family": [
-    "google",
-    "microsoft"
-  ],
-  "MailDriveSource.group": [
-    "mail",
-    "drive"
-  ],
-  "MailDriveSource.last_sync_status": [
-    "ok",
-    "partial",
-    "failed"
-  ],
-  "MailDriveSource.status": [
-    "connected",
-    "not_connected",
-    "not_available",
-    "broken"
-  ],
-  "MailDriveSynced.family": [
-    "google",
-    "microsoft"
-  ],
-  "MailDriveSyncedSource.state": [
-    "ok",
-    "partial",
-    "failed",
-    "broken",
-    "skipped"
   ],
   "Me.role": [
     "admin",
@@ -3732,10 +3576,8 @@ export const KNOWN_VALUES = {
     "password"
   ],
   "StartBody.kind": [
-    "google_drive",
     "salesforce",
     "hubspot",
-    "gmail",
     "call_notes"
   ],
   "Target.kind": [
@@ -3771,7 +3613,6 @@ export const KNOWN_VALUES = {
     "coverage"
   ],
   "account_intelligence__api__routes__connectors__GrantBody.grant_kind": [
-    "drive_folder",
     "crm_object",
     "crm_field"
   ],
@@ -3911,9 +3752,7 @@ export const operations = {
   "POST /v1/crm/{crm}/writes/approve": { method: "POST", path: "/v1/crm/{crm}/writes/approve", plane: "tenant", status: 200, request: Approval, requestRequired: true, response: CrmApproved },
   "GET /v1/documents": { method: "GET", path: "/v1/documents", plane: "tenant", status: 200, request: null, requestRequired: false, response: DocumentList },
   "POST /v1/documents/confirm-company": { method: "POST", path: "/v1/documents/confirm-company", plane: "tenant", status: 200, request: ConfirmCompany, requestRequired: true, response: CompanyConfirmed },
-  "GET /v1/documents/drive-files": { method: "GET", path: "/v1/documents/drive-files", plane: "tenant", status: 200, request: null, requestRequired: false, response: DriveFileList },
   "POST /v1/documents/estimate": { method: "POST", path: "/v1/documents/estimate", plane: "tenant", status: 200, request: EstimateBody, requestRequired: true, response: DocumentEstimate },
-  "POST /v1/documents/from-drive": { method: "POST", path: "/v1/documents/from-drive", plane: "tenant", status: 201, request: FromDrive, requestRequired: true, response: DocumentStatus },
   "GET /v1/documents/policy": { method: "GET", path: "/v1/documents/policy", plane: "tenant", status: 200, request: null, requestRequired: false, response: DocumentPolicy },
   "PUT /v1/documents/policy": { method: "PUT", path: "/v1/documents/policy", plane: "tenant", status: 200, request: PolicyBody, requestRequired: true, response: DocumentPolicy },
   "POST /v1/documents/uploads": { method: "POST", path: "/v1/documents/uploads", plane: "tenant", status: 201, request: UploadStart, requestRequired: true, response: DocumentUploadStarted },
@@ -3937,11 +3776,6 @@ export const operations = {
   "POST /v1/feedback": { method: "POST", path: "/v1/feedback", plane: "tenant", status: 201, request: FeedbackBody, requestRequired: true, response: FeedbackCreated },
   "GET /v1/library/available": { method: "GET", path: "/v1/library/available", plane: "tenant", status: 200, request: null, requestRequired: false, response: LibraryAvailable },
   "POST /v1/limits/requests": { method: "POST", path: "/v1/limits/requests", plane: "tenant", status: 201, request: MoreBody, requestRequired: true, response: LimitRequestSent },
-  "GET /v1/mail-and-drive": { method: "GET", path: "/v1/mail-and-drive", plane: "tenant", status: 200, request: null, requestRequired: false, response: MailAndDrive },
-  "GET /v1/mail-and-drive/callback": { method: "GET", path: "/v1/mail-and-drive/callback", plane: "tenant", status: 200, request: null, requestRequired: false, response: null },
-  "POST /v1/mail-and-drive/{family}/disconnect": { method: "POST", path: "/v1/mail-and-drive/{family}/disconnect", plane: "tenant", status: 200, request: null, requestRequired: false, response: MailDriveDisconnected },
-  "POST /v1/mail-and-drive/{family}/sync": { method: "POST", path: "/v1/mail-and-drive/{family}/sync", plane: "tenant", status: 200, request: null, requestRequired: false, response: MailDriveSynced },
-  "POST /v1/mail-and-drive/{kind}/connect": { method: "POST", path: "/v1/mail-and-drive/{kind}/connect", plane: "tenant", status: 200, request: null, requestRequired: false, response: MailDriveConnect },
   "GET /v1/me": { method: "GET", path: "/v1/me", plane: "tenant", status: 200, request: null, requestRequired: false, response: Me },
   "GET /v1/me/limits": { method: "GET", path: "/v1/me/limits", plane: "tenant", status: 200, request: null, requestRequired: false, response: MyLimits },
   "PUT /v1/me/model-preferences": { method: "PUT", path: "/v1/me/model-preferences", plane: "tenant", status: 200, request: Preferences, requestRequired: true, response: ModelChoices },

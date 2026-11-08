@@ -84,7 +84,7 @@ test("the Ask answer shows the indexing notice as a muted line", () => {
   const answer = {
     account_domain: null, account_name: null, answered: true, followups: [], items: null, offer: null,
     paragraphs: [[{ t: "text", v: "Plain text" }]], sources: [], notices: ["Some files are still being indexed; search may miss them."],
-    used: { mail_drive: "not_connected", web: "not_used", workspace: "used" },
+    used: { web: "not_used", workspace: "used" },
   } as unknown as ChatAnswer;
   render(<AnswerView answer={answer} openSource={null} onOpenSource={() => undefined} offerDismissed={false} onDismissOffer={() => undefined} onFollowUp={() => undefined} onPickAccount={() => undefined} busy={false} />);
   expect(screen.getByRole("status").textContent).toBe("Some files are still being indexed; search may miss them.");

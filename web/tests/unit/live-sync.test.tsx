@@ -1,16 +1,18 @@
 // @vitest-environment jsdom
 // The account page re-draws itself as files are read, so an upload shows in the Deep dive counts,
 // Files and Your uploaded files without a reload. SYNTHETIC data only.
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { act } from "react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 const refresh = vi.fn();
-vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
+// one router object, as in Next: a new object on every render would re-run the arrival check
+const router = { refresh };
+vi.mock("next/navigation", () => ({ useRouter: () => router }));
 const api = vi.fn();
 vi.mock("@/lib/api", () => ({ api: (...args: unknown[]) => api(...args) }));
 
-import { AFTER_READY_MS, FOCUS_GAP_MS, LiveSync, POLL_GIVE_UP_MS, POLL_MS, RetryRefresh, docsSignature, pollEvery } from "@/components/accounts/LiveSync";
+import { AFTER_READY_MS, FOCUS_GAP_MS, LiveSync, POLL_GIVE_UP_MS, POLL_MS, RetryRefresh, TryAgain, docsSignature, pollEvery, retryAfter } from "@/components/accounts/LiveSync";
 
 const doc = (id: string, stage: string, passages = 0, indexed = 0) => ({ document_id: id, stage, needs_company: false, passages, parts_done: 0, members_read: 0, indexed_passages: indexed }) as never;
 const list = (...docs: unknown[]) => ({ documents: docs });
@@ -96,10 +98,83 @@ test("a stuck upload is polled less often and then given up on, not every four s
   expect(refresh).not.toHaveBeenCalled(); // nothing changed, nothing was re-drawn
 });
 
-test("when the uploads could not be read the page tries once more after fifteen seconds", async () => {
+test("when the uploads could not be read the page tries again after 15 s, then 30 s, then every 60 s", async () => {
+  expect([0, 1, 2, 3, 9].map(retryAfter)).toEqual([15_000, 30_000, 60_000, 60_000, 60_000]);
   render(<RetryRefresh />);
   await flush(14_000);
   expect(refresh).not.toHaveBeenCalled();
   await flush(2_000);
   expect(refresh).toHaveBeenCalledTimes(1);
+  // it is still on screen (the page failed again): the second try is armed
+  await flush(29_000);
+  expect(refresh).toHaveBeenCalledTimes(1);
+  await flush(2_000);
+  expect(refresh).toHaveBeenCalledTimes(2);
+  await flush(61_000);
+  expect(refresh).toHaveBeenCalledTimes(3);
+});
+
+test("the Try again button asks for the page at once", async () => {
+  render(<TryAgain />);
+  fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+  await flush();
+  expect(refresh).toHaveBeenCalledTimes(1);
+});
+
+const setVisibility = (state: "visible" | "hidden") => {
+  Object.defineProperty(document, "visibilityState", { value: state, configurable: true });
+  document.dispatchEvent(new Event("visibilitychange"));
+};
+
+test("reading a zip does not re-draw the page for every passage, only when the stage changes", async () => {
+  setVisibility("visible");
+  const reading = (indexed: number) => doc("a", "indexing", 900, indexed);
+  api.mockResolvedValue(list(reading(100)));
+  render(<LiveSync accountId="acct" docs={[reading(0)]} />);
+  await flush(); // on arrival the list differs from the page: one re-draw
+  refresh.mockReset();
+  for (const indexed of [200, 300, 400, 500]) {
+    api.mockResolvedValue(list(reading(indexed)));
+    await flush(POLL_MS);
+  }
+  expect(refresh).not.toHaveBeenCalled();
+  api.mockResolvedValue(list(doc("a", "indexed", 900, 900)));
+  await flush(POLL_MS);
+  expect(refresh).toHaveBeenCalledTimes(1);
+});
+
+test("progress inside a stage keeps the checking going past fifteen minutes; no progress ends it", async () => {
+  setVisibility("visible");
+  let indexed = 0;
+  api.mockImplementation(async () => list(doc("a", "indexing", 9000, (indexed += 1))));
+  render(<LiveSync accountId="acct" docs={[doc("a", "indexing", 9000, 0)]} />);
+  await flush(POLL_GIVE_UP_MS + 10 * 60_000);
+  const calls = api.mock.calls.length;
+  await flush(5 * 60_000);
+  expect(api.mock.calls.length).toBeGreaterThan(calls); // still asking: the read is moving
+  cleanup();
+  api.mockReset();
+  api.mockResolvedValue(list(doc("a", "indexing", 9000, 5)));
+  render(<LiveSync accountId="acct" docs={[doc("a", "indexing", 9000, 5)]} />);
+  await flush(POLL_GIVE_UP_MS + 120_000);
+  const stuck = api.mock.calls.length;
+  await flush(10 * 60_000);
+  expect(api.mock.calls.length).toBe(stuck);
+});
+
+test("a hidden tab asks nothing; coming back starts the checking again, even after it gave up", async () => {
+  setVisibility("visible");
+  api.mockResolvedValue(list(doc("a", "uploading")));
+  render(<LiveSync accountId="acct" docs={[doc("a", "uploading")]} />);
+  await flush(POLL_GIVE_UP_MS + 60_000);
+  const gaveUp = api.mock.calls.length;
+  await flush(5 * 60_000);
+  expect(api.mock.calls.length).toBe(gaveUp);
+  await flush(0);
+  setVisibility("hidden");
+  await flush(10 * 60_000);
+  expect(api.mock.calls.length).toBe(gaveUp);
+  setVisibility("visible");
+  await flush(POLL_MS + 1);
+  expect(api.mock.calls.length).toBeGreaterThan(gaveUp);
 });

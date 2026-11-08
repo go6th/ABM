@@ -46,10 +46,10 @@ function fill(goal?: string) {
 }
 
 async function proceed() {
-  fireEvent.click(screen.getByRole("button", { name: "Start research" }));
-  fireEvent.click(screen.getByRole("button", { name: "Proceed" }));
+  fireEvent.click(screen.getByRole("button", { name: "Start research" })); // Proceed: arms
+  expect(screen.getByText("Are you sure?")).toBeTruthy();
   expect(api).not.toHaveBeenCalled(); // the second question comes first
-  fireEvent.click(screen.getByRole("button", { name: "Yes, start it" }));
+  fireEvent.click(screen.getByRole("button", { name: /^Yes, start/ }));
   await waitFor(() => expect(api).toHaveBeenCalled());
   const body = api.mock.calls[0]?.[2] as Record<string, unknown>;
   expect(body.confirm).toBe(true);

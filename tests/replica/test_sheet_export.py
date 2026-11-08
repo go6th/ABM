@@ -114,22 +114,3 @@ async def test_private_rows_never_enter_a_shareable_workbook(world: dict[str, An
     exported = _cells(r.content)
     assert "From the call notes" not in exported
     assert len([v for v in exported if v in titles]) == len(titles) - 1
-
-
-async def test_the_mail_and_drive_export_is_the_owners_and_labelled_private(
-    world: dict[str, Any],
-) -> None:
-    owner = _plane(world["a"], "priya-test", world["payloads"])
-    colleague = _plane(world["a"], "colleague-test", world["payloads"])
-    mine = await _call(owner, "GET", "/v1/accounts/highmark.example/sheets/mail-and-drive/xlsx")
-    theirs = await _call(
-        colleague, "GET", "/v1/accounts/highmark.example/sheets/mail-and-drive/xlsx"
-    )
-    book = load_workbook(io.BytesIO(mine.content))
-    assert book.sheetnames == ["Private to you", "About"]
-    assert book.properties.title == "Private to you"
-    assert ("Note", "Private to you. Do not share.") in list(
-        book["About"].iter_rows(values_only=True)
-    )
-    assert len(_cells(mine.content, "Private to you")) > 0
-    assert theirs.status_code == 404  # the account itself is the owner's (migration 0063)

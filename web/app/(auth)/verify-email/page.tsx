@@ -6,6 +6,11 @@ import { AuthFrame } from "@/ui/AuthFrame";
 import { ApiError, apiPublic } from "@/lib/api";
 import type { EmailVerified } from "@/lib/gen/api.gen";
 
+// Opens from the link in the verification email; the link works once and for a limited time.
+// A link that is incomplete or no longer valid points to the sign-in page, which offers a new
+// link when the email is still waiting to be verified, or to the administrator.
+const NEW_LINK = "Sign in with your email and password: if it is still waiting to be verified, the sign-in page offers a new link. Otherwise ask your administrator.";
+
 export default function VerifyEmailPage() {
   const [status, setStatus] = useState("Checking your verification link");
   const [finished, setFinished] = useState(false);
@@ -16,7 +21,7 @@ export default function VerifyEmailPage() {
     window.history.replaceState(window.history.state, "", window.location.pathname);
     if (!token) {
       void Promise.resolve().then(() => {
-        setStatus("This verification link is incomplete or expired. Request a new link from Security settings.");
+        setStatus(`This verification link is incomplete or expired. ${NEW_LINK}`);
         setFinished(true);
       });
       return;
@@ -28,7 +33,7 @@ export default function VerifyEmailPage() {
         setStatus("Your email is verified. You can now sign in with your password.");
       })
       .catch((e: unknown) => setStatus(e instanceof ApiError && e.status >= 400 && e.status < 500
-        ? "This verification link is invalid or expired. Request a new link from Security settings."
+        ? `This verification link is invalid or expired. ${NEW_LINK}`
         : "Email verification is temporarily unavailable. Try again."))
       .finally(() => setFinished(true));
   }, []);

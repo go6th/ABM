@@ -8,7 +8,7 @@ PROJECT=abmgenerator
 REGION=us-central1
 SQL_INSTANCE=ai-staging-pg
 QUEUES="ai-staging-runs ai-staging-jobs ai-staging-documents"
-JOBS="ai-staging-schedules-tick ai-staging-isolation-check ai-staging-access-expiry ai-staging-audit-verify ai-staging-metrics ai-staging-maildrive-sync ai-staging-notify-relay ai-staging-spend-invariants ai-staging-sweep"
+JOBS="ai-staging-schedules-tick ai-staging-isolation-check ai-staging-access-expiry ai-staging-audit-verify ai-staging-metrics ai-staging-notify-relay ai-staging-spend-invariants ai-staging-sweep"
 # These two were left disabled on purpose (as found on 2026-10-20). Do not turn them on here.
 KEEP_OFF="5xx errors|latency p95"
 

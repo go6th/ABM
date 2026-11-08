@@ -1,34 +1,40 @@
 "use client";
-// Delete one uploaded file of an account, after asking: it is removed from the workspace with
-// everything read from it.
+// Delete one uploaded file of an account, after asking in a pop-up: it is removed from the
+// workspace with everything read from it. A failure stays in the pop-up with its reason.
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { api, ApiError } from "@/lib/api";
+import { api, ApiError, errorText } from "@/lib/api";
+import { ConfirmDialog } from "@/ui/Modal";
+import { announce } from "@/ui/Toaster";
 
 export function DeleteFileButton({ documentId, name }: { documentId: string; name: string }) {
   const router = useRouter();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [asking, setAsking] = useState(false);
   const remove = async () => {
-    if (!window.confirm(`Delete ${name}? It is removed from your workspace with everything read from it.`)) return;
-    setBusy(true);
-    setError(null);
     try {
       await api("DELETE", `/v1/documents/${documentId}`);
-      router.refresh();
     } catch (cause) {
-      if (cause instanceof ApiError && cause.status === 404) router.refresh();
-      else setError("It could not be deleted. Try again.");
-    } finally {
-      setBusy(false);
+      if (!(cause instanceof ApiError && cause.status === 404)) { // 404: already gone
+        throw new Error(errorText(cause, "It could not be deleted. Try again in a moment."));
+      }
     }
+    announce("File removed");
+    router.refresh();
   };
   return (
     <>
-      <button type="button" className="link-danger sm-text align-start" aria-label={`Delete ${name}`} disabled={busy} onClick={() => void remove()}>
-        {busy ? "Deleting" : "Delete"}
+      <button type="button" className="link-danger sm-text align-start" aria-label={`Delete ${name}`} onClick={() => setAsking(true)}>
+        Delete
       </button>
-      {error ? <span className="sub bad-text" role="alert">{error}</span> : null}
+      {asking ? (
+        <ConfirmDialog
+          title="Delete this file?"
+          body={<>Delete <b>{name}</b>? It is removed from your workspace with everything read from it.</>}
+          confirm="Delete"
+          onConfirm={remove}
+          onClose={() => setAsking(false)}
+        />
+      ) : null}
     </>
   );
 }

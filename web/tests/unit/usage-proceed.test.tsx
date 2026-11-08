@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 // "This much will be used, should I proceed" (owner decision 2026-10-21): each refresh scope shows
-// its expected tokens and dollars, Confirm asks first, and nothing is sent until Proceed and the
-// second question, "Are you sure?", are both answered yes.
+// its expected tokens and dollars, the cost of the picked scope sits above the one button, and
+// nothing is sent until it is pressed twice: Proceed (it arms and asks "Are you sure?") and yes
+// (redesign 2026-11-07; the owner's ask-twice rule of 2026-11-05 stands).
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { RefreshForm } from "@/components/accounts/RefreshForm";
@@ -63,31 +64,28 @@ test("confirm shows the expected use and only Proceed starts the refresh", async
 
   render(<RefreshForm view={view} initialTopic="" />);
   expect(screen.getByText("612K tokens, $2.50")).toBeTruthy(); // on the scope card
-  fireEvent.click(screen.getByRole("button", { name: "Confirm refresh" }));
   const panel = screen.getByRole("group", { name: "Confirm the expected use" });
-  expect(panel.textContent).toContain("This refresh will use about 612K tokens (about $2.50). Proceed?");
+  expect(panel.textContent).toContain("This refresh uses about 612K tokens (about $2.50).");
   expect(panel.textContent).toContain("Based on your last 3 finished runs of this kind.");
-  expect(posts).toEqual([]); // nothing sent before Proceed
+
+  // the first press only arms: it asks "Are you sure?" and sends nothing
+  fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+  expect(panel.textContent).toContain("Are you sure?");
+  expect(posts).toEqual([]);
 
   fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-  expect(screen.queryByRole("group", { name: "Confirm the expected use" })).toBeNull();
+  expect(panel.textContent).not.toContain("Are you sure?");
   expect(posts).toEqual([]);
 
+  // a new scope shows its own cost and starts unarmed
   fireEvent.click(screen.getByRole("radio", { name: /Full refresh/ }));
-  fireEvent.click(screen.getByRole("button", { name: "Confirm refresh" }));
-  expect(screen.getByRole("group", { name: "Confirm the expected use" }).textContent).toContain("about 2.5M tokens (about $11.00)");
-  fireEvent.click(screen.getByRole("button", { name: "Proceed" }));
-  const second = screen.getByRole("group", { name: "Confirm again" });
-  expect(second.textContent).toContain("Are you sure?");
-  expect(second.textContent).toContain("about $11.00");
-  expect(posts).toEqual([]); // nothing sent before the second yes
+  const full = screen.getByRole("group", { name: "Confirm the expected use" });
+  expect(full.textContent).toContain("about 2.5M tokens (about $11.00)");
+  fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+  expect(full.textContent).toContain("Are you sure?");
+  expect(full.textContent).toContain("about $11.00");
+  expect(posts).toEqual([]); // nothing sent before the second press
 
-  fireEvent.click(screen.getByRole("button", { name: "No, cancel" }));
-  expect(screen.queryByRole("group", { name: "Confirm again" })).toBeNull();
-  expect(posts).toEqual([]);
-
-  fireEvent.click(screen.getByRole("button", { name: "Confirm refresh" }));
-  fireEvent.click(screen.getByRole("button", { name: "Proceed" }));
-  fireEvent.click(screen.getByRole("button", { name: "Yes, start it" }));
+  fireEvent.click(screen.getByRole("button", { name: "Yes, start · about $11.00" }));
   await waitFor(() => expect(posts).toEqual(["/v1/accounts/acme.example/refresh"]));
 });

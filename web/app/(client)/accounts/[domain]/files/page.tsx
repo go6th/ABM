@@ -10,7 +10,7 @@ import { serverGet, ServerApiError } from "@/lib/server-api";
 import { StateCard } from "@/ui/design";
 import { FilesCard } from "@/components/accounts/FilesCard";
 import { UploadedFilesCard } from "@/components/accounts/UploadedFilesCard";
-import { LiveSync, RetryRefresh } from "@/components/accounts/LiveSync";
+import { LiveSync, RetryRefresh, TryAgain } from "@/components/accounts/LiveSync";
 import { ParityWorkspace } from "@/components/accounts/ParityWorkspace";
 
 export const dynamic = "force-dynamic";
@@ -41,23 +41,25 @@ async function Delivered({ domain, here }: { domain: string; here: string }) {
   return screen ? <ParityWorkspace domain={domain} screen={screen} /> : null;
 }
 
-/** Your uploads for this account (viewers may not list documents: none shown), kept current while
- *  they are read. */
+/** Your uploads for this account, kept current while they are read. Viewers may not list
+ *  documents (403): they see none, which is not an error. A list that could not be read is asked
+ *  for again by itself. */
 async function Uploads({ accountId, domain, here }: { accountId: string; domain: string; here: string }) {
   let uploads: DocumentList["documents"] | null = null;
   try {
-    uploads = (await serverGet<DocumentList>(`/v1/documents?account_id=${encodeURIComponent(accountId)}`, here))?.documents ?? null;
+    uploads = (await serverGet<DocumentList>(`/v1/documents?account_id=${encodeURIComponent(accountId)}`, here, [403]))?.documents ?? null;
   } catch (e) {
     if (!(e instanceof ServerApiError)) throw e;
+    return <RetryRefresh />;
   }
-  return uploads ? (
+  if (!uploads) return null;
+  return (
     <>
       <UploadedFilesCard docs={uploads} domain={domain} />
       {uploads.length ? <Link className="link-strong sm-text" href={`/accounts/${encodeURIComponent(domain)}/file-analysis`} prefetch={false}>See the analysis of your files</Link> : null}
+      {uploads.length ? <p className="mut sm-text">Uploaded files stay in your workspace. They answer your questions and are never included in research files you share with a prospect.</p> : null}
       <LiveSync accountId={accountId} docs={uploads} />
     </>
-  ) : (
-    <RetryRefresh />
   );
 }
 
@@ -76,7 +78,7 @@ export default async function FilesPage({ params }: Params) {
     return (
       <div className="pg">
         {failed
-          ? <StateCard title="The files could not be loaded" body="Reload the page in a moment." action={<a className="btn" href={here}>Reload</a>} />
+          ? <><StateCard title="The files could not be loaded" body="The page tries again by itself." action={<TryAgain />} /><RetryRefresh /></>
           : <StateCard title="Account not found" body="It is not in your workspace." action={<Link className="btn" href="/accounts">Back to accounts</Link>} />}
       </div>
     );
@@ -89,7 +91,6 @@ export default async function FilesPage({ params }: Params) {
       </div>
       <aside className="side-col stack-14" aria-label="Your uploaded files">
         {ws.id ? <Suspense fallback={null}><Uploads accountId={ws.id} domain={ws.domain} here={here} /></Suspense> : null}
-        <p className="mut sm-text">Uploaded files stay in your workspace. They answer your questions and are never included in research files you share with a prospect.</p>
       </aside>
     </div>
   );

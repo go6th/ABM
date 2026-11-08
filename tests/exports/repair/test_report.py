@@ -55,10 +55,10 @@ def coverage_table() -> RepairedTable:
         },
         {
             "#": "3",
-            "Research item": "Mail",
+            "Research item": "Partners",
             "Priority": "B",
             "Status": "Not done",
-            "Reason": "mail and drive not connected",
+            "Reason": "feature switched off",
             "Evidence (row counts / source codes)": "0",
             "Last run": "Unknown",
         },
@@ -252,7 +252,6 @@ def test_pipeline_changes_listed_or_stated_absent() -> None:
     ("reason", "expected"),
     [
         ("people data consent needed", "people data consent"),
-        ("mail and drive not connected", "Connect the mail and drive"),
         ("web searches were not run", "web searches"),
         ("execution cap reached", "execution cap"),
         ("feature switched off", "Enable the feature"),
@@ -271,10 +270,7 @@ def test_not_done_section_lists_non_done_coverage_notes_and_pending() -> None:
         "| 2 | People | Not done | people data consent needed | Approve people data consent"
         in section
     )
-    assert (
-        "| 3 | Mail | Not done | mail and drive not connected | Connect the mail and drive"
-        in section
-    )
+    assert "| 3 | Partners | Not done | feature switched off | Enable the feature" in section
     assert (
         "| 4 | Web | Partial | execution cap reached after 40 searches | Raise or lift" in section
     )

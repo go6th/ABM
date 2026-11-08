@@ -10,7 +10,7 @@ import type { AccountWorkspace, DocumentList } from "@/lib/gen/api.gen";
 import { serverGet, ServerApiError } from "@/lib/server-api";
 import { LINK_REL, safeLink } from "@/lib/render";
 import { Grade, Pill, StateCard } from "@/ui/design";
-import { LiveSync, RetryRefresh } from "@/components/accounts/LiveSync";
+import { LiveSync, RetryRefresh, TryAgain } from "@/components/accounts/LiveSync";
 import { AccountAsk } from "@/components/accounts/AccountAsk";
 import { ResumeResearch } from "@/components/accounts/ResumeResearch";
 import { ResearchProgress } from "@/components/accounts/ResearchProgress";
@@ -42,15 +42,18 @@ const SCOPE_NAME: Record<string, string> = { jobs: "Job postings only", people: 
 
 /** Keeps the page current while the account's uploads are read (the counts and summary follow
  *  what a work zip holds), in its own Suspense boundary so the page does not wait for it. The
- *  uploads themselves are listed on the Files tab. */
+ *  uploads themselves are listed on the Files tab. Viewers may not list documents (403): for them
+ *  there are no uploads to follow, which is not an error. A list that could not be read is asked
+ *  for again by itself. */
 async function UploadWatch({ accountId, here }: { accountId: string; here: string }) {
   let uploads: DocumentList["documents"] | null = null;
   try {
-    uploads = (await serverGet<DocumentList>(`/v1/documents?account_id=${encodeURIComponent(accountId)}`, here))?.documents ?? null;
+    uploads = (await serverGet<DocumentList>(`/v1/documents?account_id=${encodeURIComponent(accountId)}`, here, [403]))?.documents ?? null;
   } catch (e) {
     if (!(e instanceof ServerApiError)) throw e;
+    return <RetryRefresh />;
   }
-  return uploads ? <LiveSync accountId={accountId} docs={uploads} /> : <RetryRefresh />;
+  return uploads ? <LiveSync accountId={accountId} docs={uploads} /> : null;
 }
 
 export default async function AccountWorkspacePage({ params }: Params) {
@@ -68,7 +71,7 @@ export default async function AccountWorkspacePage({ params }: Params) {
     return (
       <div className="pg">
         {failed
-          ? <StateCard title="This account could not be loaded" body="Your workspace could not be reached. Reload the page in a moment." action={<a className="btn" href={here}>Reload</a>} />
+          ? <><StateCard title="This account could not be loaded" body="Your workspace could not be reached. The page tries again by itself." action={<TryAgain />} /><RetryRefresh /></>
           : <StateCard title="Account not found" body="It is not in your workspace." action={<Link className="btn" href="/accounts">Back to accounts</Link>} />}
       </div>
     );
@@ -83,12 +86,11 @@ export default async function AccountWorkspacePage({ params }: Params) {
     ["Signals", `${here}/signals`, ws.counts.signals],
     ["News", `${here}/news`, ws.counts.news],
     ["Sources", `${here}/sources`, ws.counts.sources],
-    ["From your mail and drive", `${here}/mail-and-drive`, ws.counts.mail_drive],
   ];
   return (
     <div className="split">
       <div className="primary-col">
-        <p className="mut sm-text">{ws.subline}</p>
+        <p className="mut sm-text">{ws.subline.replace(/\s*·\s*Web: not used for answers\s*$/, "")}</p>
         <ImportProblems problems={ws.import_problems ?? []} sheetHref={`${here}/uploaded-files`} />
 
         {ws.open_job ? (
@@ -98,23 +100,20 @@ export default async function AccountWorkspacePage({ params }: Params) {
         <section className="stack-10" aria-labelledby="omv">
           <h2 id="omv">Summary</h2>
           {sentences.length ? (
-            <>
-              <p className="narr">
-                {sentences.map((s, i) => {
-                  const href = safeLink(s.source_url ?? "");
-                  return (
-                    <span key={i}>
-                      {s.text}
-                      {href ? (
-                        <a className="cite" href={href} target="_blank" rel={LINK_REL} aria-label={`Source ${i + 1}: ${s.source_title ?? "source"}`}>{i + 1}</a>
-                      ) : null}
-                      {i < sentences.length - 1 ? " " : ""}
-                    </span>
-                  );
-                })}
-              </p>
-              <div className="fine">Every statement links to its source. All sources are on the <Link href={`${here}/sources`}>Sources</Link> tab.</div>
-            </>
+            <p className="narr">
+              {sentences.map((s, i) => {
+                const href = safeLink(s.source_url ?? "");
+                return (
+                  <span key={i}>
+                    {s.text}
+                    {href ? (
+                      <a className="cite" href={href} target="_blank" rel={LINK_REL} aria-label={`Source ${i + 1}: ${s.source_title ?? "source"}`}>{i + 1}</a>
+                    ) : null}
+                    {i < sentences.length - 1 ? " " : ""}
+                  </span>
+                );
+              })}
+            </p>
           ) : (
             <p className="mut">A summary appears here when the first research finishes.</p>
           )}
@@ -150,7 +149,7 @@ export default async function AccountWorkspacePage({ params }: Params) {
             ) : (
               <div className="card list"><div className="lrow mut">No findings yet.</div></div>
             )}
-            <div className="fine">Say only Confirmed facts to a prospect. Probable and Hypothesis items are for your own preparation.{ws.first_scan ? " This is the first scan; after the next refresh, What changed appears here." : ""}</div>
+            {ws.first_scan ? <div className="fine">This is the first scan; after the next refresh, What changed appears here.</div> : null}
           </section>
         )}
         {ws.id ? <Suspense fallback={null}><UploadWatch accountId={ws.id} here={here} /></Suspense> : null}

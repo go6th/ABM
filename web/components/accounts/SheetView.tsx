@@ -1,7 +1,9 @@
 "use client";
 // A deep-dive table as the design draws it: filter chips with counts, Expand or Shrink, Download
-// CSV and Download table as Excel (every row under the chosen filter and sort, never cut), then the spreadsheet (caption, sticky header, row numbers, sortable headings with
-// arrows). Chips and headings are links, so filtering and sorting always run on the server.
+// table as Excel (every row under the chosen filter and sort, never cut; the page header holds the
+// delivered file's own download), then the spreadsheet (caption, sticky header, row numbers,
+// sortable headings with arrows). Chips and headings are links, so filtering and sorting always
+// run on the server.
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
@@ -224,7 +226,6 @@ export function SheetView({ sheet, domain, base, moreHref }: { sheet: Sheet; dom
         <button type="button" className="btn sm" onClick={() => setBig((v) => !v)} disabled={!rows.length}>
           {big ? "Shrink" : "Expand"}
         </button>
-        {all ? <a className="btn sm" href={exportHref(domain, sheet, "csv")} download>Download CSV</a> : <span className="btn sm" aria-disabled="true">Download CSV</span>}
         {all ? <a className="btn primary sm" href={exportHref(domain, sheet, "xlsx")} download>Download table as Excel</a> : <span className="btn primary sm" aria-disabled="true">Download table as Excel</span>}
       </div>
       <div className="card clip">

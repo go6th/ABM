@@ -1,6 +1,6 @@
 """The workspace profile: everything the repair stage needs to know about ONE workspace, read from
-that workspace's own data (the account row, its stored entity lock, the skill scope, the tenant's
-people consent and the user's mail and drive connection). Nothing here names an account: a new
+that workspace's own data (the account row, its stored entity lock, the skill scope and the
+tenant's people consent). Nothing here names an account: a new
 workspace gets its own profile the day its research starts.
 
 ``profile_from_parts`` is pure (tests, the offline repair of an existing export); ``load_profile``
@@ -19,8 +19,6 @@ from sqlalchemy import text
 from exports.repair.core import EntityRule, WorkspaceProfile
 from exports.repair.keys import host_of, registrable
 
-# a stored connection in one of these states is not a working connection
-_DEAD_CONNECTION = ("revoked", "broken", "disconnected", "expired", "error", "failed")
 _PEOPLE_SCOPE = "people_data"
 _LEGAL_FORMS = re.compile(
     r"[,.]?\s+(inc|incorporated|corp|corporation|co|company|ltd|limited|llc|plc|group|holdings?"
@@ -88,7 +86,6 @@ def profile_from_parts(
     title_exclusions: Sequence[str] = (),
     out_of_scope: Sequence[str] = (),
     people_consent: bool = False,
-    mail_drive_connected: bool = False,
     platforms: Any = None,
 ) -> WorkspaceProfile:
     """Build the profile from its parts (see the module docstring). The account's domains are
@@ -152,7 +149,6 @@ def profile_from_parts(
         title_exclusions=tuple(title_exclusions),
         out_of_scope_platforms=tuple(out_of_scope),
         people_consent=people_consent,
-        mail_drive_connected=mail_drive_connected,
         careers_hosts=frozenset(careers),
         platforms=default_platforms,
     )
@@ -188,13 +184,6 @@ async def load_profile(
         ),
         {"p": _PEOPLE_SCOPE},
     )
-    mail = await s.scalar(
-        text(
-            "SELECT EXISTS (SELECT 1 FROM connector_connections c WHERE c.owner_user_id = :u"
-            " AND c.status <> ALL(:dead))"
-        ),
-        {"u": user_id, "dead": list(_DEAD_CONNECTION)},
-    )
     # the research date of an imported workspace (``run_input.research_date``, the day its
     # pulls were made) is the run date; the upload day is not (window and dates, 2026-11-05)
     research = _day(head.research) if getattr(head, "research", None) else None
@@ -213,5 +202,4 @@ async def load_profile(
         title_exclusions=tuple(scope.excluded_title_patterns),
         out_of_scope=tuple(scope.never_report),
         people_consent=bool(consent),
-        mail_drive_connected=bool(mail),
     )

@@ -3,7 +3,7 @@
 // contributed): its passages in order with where each came from (page, slide, row), fifty at a
 // time. Loaded only when opened.
 import { useState } from "react";
-import { api, ApiError } from "@/lib/api";
+import { api, errorText } from "@/lib/api";
 import type { DocumentPassage, DocumentPassages } from "@/lib/gen/api.gen";
 import { cellText } from "@/lib/render";
 
@@ -22,7 +22,7 @@ export function WhatWasRead({ documentId, name }: { documentId: string; name: st
       setItems((prev) => [...prev, ...page.passages]);
       setNext(page.next_after ?? null);
     } catch (e) {
-      setError(e instanceof ApiError && e.detail ? e.detail : "What was read could not be loaded. Try again.");
+      setError(errorText(e, "What was read could not be loaded. Try again."));
     } finally {
       setBusy(false);
     }
@@ -55,7 +55,7 @@ export function WhatWasRead({ documentId, name }: { documentId: string; name: st
             ))}
           </ol>
           {next !== null && next !== -1 ? (
-            <button type="button" className="btn sm align-start" disabled={busy} onClick={() => void load(next)}>
+            <button type="button" className="btn sm align-start" disabled={busy} aria-busy={busy || undefined} onClick={() => void load(next)}>
               {busy ? "Loading" : "Load more"}
             </button>
           ) : null}

@@ -10,7 +10,7 @@ def _answer(**extra: object) -> dict[str, object]:
         "paragraphs": [],
         "items": None,
         "sources": [],
-        "used": {"workspace": "used", "web": "not_used", "mail_drive": "not_connected"},
+        "used": {"workspace": "used", "web": "not_used"},
         "offer": None,
         "followups": [],
         "account_domain": None,

@@ -273,14 +273,6 @@ def _with_mailer(plane: Any, env: Mapping[str, str]) -> Any:
     return plane
 
 
-def maildrive_apps(env: Mapping[str, str]) -> dict[str, tuple[str, str]]:
-    """The Mail and drive OAuth apps registered in the environment (empty until the owner
-    registers them: every source then says "Not available yet")."""
-    from connectors_client.maildrive import oauth_apps
-
-    return oauth_apps(env)
-
-
 def hermetic_connectors(env: Mapping[str, str], payloads: PayloadStore) -> tuple[Any, Any]:
     """The connector runtime on synthetic providers (``connectors.hermetic``): the real ledger,
     routing and grading path, with no request leaving the process (dev and test only)."""
@@ -548,7 +540,6 @@ def build_container(env: Mapping[str, str] | None = None) -> Container:
         dev_auto_approve=app_env == "dev" and env.get("DEV_AUTO_APPROVE_CAPS") == "1",
         reply_cache=reply_cache(env) if connectors is not None else None,
     )
-    container.extras["maildrive_apps"] = maildrive_apps(env)
     blobs = local_blob_store(env.get("PAYLOAD_DIR"))
     container.documents = document_service(
         blobs,
@@ -781,7 +772,6 @@ def _cloud(env: Mapping[str, str], app_env: str, spec: WorkflowSpec) -> Containe
         # the worker parses documents: without the bucket mount every file would be copied into
         # the instance's memory first (Cloud Run has no disk)
         raise RuntimeMisconfigured("BLOB_MOUNT_DIR is required for the worker in the cloud")
-    built.extras["maildrive_apps"] = maildrive_apps(env)
     quarantine_bucket = env.get("QUARANTINE_BUCKET")
     built.documents = document_service(
         blobs,

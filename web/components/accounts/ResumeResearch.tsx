@@ -5,9 +5,10 @@
 // twice before anything starts (owner's rule 2026-11-05): "Resume this research?", then "Are you
 // sure?".
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { CONFIRMED_TWICE, SecondConfirm } from "@/components/UsageProceed";
-import { api, ApiError } from "@/lib/api";
+import { api, ApiError, errorText } from "@/lib/api";
+import { announce } from "@/ui/Toaster";
 import type { ResearchResumed, StoppedRun } from "@/lib/gen/api.gen";
 
 function randomKey(): string {
@@ -43,9 +44,10 @@ export function useRequestKey() {
   }), []);
 }
 
-/** The server's reason when it gave one, else the fallback (a bare status line has none). */
+/** The server's reason when it gave one in words, else the fallback: a bare status line such as
+ * "Internal Server Error" is never shown to a person. */
 export function reasonOr(cause: unknown, fallback: string): string {
-  return cause instanceof ApiError && cause.detail?.trim() ? cause.detail : fallback;
+  return errorText(cause, fallback);
 }
 
 export function resumingLine(done: number, total: number): string {
@@ -86,6 +88,7 @@ export function ResumeButton({ runId, compact = false, onResumed }: {
       const resumed = await api<ResearchResumed>("POST", "/v1/research/resume", { run_id: runId, request_id: request.key({ run_id: runId }), ...CONFIRMED_TWICE });
       request.done();
       setDone(resumed);
+      announce("Research resumed");
       onResumed?.(resumed);
       router.refresh();
     } catch (cause) {
@@ -116,7 +119,7 @@ export function ResumeButton({ runId, compact = false, onResumed }: {
   return (
     <>
       {message ? <span className="sm-text bad-text" role="alert">{message}</span> : null}
-      <button type="button" className={`btn primary${compact ? " sm" : " align-start"}`} disabled={busy} aria-busy={busy} onClick={() => { setMessage(null); setStep(1); }}>{busy ? "Resuming…" : "Resume research"}</button>
+      <button type="button" className={`btn primary${compact ? " sm" : " align-start"}`} disabled={busy} aria-busy={busy || undefined} onClick={() => { setMessage(null); setStep(1); }}>{busy ? "Resuming…" : "Resume research"}</button>
     </>
   );
 }
@@ -143,14 +146,4 @@ export function ResumeResearch({ stopped }: { stopped: StoppedRun }) {
       <ResumeButton runId={stopped.run_id} onResumed={setDone} />
     </section>
   );
-}
-
-/** While a research runs, the page reloads its counts every 15 seconds (live progress). */
-export function LiveRefresh({ every = 15000 }: { every?: number }) {
-  const router = useRouter();
-  useEffect(() => {
-    const timer = setInterval(() => router.refresh(), every);
-    return () => clearInterval(timer);
-  }, [router, every]);
-  return null;
 }

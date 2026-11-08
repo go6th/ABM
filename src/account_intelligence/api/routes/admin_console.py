@@ -37,15 +37,19 @@ an ``operator_audit`` row and, for a client, an entry in that client's own audit
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
+import json
 import os
 import secrets
+from collections.abc import AsyncIterator
 from datetime import timedelta
 from typing import Any, Literal
 from uuid import UUID
 
 import yaml
 from fastapi import APIRouter, Depends, Query, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 
@@ -67,7 +71,6 @@ from account_intelligence.replica import models as M
 from account_intelligence.replica import settings as S
 from admin import tenants
 from audit.events import AuditEvent, record
-from connectors_client import lifecycle as maildrive_lifecycle
 from identity import local_password, membership, sessions
 from llm.choice import catalogue
 from tenancy import lifecycle
@@ -100,6 +103,9 @@ for _m, _p, _audit, _tenant in (
 ):
     register(_m, _BASE + _p, operator_route(_audit, tenant=_tenant, roles=OPS))  # type: ignore[arg-type]
 
+# the rebuilds in flight (a task with no reference may be collected before it finishes)
+_REBUILDS: set[asyncio.Task[dict[str, Any]]] = set()
+KEEPALIVE_S = 15.0
 INVITE_HOURS = 24  # the database refuses longer invite tokens
 # The invited first user signs in with a password, and an admin session needs multi-factor
 # sign-in that the password path cannot give yet (config/session.yaml admin_requires_mfa), so
@@ -477,7 +483,6 @@ class ClientChange(BaseModel):
     idle_expiry_days: Idle | None = None
     monthly_credit_pool: int | None = Field(default=None, ge=0, le=1_000_000)
     fastest_schedule: Schedule | None = None
-    mail_drive_allowed: bool | None = None
     web_refresh_allowed: bool | None = None
     # limits per user (owner decision 2026-10-14): the defaults for this client's users
     research_limit_default: int | None = Field(default=None, ge=0, le=100_000)
@@ -520,18 +525,6 @@ async def change_client(
         ) from None
     async with tenant_txn(tenant_id) as s:
         await S.update_client(s, values, who.staff_id, now)
-        if body.mail_drive_allowed is False:
-            # turning mail and drive off ends every user's connection and deletes what it synced
-            wired = maildrive_lifecycle.wiring(request.app.state.container.extras)
-            await maildrive_lifecycle.purge_tenant(
-                s,
-                oauth=wired.oauth,
-                store=plane_of(request).secrets,
-                now=now,
-                reason="mail_drive_off",
-                actor=who.staff_id,
-                actor_kind="operator",
-            )
         if allowed is not None:
             await S.set_allowed_models(s, allowed, who.staff_id, now)
         if wanted is not None:
@@ -635,31 +628,65 @@ async def rebuild_files(
         raise APIProblem(
             409, "imported", "Uploaded files", "An uploaded workspace is shown as it was uploaded."
         )
-    result = await builder.build_all(str(tenant_id), str(run))
-    rows: dict[str, int] = {}
-    if result.status == "complete":
-        done = await materialize.materialize(
-            tenant_txn,
-            builder.reader,
-            builder.cfg,
-            builder.grading,
-            tenant_id,
-            run,
-            plane_of(request).clock.now(),
-            force=True,
-        )
-        rows = {str(k): int(v) for k, v in done.counts.items()}
-    action = "files.rebuilt" if result.status == "complete" else "files.rebuild_refused"
-    async with tenant_txn(tenant_id) as s:
-        await _client_audit(s, request, who, action)
-    await _op_audit(request, who, action, str(tenant_id))
-    return {
-        "run_id": str(run),
-        "status": result.status,
-        "reason": result.reason,
-        "files": sorted({d.kind for d in result.deliverables}),
-        "rows": rows,
-    }
+    now = plane_of(request).clock.now()
+
+    async def rebuild() -> dict[str, Any]:
+        result = await builder.build_all(str(tenant_id), str(run))
+        rows: dict[str, int] = {}
+        if result.status == "complete":
+            done = await materialize.materialize(
+                tenant_txn,
+                builder.reader,
+                builder.cfg,
+                builder.grading,
+                tenant_id,
+                run,
+                now,
+                force=True,
+            )
+            rows = {str(k): int(v) for k, v in done.counts.items()}
+        action = "files.rebuilt" if result.status == "complete" else "files.rebuild_refused"
+        async with tenant_txn(tenant_id) as s:
+            await _client_audit(s, request, who, action)
+        await _op_audit(request, who, action, str(tenant_id))
+        return {
+            "run_id": str(run),
+            "status": result.status,
+            "reason": result.reason,
+            "files": sorted({d.kind for d in result.deliverables}),
+            "rows": rows,
+        }
+
+    # a large account's build takes minutes, and the web relay gives up on a reply whose headers
+    # have not come in 300 s (Olympus rebuild, staging 2026-11-07: the build finished, the card
+    # said it failed): the headers go out at once, a space every KEEPALIVE_S while the build
+    # runs (JSON allows leading whitespace), then the result. The build is its own task, so a
+    # card closed part-way does not stop it.
+    task = asyncio.create_task(rebuild())
+    _REBUILDS.add(task)
+    task.add_done_callback(_REBUILDS.discard)
+
+    async def reply() -> AsyncIterator[bytes]:
+        # LOOP(rebuild keepalive): cap=one space per KEEPALIVE_S of the build; exit=it ends
+        while not task.done():
+            await asyncio.wait({task}, timeout=KEEPALIVE_S)
+            if not task.done():
+                yield b" "
+        try:
+            out = task.result()
+        except Exception as error:  # noqa: BLE001 - the card shows the refusal; headers are sent
+            out = {
+                "run_id": str(run),
+                "status": "refused",
+                "reason": type(error).__name__,
+                "files": [],
+                "rows": {},
+            }
+        yield json.dumps(C.FilesRebuilt.model_validate(out).model_dump()).encode()
+
+    return StreamingResponse(  # type: ignore[return-value]
+        reply(), media_type="application/json", headers={"Cache-Control": "no-store"}
+    )
 
 
 @router.get("/users", response_model=C.ConsoleUsers)
@@ -693,18 +720,6 @@ async def _access(
             changed = await membership.end_access(s, body.user_id, "terminated", who.staff_id, now)
             if changed:
                 await sessions.revoke_all(s, body.user_id, "access_terminated", now)
-            # the user's own mail and drive goes with their access (owner rules 2026-10-14)
-            wired = maildrive_lifecycle.wiring(request.app.state.container.extras)
-            await maildrive_lifecycle.purge_owner(
-                s,
-                owner_user_id=body.user_id,
-                oauth=wired.oauth,
-                store=plane_of(request).secrets,
-                now=now,
-                reason="access_terminated",
-                actor=who.staff_id,
-                actor_kind="operator",
-            )
         else:
             changed = await membership.reenable(s, body.user_id, who.staff_id, now)
         state = await s.scalar(

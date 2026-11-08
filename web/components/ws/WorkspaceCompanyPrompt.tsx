@@ -6,7 +6,7 @@
 // does not exist). Nothing is imported until one of them is pressed.
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { api, ApiError } from "@/lib/api";
+import { api, errorText } from "@/lib/api";
 import type { CompanyConfirmed, DocumentStatus } from "@/lib/gen/api.gen";
 
 export type WorkspaceIdentity = {
@@ -48,7 +48,7 @@ export function WorkspaceCompanyPrompt({ doc, ws, onDone }: { doc: DocumentStatu
       await api<DocumentStatus>("POST", `/v1/documents/${encodeURIComponent(doc.document_id)}/same-company`);
       finish();
     } catch (e) {
-      setError(e instanceof ApiError ? e.detail : "The answer could not be saved. Try again.");
+      setError(errorText(e, "The answer could not be saved. Try again."));
     } finally {
       setBusy(null);
     }
@@ -60,7 +60,7 @@ export function WorkspaceCompanyPrompt({ doc, ws, onDone }: { doc: DocumentStatu
       await api<CompanyConfirmed>("POST", "/v1/documents/confirm-company", { document_ids: [doc.document_id], company_name: ws.name ?? ws.domain, domain: ws.domain });
       finish();
     } catch (e) {
-      setError(e instanceof ApiError ? e.detail : "The account could not be set. Try again.");
+      setError(errorText(e, "The account could not be set. Try again."));
     } finally {
       setBusy(null);
     }
@@ -72,10 +72,10 @@ export function WorkspaceCompanyPrompt({ doc, ws, onDone }: { doc: DocumentStatu
         <b>Is this the right account?</b> This workspace is about <b>{packageLabel}</b>, but it was uploaded to <b>{accountLabel}</b>. Nothing is imported until you answer.
       </p>
       <div className="row nowrap">
-        <button type="button" className="btn" disabled={busy !== null} onClick={() => void same()}>
+        <button type="button" className="btn" disabled={busy !== null} aria-busy={busy === "same" || undefined} onClick={() => void same()}>
           {busy === "same" ? "Saving..." : `Yes, same company as ${accountLabel}`}
         </button>
-        <button type="button" className="btn secondary" disabled={busy !== null} onClick={() => void other()}>
+        <button type="button" className="btn secondary" disabled={busy !== null} aria-busy={busy === "other" || undefined} onClick={() => void other()}>
           {busy === "other" ? "Moving..." : `No, it belongs to ${packageLabel}`}
         </button>
       </div>

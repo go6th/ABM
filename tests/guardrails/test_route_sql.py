@@ -28,7 +28,6 @@ BASELINE: dict[str, int] = {
     "file_runs.py": 5,
     "health.py": 3,
     "internal_view.py": 4,
-    "maildrive.py": 4,
     "me.py": 4,
     "operator_admin.py": 2,
     "operator_view.py": 6,

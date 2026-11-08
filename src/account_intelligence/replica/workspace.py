@@ -370,10 +370,6 @@ async def workspace(session: Any, account_id: UUID, user_id: str, now: datetime)
                 f" ((SELECT count(*) FROM facts f WHERE {FACT_CLASS['news']})"
                 "  + (SELECT count(*) FROM news_events n WHERE n.tenant_id = :t AND n.account_id ="
                 " :a)) AS news,"
-                " (SELECT count(*) FROM connector_items WHERE tenant_id = :t AND account_id = :a"
-                " AND owner_user_id ="
-                " :u"
-                "   AND state = 'matched') AS mail_drive,"
                 " ((SELECT count(*) FROM sources WHERE tenant_id = :t AND account_id = :a)"
                 "  + (SELECT count(DISTINCT t.response->'args'->>'url') FROM tool_calls t"
                 "   JOIN account_runs r ON r.tenant_id = t.tenant_id AND r.id = t.run_id WHERE"
@@ -434,7 +430,7 @@ async def workspace(session: Any, account_id: UUID, user_id: str, now: datetime)
                 "   ORDER BY r.finished_at DESC NULLS LAST LIMIT 1)"
                 f"   AND {PLANNED}) AS coverage_total"
             ),
-            {"a": account_id, "u": user_id, "t": await session_tenant(session)},
+            {"a": account_id, "t": await session_tenant(session)},
         )
     ).one()
 

@@ -7,7 +7,6 @@
 * ``POST /tasks/research-job``: runs one confirmed research job within its reserved credits.
 * ``POST /tasks/download-everything``: builds one Download everything archive as its owner.
 * ``POST /tasks/schedules-tick``: starts due scheduled refreshes from each client's credit pool.
-* ``POST /tasks/maildrive-sync``: syncs the per-user Mail and drive connections that are due.
 * ``POST /tasks/access-expiry``: warns idle users and ends the access of those past their client's
   idle days (``replica.access``).
 * ``POST /tasks/isolation-check``: the nightly isolation check (``replica.isolation``).
@@ -44,8 +43,6 @@ from obs.logging import logger
 
 log = logger(__name__)
 router = APIRouter(prefix="/tasks", tags=["tasks"])
-# the Mail and drive tick starts no new connection after this many seconds (inside the deadline)
-MAILDRIVE_BUDGET_S = 800.0
 
 
 class SliceTask(BaseModel):
@@ -291,86 +288,6 @@ async def schedules_tick(
     return await schedules.tick(datetime.now(UTC), jobs.run_or_enqueue)
 
 
-@router.post("/maildrive-sync")
-async def maildrive_sync(
-    request: Request, authorization: str | None = Header(default=None)
-) -> dict[str, int]:
-    """Sync the per-user Mail and drive connections not synced in the last hour (Cloud
-    Scheduler; identifiers from ``maildrive_connections_due``, then each tenant's own
-    transaction). Only items matching the user's accounts are kept. A connection whose client
-    turned the feature off, or whose owner's access ended, is purged instead (revoked, token
-    destroyed, items deleted). No new connection is started after ``MAILDRIVE_BUDGET_S``; the
-    rest are ``deferred`` to the next tick."""
-    await _authorise(request, authorization)
-    from datetime import UTC, datetime, timedelta
-
-    from account_intelligence.api.tenant_plane import plane_of
-    from account_intelligence.db.session import tenant_txn
-    from account_intelligence.db.system_scope import untenanted_session
-    from connectors_client import lifecycle
-
-    now = datetime.now(UTC)
-    wired = lifecycle.wiring(request.app.state.container.extras)
-    store = plane_of(request).secrets
-    budget = lifecycle.Budget(MAILDRIVE_BUDGET_S)
-    async with untenanted_session() as plain:
-        due = (
-            await plain.execute(
-                text("SELECT * FROM maildrive_connections_due(:b)"),
-                {"b": now - timedelta(hours=1)},
-            )
-        ).all()
-    counts = dict.fromkeys(
-        ("connections", "matched", "ok", "partial", "failed", "broken", "skipped", "purged"), 0
-    )
-    deferred = 0
-    # LOOP(mail and drive sync): cap=500 connections per tick (the lookup's limit) and
-    # MAILDRIVE_BUDGET_S of wall clock; exit=end of the list or budget spent (the rest deferred)
-    for index, (tenant_id, connection_id) in enumerate(due):
-        if budget.spent():
-            deferred = len(due) - index
-            break
-        try:
-            async with tenant_txn(tenant_id) as s:
-                blocked = await lifecycle.sync_blocker(s, connection_id)
-                if blocked is not None:
-                    owner = await lifecycle.connection_owner(s, connection_id)
-                    await lifecycle.purge_connections(
-                        s,
-                        [(connection_id, owner)] if owner else [],
-                        oauth=wired.oauth,
-                        store=store,
-                        now=now,
-                        reason=blocked,
-                        actor="system:maildrive_sync",
-                    )
-            if blocked is not None:
-                counts["purged"] += 1
-                continue
-            [done] = await lifecycle.sync_sources(
-                tenant_txn,
-                tenant_id,
-                [(connection_id, "")],
-                wired=wired,
-                store=store,
-                now=now,
-            )
-        except Exception as error:  # one connection's failure never stops the others; logged
-            counts["failed"] += 1
-            log.warning(
-                "maildrive_sync_failed",
-                extra={"connection_id": str(connection_id), "error": type(error).__name__},
-            )
-            continue
-        counts[done.state] += 1
-        if done.state != "skipped":
-            counts["connections"] += 1
-            counts["matched"] += done.matched
-    if deferred:
-        log.info("maildrive_sync_deferred", extra={"deferred": deferred})
-    return {**counts, "deferred": deferred}
-
-
 @router.post("/access-expiry")
 async def access_expiry(
     request: Request, authorization: str | None = Header(default=None)
@@ -381,27 +298,10 @@ async def access_expiry(
     await _authorise(request, authorization)
     from datetime import UTC, datetime
 
-    from account_intelligence.api.tenant_plane import plane_of
     from account_intelligence.db.system_scope import untenanted_session
     from account_intelligence.replica import access
-    from connectors_client import lifecycle
 
-    wired = lifecycle.wiring(request.app.state.container.extras)
-    store = plane_of(request).secrets
-
-    async def purge(s: Any, user_id: str, now: datetime) -> object:
-        """An expired user's Mail and drive goes with their access (revoked, items deleted)."""
-        return await lifecycle.purge_owner(
-            s,
-            owner_user_id=user_id,
-            oauth=wired.oauth,
-            store=store,
-            now=now,
-            reason="access_expired",
-            actor=access.ACTOR,
-        )
-
-    done = await access.expire_everywhere(untenanted_session, tenant_txn, datetime.now(UTC), purge)
+    done = await access.expire_everywhere(untenanted_session, tenant_txn, datetime.now(UTC))
     return {
         "clients": done.clients,
         "warned": done.warned,

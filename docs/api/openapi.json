@@ -1078,7 +1078,6 @@
               "person",
               "signal",
               "technology",
-              "mail_drive",
               "file",
               "tracker",
               "report",
@@ -1201,15 +1200,6 @@
         "additionalProperties": false,
         "description": "What one answer drew on, for the \"What this answer used\" panel.",
         "properties": {
-          "mail_drive": {
-            "enum": [
-              "used",
-              "not_used",
-              "not_connected"
-            ],
-            "title": "Mail Drive",
-            "type": "string"
-          },
           "model_name": {
             "anyOf": [
               {
@@ -1240,8 +1230,7 @@
         },
         "required": [
           "workspace",
-          "web",
-          "mail_drive"
+          "web"
         ],
         "title": "AnswerUsed",
         "type": "object"
@@ -2903,17 +2892,6 @@
             ],
             "title": "Limit Reset"
           },
-          "mail_drive_allowed": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Mail Drive Allowed"
-          },
           "monthly_credit_pool": {
             "anyOf": [
               {
@@ -4036,10 +4014,6 @@
             "title": "Limit Reset",
             "type": "string"
           },
-          "mail_drive_allowed": {
-            "title": "Mail Drive Allowed",
-            "type": "boolean"
-          },
           "monthly_credit_pool": {
             "title": "Monthly Credit Pool",
             "type": "integer"
@@ -4058,7 +4032,6 @@
           "idle_expiry_days",
           "monthly_credit_pool",
           "fastest_schedule",
-          "mail_drive_allowed",
           "web_refresh_allowed",
           "research_limit_default",
           "chat_limit_default",
@@ -5280,7 +5253,7 @@
       },
       "DeepDiveCounts": {
         "additionalProperties": false,
-        "description": "Row counts of the deep-dive tables (mail and drive: the caller's own items only; coverage:\nthe tracker items Done out of all items of the latest finished run).",
+        "description": "Row counts of the deep-dive tables (coverage: the tracker items Done out of all items of\nthe latest finished run).",
         "properties": {
           "calls": {
             "default": 0,
@@ -5319,10 +5292,6 @@
           },
           "jobs": {
             "title": "Jobs",
-            "type": "integer"
-          },
-          "mail_drive": {
-            "title": "Mail Drive",
             "type": "integer"
           },
           "news": {
@@ -5367,7 +5336,6 @@
           "jobs",
           "tech",
           "news",
-          "mail_drive",
           "sources"
         ],
         "title": "DeepDiveCounts",
@@ -6660,78 +6628,6 @@
         "title": "DownloadPart",
         "type": "object"
       },
-      "DriveFile": {
-        "additionalProperties": false,
-        "description": "One file of the caller's Google Drive or OneDrive that a research can read (metadata only;\n``google_native``: a Google Doc, Sheet or Slides file, added as its export).",
-        "properties": {
-          "google_native": {
-            "title": "Google Native",
-            "type": "boolean"
-          },
-          "id": {
-            "title": "Id",
-            "type": "string"
-          },
-          "modified_at": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Modified At"
-          },
-          "name": {
-            "title": "Name",
-            "type": "string"
-          },
-          "size_bytes": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Size Bytes"
-          },
-          "type": {
-            "title": "Type",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "name",
-          "type",
-          "size_bytes",
-          "modified_at",
-          "google_native"
-        ],
-        "title": "DriveFile",
-        "type": "object"
-      },
-      "DriveFileList": {
-        "additionalProperties": false,
-        "description": "Response body: the caller's newest readable files in the chosen source (Google Drive or\nOneDrive).",
-        "properties": {
-          "files": {
-            "items": {
-              "$ref": "#/components/schemas/DriveFile"
-            },
-            "title": "Files",
-            "type": "array"
-          }
-        },
-        "required": [
-          "files"
-        ],
-        "title": "DriveFileList",
-        "type": "object"
-      },
       "EmailBody": {
         "additionalProperties": false,
         "description": "Address used for an enumeration-resistant verification resend.",
@@ -7733,45 +7629,6 @@
           "flags"
         ],
         "title": "Flags",
-        "type": "object"
-      },
-      "FromDrive": {
-        "additionalProperties": false,
-        "description": "A file from the caller's own Google Drive or OneDrive. No tenant field.",
-        "properties": {
-          "account_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Account Id"
-          },
-          "file_id": {
-            "maxLength": 200,
-            "minLength": 10,
-            "pattern": "^[A-Za-z0-9!_-]+$",
-            "title": "File Id",
-            "type": "string"
-          },
-          "source": {
-            "default": "google_drive",
-            "enum": [
-              "google_drive",
-              "onedrive"
-            ],
-            "title": "Source",
-            "type": "string"
-          }
-        },
-        "required": [
-          "file_id"
-        ],
-        "title": "FromDrive",
         "type": "object"
       },
       "FromLibrary": {
@@ -9039,471 +8896,6 @@
         "title": "LogoUploaded",
         "type": "object"
       },
-      "MailAndDrive": {
-        "additionalProperties": false,
-        "description": "The signed-in user's Mail and drive page.",
-        "properties": {
-          "allowed": {
-            "title": "Allowed",
-            "type": "boolean"
-          },
-          "drive": {
-            "$ref": "#/components/schemas/MailDriveFamily"
-          },
-          "mail": {
-            "$ref": "#/components/schemas/MailDriveFamily"
-          },
-          "sources": {
-            "default": [],
-            "items": {
-              "$ref": "#/components/schemas/MailDriveSource"
-            },
-            "title": "Sources",
-            "type": "array"
-          }
-        },
-        "required": [
-          "allowed",
-          "mail",
-          "drive"
-        ],
-        "title": "MailAndDrive",
-        "type": "object"
-      },
-      "MailDriveConnect": {
-        "additionalProperties": false,
-        "description": "Where to send the browser for the consent.",
-        "properties": {
-          "authorize_url": {
-            "title": "Authorize Url",
-            "type": "string"
-          }
-        },
-        "required": [
-          "authorize_url"
-        ],
-        "title": "MailDriveConnect",
-        "type": "object"
-      },
-      "MailDriveDisconnected": {
-        "additionalProperties": false,
-        "description": "What Disconnect did.",
-        "properties": {
-          "disconnected": {
-            "title": "Disconnected",
-            "type": "integer"
-          },
-          "items_deleted": {
-            "title": "Items Deleted",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "disconnected",
-          "items_deleted"
-        ],
-        "title": "MailDriveDisconnected",
-        "type": "object"
-      },
-      "MailDriveFamily": {
-        "additionalProperties": false,
-        "description": "The Mail card or the Drive card.",
-        "properties": {
-          "accounts": {
-            "title": "Accounts",
-            "type": "integer"
-          },
-          "broken_reason": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Broken Reason"
-          },
-          "items": {
-            "title": "Items",
-            "type": "integer"
-          },
-          "kind": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Kind"
-          },
-          "last_error": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Last Error"
-          },
-          "last_error_at": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Last Error At"
-          },
-          "last_sync_listed": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Last Sync Listed"
-          },
-          "last_sync_matched": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Last Sync Matched"
-          },
-          "last_sync_status": {
-            "anyOf": [
-              {
-                "enum": [
-                  "ok",
-                  "partial",
-                  "failed"
-                ],
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Last Sync Status"
-          },
-          "last_synced_at": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Last Synced At"
-          },
-          "options": {
-            "items": {
-              "$ref": "#/components/schemas/MailDriveOption"
-            },
-            "title": "Options",
-            "type": "array"
-          },
-          "source": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Source"
-          },
-          "status": {
-            "enum": [
-              "connected",
-              "not_connected",
-              "not_available",
-              "broken"
-            ],
-            "title": "Status",
-            "type": "string"
-          }
-        },
-        "required": [
-          "status",
-          "kind",
-          "source",
-          "options",
-          "accounts",
-          "items",
-          "last_synced_at"
-        ],
-        "title": "MailDriveFamily",
-        "type": "object"
-      },
-      "MailDriveOption": {
-        "additionalProperties": false,
-        "description": "One source the user may connect.",
-        "properties": {
-          "available": {
-            "title": "Available",
-            "type": "boolean"
-          },
-          "kind": {
-            "title": "Kind",
-            "type": "string"
-          },
-          "label": {
-            "title": "Label",
-            "type": "string"
-          }
-        },
-        "required": [
-          "kind",
-          "label",
-          "available"
-        ],
-        "title": "MailDriveOption",
-        "type": "object"
-      },
-      "MailDriveSource": {
-        "additionalProperties": false,
-        "description": "One source (Gmail, Google Drive, Outlook, OneDrive or SharePoint) of the signed-in user:\nits status, last sync outcome and error code (never provider text), and what was matched.",
-        "properties": {
-          "accounts": {
-            "title": "Accounts",
-            "type": "integer"
-          },
-          "available": {
-            "title": "Available",
-            "type": "boolean"
-          },
-          "broken_reason": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Broken Reason"
-          },
-          "family": {
-            "enum": [
-              "google",
-              "microsoft"
-            ],
-            "title": "Family",
-            "type": "string"
-          },
-          "group": {
-            "enum": [
-              "mail",
-              "drive"
-            ],
-            "title": "Group",
-            "type": "string"
-          },
-          "items": {
-            "title": "Items",
-            "type": "integer"
-          },
-          "kind": {
-            "title": "Kind",
-            "type": "string"
-          },
-          "label": {
-            "title": "Label",
-            "type": "string"
-          },
-          "last_error": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Last Error"
-          },
-          "last_error_at": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Last Error At"
-          },
-          "last_sync_listed": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Last Sync Listed"
-          },
-          "last_sync_matched": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Last Sync Matched"
-          },
-          "last_sync_status": {
-            "anyOf": [
-              {
-                "enum": [
-                  "ok",
-                  "partial",
-                  "failed"
-                ],
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Last Sync Status"
-          },
-          "last_synced_at": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Last Synced At"
-          },
-          "status": {
-            "enum": [
-              "connected",
-              "not_connected",
-              "not_available",
-              "broken"
-            ],
-            "title": "Status",
-            "type": "string"
-          }
-        },
-        "required": [
-          "kind",
-          "label",
-          "family",
-          "group",
-          "available",
-          "status",
-          "accounts",
-          "items",
-          "last_synced_at"
-        ],
-        "title": "MailDriveSource",
-        "type": "object"
-      },
-      "MailDriveSynced": {
-        "additionalProperties": false,
-        "description": "What \"Sync now\" did for one family.",
-        "properties": {
-          "family": {
-            "enum": [
-              "google",
-              "microsoft"
-            ],
-            "title": "Family",
-            "type": "string"
-          },
-          "sources": {
-            "items": {
-              "$ref": "#/components/schemas/MailDriveSyncedSource"
-            },
-            "title": "Sources",
-            "type": "array"
-          }
-        },
-        "required": [
-          "family",
-          "sources"
-        ],
-        "title": "MailDriveSynced",
-        "type": "object"
-      },
-      "MailDriveSyncedSource": {
-        "additionalProperties": false,
-        "description": "One source's \"Sync now\" outcome (counts and a code only).",
-        "properties": {
-          "kind": {
-            "title": "Kind",
-            "type": "string"
-          },
-          "label": {
-            "title": "Label",
-            "type": "string"
-          },
-          "listed": {
-            "title": "Listed",
-            "type": "integer"
-          },
-          "matched": {
-            "title": "Matched",
-            "type": "integer"
-          },
-          "reason": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reason"
-          },
-          "state": {
-            "enum": [
-              "ok",
-              "partial",
-              "failed",
-              "broken",
-              "skipped"
-            ],
-            "title": "State",
-            "type": "string"
-          }
-        },
-        "required": [
-          "kind",
-          "label",
-          "state",
-          "listed",
-          "matched",
-          "reason"
-        ],
-        "title": "MailDriveSyncedSource",
-        "type": "object"
-      },
       "MappingBody": {
         "additionalProperties": false,
         "description": "A confirmed mapping.",
@@ -9619,11 +9011,6 @@
           "isolation_tier": {
             "title": "Isolation Tier",
             "type": "string"
-          },
-          "mail_drive_allowed": {
-            "default": true,
-            "title": "Mail Drive Allowed",
-            "type": "boolean"
           },
           "mfa_enabled": {
             "title": "Mfa Enabled",
@@ -14684,10 +14071,8 @@
         "properties": {
           "kind": {
             "enum": [
-              "google_drive",
               "salesforce",
               "hubspot",
-              "gmail",
               "call_notes"
             ],
             "title": "Kind",
@@ -16533,11 +15918,10 @@
       },
       "account_intelligence__api__routes__connectors__GrantBody": {
         "additionalProperties": false,
-        "description": "One allowed folder, object or field.",
+        "description": "One allowed CRM object or field.",
         "properties": {
           "grant_kind": {
             "enum": [
-              "drive_folder",
               "crm_object",
               "crm_field"
             ],
@@ -24101,7 +23485,7 @@
     },
     "/v1/connectors/{connection_id}/grants": {
       "post": {
-        "description": "Allow one folder, object or field.",
+        "description": "Allow one CRM object or field.",
         "operationId": "grant_v1_connectors__connection_id__grants_post",
         "parameters": [
           {
@@ -24968,81 +24352,6 @@
         ]
       }
     },
-    "/v1/documents/drive-files": {
-      "get": {
-        "description": "The caller's newest files a research can read in ``source``, optionally by name.",
-        "operationId": "drive_files_v1_documents_drive_files_get",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "q",
-            "required": false,
-            "schema": {
-              "default": "",
-              "maxLength": 100,
-              "title": "Q",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "source",
-            "required": false,
-            "schema": {
-              "default": "google_drive",
-              "enum": [
-                "google_drive",
-                "onedrive"
-              ],
-              "title": "Source",
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DriveFileList"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Drive Files",
-        "tags": [
-          "documents"
-        ]
-      }
-    },
     "/v1/documents/estimate": {
       "post": {
         "description": "What a file-mode run over these documents would cost (shown before it starts).",
@@ -25098,66 +24407,6 @@
           }
         },
         "summary": "Estimate",
-        "tags": [
-          "documents"
-        ]
-      }
-    },
-    "/v1/documents/from-drive": {
-      "post": {
-        "description": "Fetch one of the caller's Google Drive or OneDrive files on the server into quarantine and\nenqueue its scan.",
-        "operationId": "import_from_drive_v1_documents_from_drive_post",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/FromDrive"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DocumentStatus"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Import From Drive",
         "tags": [
           "documents"
         ]
@@ -26643,365 +25892,6 @@
         "summary": "Request More",
         "tags": [
           "limits"
-        ]
-      }
-    },
-    "/v1/mail-and-drive": {
-      "get": {
-        "description": "The caller's sources, grouped by family, and the Mail and Drive cards.",
-        "operationId": "mail_and_drive_v1_mail_and_drive_get",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/MailAndDrive"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Mail And Drive",
-        "tags": [
-          "mail-and-drive"
-        ]
-      }
-    },
-    "/v1/mail-and-drive/callback": {
-      "get": {
-        "description": "Finish a consent (bound to this user) and return to the page.",
-        "operationId": "callback_v1_mail_and_drive_callback_get",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "state",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "State"
-            }
-          },
-          {
-            "in": "query",
-            "name": "code",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Code"
-            }
-          },
-          {
-            "in": "query",
-            "name": "error",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Error"
-            }
-          },
-          {
-            "in": "query",
-            "name": "error_description",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Error Description"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Callback",
-        "tags": [
-          "mail-and-drive"
-        ]
-      }
-    },
-    "/v1/mail-and-drive/{family}/disconnect": {
-      "post": {
-        "description": "Revoke, destroy the token and delete what the caller's connection synced (``mail``,\n``drive`` or one source kind).",
-        "operationId": "disconnect_v1_mail_and_drive__family__disconnect_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "family",
-            "required": true,
-            "schema": {
-              "enum": [
-                "mail",
-                "drive",
-                "gmail",
-                "outlook",
-                "google_drive",
-                "onedrive",
-                "sharepoint"
-              ],
-              "title": "Family",
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/MailDriveDisconnected"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Disconnect",
-        "tags": [
-          "mail-and-drive"
-        ]
-      }
-    },
-    "/v1/mail-and-drive/{family}/sync": {
-      "post": {
-        "description": "Sync the caller's own active connections of one family now.",
-        "operationId": "sync_now_v1_mail_and_drive__family__sync_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "family",
-            "required": true,
-            "schema": {
-              "enum": [
-                "google",
-                "microsoft"
-              ],
-              "title": "Family",
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/MailDriveSynced"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Sync Now",
-        "tags": [
-          "mail-and-drive"
-        ]
-      }
-    },
-    "/v1/mail-and-drive/{kind}/connect": {
-      "post": {
-        "description": "Start the read-only consent for one source.",
-        "operationId": "connect_v1_mail_and_drive__kind__connect_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "kind",
-            "required": true,
-            "schema": {
-              "enum": [
-                "gmail",
-                "outlook",
-                "google_drive",
-                "onedrive",
-                "sharepoint"
-              ],
-              "title": "Kind",
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/MailDriveConnect"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Connect",
-        "tags": [
-          "mail-and-drive"
         ]
       }
     },

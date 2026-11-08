@@ -6,8 +6,8 @@ export cap.
 * Every cell passes the client-file rules on its way out (``sheets.safe_cell``): a dash used as
   punctuation becomes a comma, tool names are scrubbed, provider domains and remaining guarded
   terms are withheld in a shareable table (counted on the About sheet, and in the CSV's last
-  line), and text a spreadsheet would run as a formula gets a leading apostrophe. The private
-  table ("From your mail and drive") is the user's own and says so.
+  line), and text a spreadsheet would run as a formula gets a leading apostrophe. A private
+  table is the user's own and says so.
 * A shareable workbook is checked once more as a whole before it leaves
   (``sheets.check_finished``); anything left blocks the export.
 * Excel holds 1,048,576 rows per sheet: a longer table continues on "Sheet 2", "Sheet 3", each

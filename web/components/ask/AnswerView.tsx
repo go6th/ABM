@@ -189,7 +189,6 @@ export function UsedPanel({ answer, onOpenSource }: { answer: ChatAnswer; onOpen
   const rows: Array<[string, string]> = [
     ["Your workspace", answer.used.workspace],
     ["Web", answer.used.web],
-    ["Mail and drive", answer.used.mail_drive],
   ];
   return (
     <section className="card used-card" aria-label="What this answer used">

@@ -151,7 +151,7 @@ class ScriptedTabularModel:
 async def _run_once(
     tenant: UUID, account: UUID, acct: A.Acct
 ) -> tuple[list[dict[str, Any]], dict[str, Any], str, list[tuple[str, Any]]]:
-    ws = A.Workspace([acct], [], [], [], [], [], [], {}, False)
+    ws = A.Workspace([acct], [], [], [], [], [], {})
     async with tenant_txn(tenant, user="user-1") as s:
         found = await T.list_tables(s, [account])
     decision = await R.route(QUESTION, found)
@@ -306,7 +306,7 @@ async def test_the_golden_holdings_answer_is_one_render_call_identical_five_time
     acct = A.Acct(account, domain, "Synthetic Holdings", [], None, None, 1)
 
     async def once() -> tuple[list[dict[str, Any]], dict[str, Any], str]:
-        ws = A.Workspace([acct], [], [], [], [], [], [], {}, False)
+        ws = A.Workspace([acct], [], [], [], [], [], {})
         async with tenant_txn(tenant_a, user="user-1") as s:
             found = await T.list_tables(s, [account])
         ws.tables = A.table_rows(ws, found)

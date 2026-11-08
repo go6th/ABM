@@ -36,7 +36,6 @@ class ClientSettings:
     idle_expiry_days: int
     monthly_credit_pool: int
     fastest_schedule: str
-    mail_drive_allowed: bool
     web_refresh_allowed: bool
     # limits per user (owner decision 2026-10-14): the defaults for the client's users
     research_limit_default: int = 2
@@ -58,7 +57,7 @@ async def client_settings(session: Any) -> ClientSettings:
         await session.execute(
             text(
                 "SELECT account_cap_per_user, idle_expiry_days, monthly_credit_pool,"
-                " fastest_schedule, mail_drive_allowed, web_refresh_allowed,"
+                " fastest_schedule, web_refresh_allowed,"
                 " research_limit_default, chat_limit_default, limit_reset FROM client_settings"
             )
         )
@@ -81,7 +80,6 @@ async def client_settings(session: Any) -> ClientSettings:
         idle_expiry_days=int(row.idle_expiry_days),
         monthly_credit_pool=int(row.monthly_credit_pool),
         fastest_schedule=str(row.fastest_schedule),
-        mail_drive_allowed=bool(row.mail_drive_allowed),
         web_refresh_allowed=bool(row.web_refresh_allowed),
         research_limit_default=int(row.research_limit_default),
         chat_limit_default=int(row.chat_limit_default),
@@ -166,7 +164,6 @@ CLIENT_FIELDS = (
     "idle_expiry_days",
     "monthly_credit_pool",
     "fastest_schedule",
-    "mail_drive_allowed",
     "web_refresh_allowed",
     "research_limit_default",
     "chat_limit_default",

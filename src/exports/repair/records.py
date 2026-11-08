@@ -193,19 +193,6 @@ class CoverageRecord:
 
 
 @dataclass(frozen=True)
-class MailItem:
-    """One matched mail thread or drive file (the user's own)."""
-
-    title: str
-    kind: str = ""
-    sender: str = ""
-    date: date | None = None
-    summary: str = ""
-    relevance: str = ""
-    link: str = ""
-
-
-@dataclass(frozen=True)
 class DeliverableClaim:
     """What a deliverable section says about a coverage item (for the consistency check)."""
 
@@ -239,7 +226,6 @@ class RepairInput:
     searches: list[SearchCall] = field(default_factory=list)
     signal_seeds: list[SignalSeed] = field(default_factory=list)
     coverage: list[CoverageRecord] = field(default_factory=list)
-    mail: list[MailItem] = field(default_factory=list)
     claims: list[DeliverableClaim] = field(default_factory=list)
     cited_facts: list[CitedFact] = field(default_factory=list)
     # deliverable file name -> bytes (the current deliverables), internal file name -> bytes

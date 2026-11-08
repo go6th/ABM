@@ -5,7 +5,7 @@
 // confirm-company call a new research makes), after which the server imports and indexes the file.
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { api, ApiError } from "@/lib/api";
+import { api, errorText } from "@/lib/api";
 import { detectedLine } from "@/lib/documents";
 import type { AccountPage, CompanyConfirmed, DocumentStatus } from "@/lib/gen/api.gen";
 
@@ -29,7 +29,7 @@ export function AccountPicker({ doc, onConfirmed, disabled = false }: { doc: Doc
 
   const pick = options?.find((o) => o.id === chosen) ?? null;
   const confirm = async () => {
-    if (!pick) return;
+    if (!pick || busy) return;
     setBusy(true);
     setError(null);
     try {
@@ -37,7 +37,7 @@ export function AccountPicker({ doc, onConfirmed, disabled = false }: { doc: Doc
       if (onConfirmed) onConfirmed();
       else router.refresh();
     } catch (e) {
-      setError(e instanceof ApiError ? e.detail : "The account could not be set. Try again.");
+      setError(errorText(e, "The account could not be set. Try again."));
     } finally {
       setBusy(false);
     }
@@ -52,7 +52,7 @@ export function AccountPicker({ doc, onConfirmed, disabled = false }: { doc: Doc
           <option value="">Choose an account</option>
           {(options ?? []).map((o) => <option key={o.id ?? o.domain} value={o.id ?? ""}>{o.name ? `${o.name} (${o.domain})` : o.domain}</option>)}
         </select>
-        <button type="button" className="btn" disabled={disabled || busy || !pick} onClick={() => void confirm()}>Use this account</button>
+        <button type="button" className="btn" disabled={disabled || busy || !pick} aria-busy={busy || undefined} onClick={() => void confirm()}>Use this account</button>
       </div>
       {error ? <p className="small" role="alert">{error}</p> : null}
     </div>

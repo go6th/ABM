@@ -63,7 +63,7 @@ meets them:
 | `admin/` | The operator plane: tenants, quotas, flags, support grants, view-as. |
 | `audit/` | The insert-only, hash-chained audit record and its verification. |
 | `views/` | Typed row sources for the client tables, the bounded query layer, saved views, branding, safe rendering. |
-| `connectors_client/` | The client's own mail and drive connections (narrow OAuth scopes). |
+| `connectors_client/` | The client's CRM connections (narrow OAuth scopes, read only). |
 | `pilot/` | Pilot feedback and the usefulness metric. |
 | `crm_writeback/` | Create-only, opt-in CRM write-back. |
 | `opendoor/` | The versioned signal event contract, read API and signed webhooks. |

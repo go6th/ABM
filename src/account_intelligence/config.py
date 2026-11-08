@@ -430,21 +430,6 @@ class Settings(BaseSettings):
         ),
         component="eval",
     )
-    gmail_api_base: str = var(
-        "https://gmail.googleapis.com/gmail/v1",
-        purpose="Gmail API base URL for the per-user Mail and drive sync.",
-        component="worker",
-    )
-    google_drive_api_base: str = var(
-        "https://www.googleapis.com/drive/v3",
-        purpose="Google Drive API base URL for the per-user Mail and drive sync.",
-        component="worker",
-    )
-    microsoft_graph_api_base: str = var(
-        "https://graph.microsoft.com/v1.0",
-        purpose="Microsoft Graph API base URL (Outlook, OneDrive, SharePoint sync).",
-        component="worker",
-    )
     moonshot_secret: str | None = var(
         purpose="Secret Manager secret id holding the Kimi K3 (Moonshot AI) key; unset: not set up."
     )
@@ -563,28 +548,6 @@ class Settings(BaseSettings):
     mail_from_name: str | None = var(purpose="From name of outgoing email.")
 
     # exports
-    # Mail and drive (per-user, read-only): the OAuth apps the owner registers. Until both the
-    # id and the secret of a provider are set, its sources say "Not available yet".
-    maildrive_google_client_id: str | None = var(
-        purpose="Google OAuth app client id for Gmail and Google Drive (Mail and drive)."
-    )
-    maildrive_google_client_secret: SecretStr | None = var(
-        purpose="Google OAuth app client secret (cloud: injected from Secret Manager).",
-        secret=True,
-    )
-    maildrive_google_client_secret_file: str | None = var(
-        purpose="Path to a file holding the Google client secret (instead of the variable)."
-    )
-    maildrive_microsoft_client_id: str | None = var(
-        purpose="Microsoft OAuth app client id for Outlook, OneDrive and SharePoint."
-    )
-    maildrive_microsoft_client_secret: SecretStr | None = var(
-        purpose="Microsoft OAuth app client secret (cloud: injected from Secret Manager).",
-        secret=True,
-    )
-    maildrive_microsoft_client_secret_file: str | None = var(
-        purpose="Path to a file holding the Microsoft client secret (instead of the variable)."
-    )
     research_engine: Literal["graph", "hermetic", "skill"] | None = var(
         purpose=(
             "Research job engine: graph (the run lifecycle on the ABM agent graph; cloud"
@@ -646,9 +609,6 @@ class Settings(BaseSettings):
             "public_base_url",
             "moonshot_base_url",
             "xai_base_url",
-            "gmail_api_base",
-            "google_drive_api_base",
-            "microsoft_graph_api_base",
         ):
             url = getattr(self, url_field)
             if self.app_env in CLOUD and url and not url.startswith("https://"):

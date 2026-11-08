@@ -166,7 +166,7 @@ async def test_a_web_result_is_cited_as_a_web_source_and_marks_the_web_used() ->
     fact = A.Row(
         f"fact:{uuid4()}", "fact", acct, "Acme runs Salesforce", "Acme", now, None, "confirmed"
     )
-    ws = A.Workspace([acct], [fact], [], [], [], [], [], {}, False)
+    ws = A.Workspace([acct], [fact], [], [], [], [], {})
     q, local = A.draft_local("What did Acme buy recently?", ws, now)
 
     class Provider:

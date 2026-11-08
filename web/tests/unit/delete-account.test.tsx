@@ -10,6 +10,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ push, refresh }) }));
 const apiMock = vi.fn();
 vi.mock("@/lib/api", () => ({
   api: (...args: unknown[]) => apiMock(...args),
+  errorText: (_cause: unknown, fallback: string) => fallback,
   ApiError: class ApiError extends Error { status: number; detail: string; constructor(status: number, code: string, detail: string) { super(detail); this.status = status; this.detail = detail; } },
 }));
 
@@ -26,9 +27,9 @@ test("the account is deleted only after its domain is typed back", async () => {
   const dialog = screen.getByRole("dialog");
   const confirm = screen.getByRole("button", { name: "Delete this account" });
   expect(confirm).toHaveProperty("disabled", true);
-  fireEvent.change(screen.getByLabelText("Type the domain to confirm"), { target: { value: "synthetic.examp" } });
+  fireEvent.change(screen.getByLabelText(/to confirm/), { target: { value: "synthetic.examp" } });
   expect(confirm).toHaveProperty("disabled", true);
-  fireEvent.change(screen.getByLabelText("Type the domain to confirm"), { target: { value: "Synthetic.example" } });
+  fireEvent.change(screen.getByLabelText(/to confirm/), { target: { value: "Synthetic.example" } });
   expect(confirm).toHaveProperty("disabled", false);
   fireEvent.click(confirm);
   await waitFor(() => expect(apiMock).toHaveBeenCalledWith("DELETE", "/v1/accounts/synthetic.example", { confirm: "Synthetic.example" }));

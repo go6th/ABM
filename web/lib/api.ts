@@ -222,3 +222,16 @@ export async function apiStream(path: string, body: unknown, signal?: AbortSigna
 export function newIdempotencyKey(): string {
   return crypto.randomUUID().replaceAll("-", "");
 }
+
+// status texts and client-side contract messages: never shown to a person
+const GENERIC_DETAIL = /^(bad request|unauthorized|forbidden|not found|conflict|unprocessable content|too many requests|internal server error|service unavailable|bad gateway|gateway timeout|error|invalid request|invalid token)$|contract/i;
+
+/** A failed call as a sentence a person can read: the API's own sentence when it wrote one for
+ * this problem, otherwise ``fallback``. HTTP status texts ("Internal Server Error"), an empty
+ * detail (HTTP/2 has no status text) and contract mismatches always give the fallback. */
+export function errorText(cause: unknown, fallback: string): string {
+  if (!(cause instanceof ApiError)) return fallback;
+  const detail = cause.detail?.trim() ?? "";
+  if (!detail || GENERIC_DETAIL.test(detail) || /^http_\d+$/.test(cause.type) || /^\d+$/.test(cause.type)) return fallback;
+  return detail;
+}

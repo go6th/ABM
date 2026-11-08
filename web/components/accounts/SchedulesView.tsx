@@ -4,9 +4,10 @@
 // below updates from the server. Options faster than the client allows are disabled, with the
 // reason read out to screen readers and shown under the list.
 import { useState } from "react";
-import { api, ApiError } from "@/lib/api";
+import { api, errorText } from "@/lib/api";
 import type { Schedules } from "@/lib/gen/api.gen";
 import { LimitNote, useMyLimits } from "@/components/Limits";
+import { announce } from "@/ui/Toaster";
 
 const PER_MONTH: Record<string, number> = { "3d": 10, weekly: 4, "2w": 2, monthly: 1, off: 0 };
 
@@ -23,15 +24,17 @@ export function SchedulesView({ initial, focus }: { initial: Schedules; focus: s
   const anyDisabled = data.rows.some((r) => r.options.some((o) => !o.allowed));
 
   const save = async (accountId: string, cadence: Cadence) => {
+    if (saving) return;
     const before = data;
     setMessage(null);
     setSaving(accountId);
     setData((d) => ({ ...d, rows: d.rows.map((r) => (r.account_id === accountId ? { ...r, cadence } : r)) }));
     try {
       setData(await api<Schedules>("PUT", `/v1/schedules/${encodeURIComponent(accountId)}`, { cadence }));
+      announce("Auto refresh saved");
     } catch (cause) {
       setData(before);
-      setMessage(cause instanceof ApiError && cause.status === 422 ? cause.detail : "The schedule could not be saved. Try again.");
+      setMessage(errorText(cause, "The schedule could not be saved. Try again."));
     } finally {
       setSaving(null);
     }

@@ -1,35 +1,36 @@
 "use client";
 // Add the files a "From a file" research reads (owner decision 2026-10-14): drop them or "Add
-// files", or "Choose from your drive" (DriveChooser: the server fetches the chosen files from the
-// user's own Google Drive or OneDrive into the same path). Each file goes straight to storage in resumable chunks (the
+// files". Each file goes straight to storage in resumable chunks (the
 // bar shows the bytes sent; a reload keeps the place: choose the same file again to continue),
 // is completed, then followed through scanning and reading. A large file is read in parts
 // ("Reading part 3 of 12"); a part that could not be read shows its reason and "Try again".
+// Removing a saved file, or a paused upload, asks first and says if it failed; while a file is
+// still being sent the tab warns before it is closed or reloaded.
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, ApiError } from "@/lib/api";
+import { api, ApiError, errorText } from "@/lib/api";
 import { m } from "@/lib/messages";
 import { ACCEPT, STAGE_TEXT, fileSize, folderFiles, isWorking, progressLine, refuseReason, stageOf, stageTone, type Stage } from "@/lib/documents";
 import { uploadDocument, type Audience } from "@/lib/upload";
 import { forgetPaused, pausedUploads, type Saved } from "@/lib/upload-store";
+import { ConfirmDialog } from "@/ui/Modal";
+import { announce } from "@/ui/Toaster";
 import { Status } from "@/ui/primitives";
 import { cellText } from "@/lib/render";
-import type { DocumentStatus, DriveFile } from "@/lib/gen/api.gen";
-import { DRIVE_LABEL, DriveChooser, type DriveSource } from "./DriveChooser";
+import type { DocumentStatus } from "@/lib/gen/api.gen";
 import { AccountPicker } from "./AccountPicker";
 import { WorkspaceCompanyPrompt, workspaceOf } from "./WorkspaceCompanyPrompt";
 
-export interface DropItem { key: string; name: string; size: number; stage: Stage; message: string | null; doc: DocumentStatus | null; sent: number; driveId?: string; driveSource?: DriveSource }
+export interface DropItem { key: string; name: string; size: number; stage: Stage; message: string | null; doc: DocumentStatus | null; sent: number }
 
 const POLL_MS = 2000;
 
-export function DocumentDrop({ accountId = null, onChange, disabled = false, initialDrive = false, refresh = 0, picker = true }: {
+export function DocumentDrop({ accountId = null, onChange, disabled = false, refresh = 0, picker = true }: {
   accountId?: string | null;
   // show the account picker under a file the server holds as "Needs account" (a new research
   // confirms the company in its own panel instead)
   picker?: boolean;
   onChange: (docs: DocumentStatus[]) => void;
   disabled?: boolean;
-  initialDrive?: boolean;
   // bump to read every file's status again (after the company is confirmed the server indexes
   // files that sat at "parsed", which the poll below had stopped watching)
   refresh?: number;
@@ -37,7 +38,6 @@ export function DocumentDrop({ accountId = null, onChange, disabled = false, ini
   const [items, setItems] = useState<DropItem[]>([]);
   const [paused, setPaused] = useState<Saved[]>([]);
   const [over, setOver] = useState(false);
-  const [drive, setDrive] = useState(initialDrive);
   // owner-only files are stored for the owner and admins and never read into findings
   const [ownerOnly, setOwnerOnly] = useState(false);
   const input = useRef<HTMLInputElement | null>(null);
@@ -45,6 +45,11 @@ export function DocumentDrop({ accountId = null, onChange, disabled = false, ini
   const [skipped, setSkipped] = useState<string[]>([]);
   const counter = useRef(0);
   const aborts = useRef(new Map<string, AbortController>());
+  // the saved file (or paused upload) a person asked to remove, waiting for their answer
+  const [asking, setAsking] = useState<{ item: DropItem } | { saved: Saved } | null>(null);
+  // part retries in flight ("<item key>:<part>"), so a double click posts once
+  const [retrying, setRetrying] = useState<string[]>([]);
+  const retryingNow = useRef(new Set<string>());
 
   const update = useCallback((key: string, patch: Partial<DropItem>) => {
     setItems((prev) => prev.map((it) => (it.key === key ? { ...it, ...patch } : it)));
@@ -60,10 +65,16 @@ export function DocumentDrop({ accountId = null, onChange, disabled = false, ini
     onChange(items.map((i) => i.doc).filter((d): d is DocumentStatus => d !== null));
   }, [items, onChange]);
 
+  // the status poll watches only whether anything is still being read: ``items`` changes on every
+  // progress event, so a timer rebuilt on each change never got to fire during an upload
+  const itemsRef = useRef(items);
+  useEffect(() => { itemsRef.current = items; }, [items]); // runs before the refresh effect below
+  const hasWorking = items.some((i) => i.doc && isWorking(i.stage));
+  const sending = items.some((i) => i.stage === "uploading");
   useEffect(() => {
-    const working = items.filter((i) => i.doc && isWorking(i.stage));
-    if (!working.length) return;
-    const timer = setTimeout(() => {
+    if (!hasWorking) return;
+    const timer = setInterval(() => {
+      const working = itemsRef.current.filter((i) => i.doc && isWorking(i.stage));
       void Promise.all(working.map(async (it) => {
         try {
           const doc = await api<DocumentStatus>("GET", `/v1/documents/${it.doc!.document_id}/status`);
@@ -71,11 +82,17 @@ export function DocumentDrop({ accountId = null, onChange, disabled = false, ini
         } catch { /* the next poll tries again */ }
       }));
     }, POLL_MS);
-    return () => clearTimeout(timer);
-  }, [items, update]);
+    return () => clearInterval(timer);
+  }, [hasWorking, update]);
 
-  const itemsRef = useRef(items);
-  useEffect(() => { itemsRef.current = items; }, [items]); // runs before the refresh effect below
+  // closing or reloading the tab while a file is still being sent would lose the place
+  useEffect(() => {
+    if (!sending) return;
+    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [sending]);
+
   useEffect(() => {
     if (!refresh) return;
     const known = itemsRef.current.filter((i) => i.doc);
@@ -106,7 +123,7 @@ export function DocumentDrop({ accountId = null, onChange, disabled = false, ini
         const message = controller.signal.aborted
           ? "Upload paused. Choose the same file again to continue where it stopped."
           : error instanceof ApiError && error.type !== "upload_failed"
-            ? error.detail
+            ? errorText(error, "The upload stopped. Choose the same file again to continue where it stopped.")
             : "The upload stopped. Choose the same file again to continue where it stopped.";
         update(key, { stage: "failed", message });
       } finally {
@@ -115,44 +132,52 @@ export function DocumentDrop({ accountId = null, onChange, disabled = false, ini
     }
   }, [accountId, ownerOnly, update]);
 
-  const addFromDrive = useCallback(async (file: DriveFile, source: DriveSource) => {
-    counter.current += 1;
-    const key = `${counter.current}-drive-${file.id}`;
-    setItems((prev) => [...prev, { key, name: file.name, size: file.size_bytes ?? 0, stage: "uploading", message: null, doc: null, sent: 0, driveId: file.id, driveSource: source }]);
-    try {
-      // Google Drive is the server's default source, so its request stays as it always was
-      const body = source === "google_drive" ? { file_id: file.id, account_id: accountId } : { file_id: file.id, account_id: accountId, source };
-      const doc = await api<DocumentStatus>("POST", "/v1/documents/from-drive", body);
-      update(key, { doc, size: doc.size_bytes, stage: stageOf(doc), message: doc.message ?? null });
-    } catch (error) {
-      update(key, { stage: "failed", message: error instanceof ApiError ? error.detail : m.research.driveErrorOf(DRIVE_LABEL[source]) });
-    }
-  }, [accountId, update]);
-
-  const remove = async (it: DropItem) => {
-    // a file already saved in the workspace is deleted there too: ask first
-    if (it.doc && !window.confirm(`Remove ${it.name}? It is deleted from your workspace.`)) return;
+  // remove one row: a file the server holds is deleted there after a yes (the pop-up below); a
+  // file still going up, or one that never got saved, only stops
+  const remove = (it: DropItem) => {
+    if (it.doc) { setAsking({ item: it }); return; }
     aborts.current.get(it.key)?.abort();
-    if (it.doc) {
-      try {
-        await api("DELETE", `/v1/documents/${it.doc.document_id}`);
-      } catch (error) {
-        if (!(error instanceof ApiError && error.status === 404)) { // 404: already gone
-          update(it.key, { message: "It could not be removed. Try again." });
-          return;
-        }
-      }
-    }
     setItems((prev) => prev.filter((p) => p.key !== it.key));
   };
 
+  const deleteSaved = async (documentId: string) => {
+    try {
+      await api("DELETE", `/v1/documents/${documentId}`);
+    } catch (error) {
+      if (!(error instanceof ApiError && error.status === 404)) { // 404: already gone
+        throw new Error(errorText(error, "It could not be removed. Try again in a moment."));
+      }
+    }
+  };
+
+  const confirmRemove = async () => {
+    if (!asking) return;
+    if ("item" in asking) {
+      const it = asking.item;
+      aborts.current.get(it.key)?.abort();
+      await deleteSaved(it.doc!.document_id);
+      setItems((prev) => prev.filter((p) => p.key !== it.key));
+    } else {
+      await deleteSaved(asking.saved.documentId);
+      forgetPaused(asking.saved);
+      setPaused((prev) => prev.filter((p) => p.documentId !== asking.saved.documentId));
+    }
+    announce("File removed");
+  };
+
   const retry = async (it: DropItem, part: number) => {
-    if (!it.doc) return;
+    const id = `${it.key}:${part}`;
+    if (!it.doc || retryingNow.current.has(id)) return;
+    retryingNow.current.add(id);
+    setRetrying((prev) => [...prev, id]);
     try {
       const doc = await api<DocumentStatus>("POST", `/v1/documents/${it.doc.document_id}/parts/${part}/retry`);
       update(it.key, { doc, stage: stageOf(doc), message: doc.message ?? null });
     } catch (error) {
-      update(it.key, { message: error instanceof ApiError ? error.detail : "The part could not be queued. Try again." });
+      update(it.key, { message: errorText(error, "The part could not be queued. Try again.") });
+    } finally {
+      retryingNow.current.delete(id);
+      setRetrying((prev) => prev.filter((p) => p !== id));
     }
   };
 
@@ -162,12 +187,6 @@ export function DocumentDrop({ accountId = null, onChange, disabled = false, ini
       const doc = await api<DocumentStatus>("GET", `/v1/documents/${it.doc.document_id}/status`);
       update(it.key, { doc, stage: stageOf(doc), message: doc.message ?? null });
     } catch { /* the next refresh tries again */ }
-  };
-
-  const drop = (saved: Saved) => {
-    forgetPaused(saved);
-    setPaused((prev) => prev.filter((p) => p.documentId !== saved.documentId));
-    void api("DELETE", `/v1/documents/${saved.documentId}`).catch(() => undefined);
   };
 
   return (
@@ -184,7 +203,6 @@ export function DocumentDrop({ accountId = null, onChange, disabled = false, ini
         <div className="actions">
           <button type="button" className="btn" disabled={disabled} onClick={() => input.current?.click()}>{m.research.chooseFiles}</button>
           <button type="button" className="btn" disabled={disabled} onClick={() => folder.current?.click()}>{m.research.chooseFolder}</button>
-          <button type="button" className="btn" disabled={disabled} aria-expanded={drive} onClick={() => setDrive((v) => !v)}>{m.research.connectDrive}</button>
         </div>
         <input ref={input} type="file" multiple accept={ACCEPT.join(",")} aria-label={m.research.chooseFiles} onChange={(e) => { if (e.target.files) void add(e.target.files); e.target.value = ""; }} />
         {/* a whole folder, subfolders included; unsupported files are listed, not uploaded */}
@@ -213,13 +231,6 @@ export function DocumentDrop({ accountId = null, onChange, disabled = false, ini
           {skipped.length} file{skipped.length === 1 ? " was" : "s were"} left out of the folder because their type is not supported: {skipped.slice(0, 5).join(", ")}{skipped.length > 5 ? ` and ${skipped.length - 5} more` : ""}.
         </p>
       ) : null}
-      {drive ? (
-        <DriveChooser
-          onPick={(files, source) => { for (const f of files) void addFromDrive(f, source); }}
-          picked={new Set(items.filter((i) => i.driveId && i.stage !== "failed").map((i) => i.driveId!))}
-          disabled={disabled}
-        />
-      ) : null}
       {paused.length ? (
         <ul className="rows uploads" aria-label="Paused uploads">
           {paused.map((p) => (
@@ -228,7 +239,7 @@ export function DocumentDrop({ accountId = null, onChange, disabled = false, ini
                 <p>{cellText(p.name)}</p>
                 <span className="sub">Paused at {fileSize(p.sent)} of {fileSize(p.size)}. Choose the same file again to continue.</span>
               </div>
-              <button type="button" className="link-btn small" onClick={() => drop(p)} disabled={disabled}>{m.research.remove}</button>
+              <button type="button" className="link-btn small" onClick={() => setAsking({ saved: p })} disabled={disabled}>{m.research.remove}</button>
             </li>
           ))}
         </ul>
@@ -243,9 +254,7 @@ export function DocumentDrop({ accountId = null, onChange, disabled = false, ini
                   <div>
                     <p>{cellText(it.name)}</p>
                     <span className="sub">
-                      {it.stage === "uploading"
-                        ? it.driveSource ? m.research.driveFetching(DRIVE_LABEL[it.driveSource]) : `${fileSize(it.sent)} of ${fileSize(it.size)} sent`
-                        : fileSize(it.size)}
+                      {it.stage === "uploading" ? `${fileSize(it.sent)} of ${fileSize(it.size)} sent` : fileSize(it.size)}
                       {reading ? `. ${reading}` : ""}
                       {it.doc?.passages ? `. ${it.doc.passages.toLocaleString()} sections read` : ""}
                       {it.doc?.audience === "owner_only" ? ". Owner only" : ""}
@@ -254,10 +263,10 @@ export function DocumentDrop({ accountId = null, onChange, disabled = false, ini
                   </div>
                   <div className="row nowrap">
                     <span aria-live="polite"><Status tone={stageTone(it.stage)}>{STAGE_TEXT[it.stage]}</Status></span>
-                    <button type="button" className="link-btn small" onClick={() => void remove(it)} disabled={disabled}>{m.research.remove}</button>
+                    <button type="button" className="link-btn small" onClick={() => remove(it)} disabled={disabled}>{m.research.remove}</button>
                   </div>
                 </div>
-                {it.stage === "uploading" && !it.driveId ? (
+                {it.stage === "uploading" ? (
                   <progress className="upload-bar" max={Math.max(it.size, 1)} value={it.sent} aria-label={`Upload of ${it.name}`} />
                 ) : it.doc && it.doc.parts_total > 1 && it.stage === "parsing" ? (
                   <progress className="upload-bar" max={it.doc.parts_total} value={it.doc.parts_done} aria-label={`Reading ${it.name}`} />
@@ -274,7 +283,7 @@ export function DocumentDrop({ accountId = null, onChange, disabled = false, ini
                     {it.doc.parts_failed.map((f) => (
                       <li key={f.part}>
                         <span className="small">Part {f.part}: {f.reason}</span>
-                        <button type="button" className="link-btn small" disabled={disabled} onClick={() => void retry(it, f.part)}>Try again</button>
+                        <button type="button" className="link-btn small" disabled={disabled} aria-busy={retrying.includes(`${it.key}:${f.part}`) || undefined} onClick={() => void retry(it, f.part)}>Try again</button>
                       </li>
                     ))}
                   </ul>
@@ -283,6 +292,15 @@ export function DocumentDrop({ accountId = null, onChange, disabled = false, ini
             );
           })}
         </ul>
+      ) : null}
+      {asking ? (
+        <ConfirmDialog
+          title="Remove this file?"
+          body={<>Remove <b>{cellText("item" in asking ? asking.item.name : asking.saved.name)}</b>? It is deleted from your workspace.</>}
+          confirm="Remove"
+          onConfirm={confirmRemove}
+          onClose={() => setAsking(null)}
+        />
       ) : null}
     </div>
   );

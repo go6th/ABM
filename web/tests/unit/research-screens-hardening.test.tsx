@@ -21,7 +21,8 @@ vi.mock("@/lib/api", () => {
       super(`${status} ${type}`);
     }
   }
-  return { api: (...args: unknown[]) => api(...args), ApiError, newIdempotencyKey: () => "k" };
+  const errorText = (cause: unknown, fallback: string) => (cause instanceof ApiError && cause.detail?.trim() ? cause.detail : fallback);
+  return { api: (...args: unknown[]) => api(...args), ApiError, errorText, newIdempotencyKey: () => "k" };
 });
 vi.mock("@/components/Limits", () => ({
   LimitNote: () => null,
@@ -75,12 +76,11 @@ const sheet: Sheet = {
 
 // --- the table -----------------------------------------------------------------------------
 
-test("the CSV and Excel links name the account from the domain prop, encoded once", () => {
-  render(<SheetView sheet={{ ...sheet, key: "mail and drive" }} domain="a b.example" base="/accounts/a%20b.example/mail%20and%20drive" moreHref={null} />);
+test("the Excel link names the account from the domain prop, encoded once", () => {
+  render(<SheetView sheet={{ ...sheet, key: "platform teams" }} domain="a b.example" base="/accounts/a%20b.example/platform%20teams" moreHref={null} />);
   expect(screen.getByRole("link", { name: "Download table as Excel" }).getAttribute("href"))
-    .toBe("/v1/accounts/a%20b.example/sheets/mail%20and%20drive/xlsx?filter=all&sort=name&dir=asc");
-  expect(screen.getByRole("link", { name: "Download CSV" }).getAttribute("href"))
-    .toBe("/v1/accounts/a%20b.example/sheets/mail%20and%20drive/csv?filter=all&sort=name&dir=asc");
+    .toBe("/v1/accounts/a%20b.example/sheets/platform%20teams/xlsx?filter=all&sort=name&dir=asc");
+  expect(screen.queryByRole("link", { name: "Download CSV" })).toBeNull(); // one table export, not two
   expect(exportHref("x.example", sheet, "csv")).toBe("/v1/accounts/x.example/sheets/people/csv?filter=all&sort=name&dir=asc");
 });
 
@@ -190,11 +190,10 @@ test("start research: retrying after a network error resends the same request id
   render(<ResearchCompany estimate={estimate} onStarted={onStarted} />);
   fireEvent.change(screen.getByLabelText("Company name"), { target: { value: "Acme" } });
   fireEvent.change(screen.getByLabelText("Website"), { target: { value: "acme.example" } });
-  fireEvent.click(screen.getByRole("button", { name: "Start research" }));
-  fireEvent.click(screen.getByRole("button", { name: "Proceed" }));
-  fireEvent.click(screen.getByRole("button", { name: "Yes, start it" }));
+  fireEvent.click(screen.getByRole("button", { name: "Start research" })); // Proceed: arms
+  fireEvent.click(screen.getByRole("button", { name: /^Yes, start/ }));
   await waitFor(() => expect(screen.getByRole("alert").textContent).toMatch(/could not be started/));
-  fireEvent.click(screen.getByRole("button", { name: "Yes, start it" }));
+  fireEvent.click(screen.getByRole("button", { name: /^Yes, start/ }));
   await waitFor(() => expect(onStarted).toHaveBeenCalled());
   const [a, b] = api.mock.calls.map((c) => (c[2] as { request_id: string }).request_id);
   expect(b).toBe(a);
@@ -220,9 +219,13 @@ test("download everything: one click posts once, and a part only links to the se
   expect(partHref("/v1/downloads/d1/parts/x")).toBeNull();
 });
 
-test("files: a pick of a file no longer listed is dropped, and the ids are encoded", () => {
+test("files: nothing is ticked until picked, a pick of a file no longer listed is dropped, and the ids are encoded", () => {
   const file = (id: string) => ({ id, name: id, meta: "", kind: "xlsx", filename: `${id}.xlsx`, built_at: "2026-10-27" });
   const { rerender } = render(<FilesCard domain="x.example" files={[file("a"), file("b")]} />);
+  expect(screen.queryByRole("link", { name: /Download selected/ })).toBeNull(); // no pre-ticked download
+  expect(screen.getByText("Download selected (0)").getAttribute("aria-disabled")).toBe("true");
+  fireEvent.click(screen.getByRole("checkbox", { name: /^a/ }));
+  fireEvent.click(screen.getByRole("checkbox", { name: /^b/ }));
   expect(screen.getByRole("link", { name: "Download selected (2)" })).toBeTruthy();
   rerender(<FilesCard domain="x.example" files={[file("b"), file("c&d")]} />);
   const selected = screen.getByRole("link", { name: "Download selected (1)" });
@@ -242,7 +245,7 @@ test("refresh: a workspace offered no scopes opens on the topic instead of crash
   } as unknown as RefreshOptions;
   render(<RefreshForm view={view} initialTopic="" />);
   expect(screen.getByRole("radio", { name: /A specific topic/ }).getAttribute("aria-checked")).toBe("true");
-  expect((screen.getByRole("button", { name: "Confirm research" }) as HTMLButtonElement).disabled).toBe(true);
+  expect((screen.getByRole("button", { name: "Research this topic" }) as HTMLButtonElement).disabled).toBe(true);
 });
 
 test("new research: the two tabs are one tab stop and arrow keys move between them", () => {
@@ -287,4 +290,20 @@ test("the board's load failure reloads the page instead of a client navigation t
   render(<ResearchBoard initial={null} estimate={estimate} />);
   const reload = screen.getByRole("link", { name: "Refresh" });
   expect(reload.getAttribute("href")).toBe("/research");
+});
+
+test("the board: Resume research is offered once, in the open detail, and an empty board is one quiet line", () => {
+  const ended = { ...item, open: false, can_stop: false, can_resume: true, status: "failed", run_status: "FAILED", finished_at: "2026-10-27T00:00:00Z" };
+  const detail = {
+    job_id: ended.job_id, company: "Acme", domain: "acme.example", label: "Stopped", reason: null, steps: [], findings: 0, searches: 0,
+    pages_read: 0, tokens: 0, findings_by_kind: [], latest_findings: [], withheld: 0,
+  };
+  const { unmount } = render(<ResearchBoard initial={{ ...live, running: [], recent: [ended], detail } as unknown as ResearchLive} estimate={estimate} />);
+  expect(screen.getAllByRole("button", { name: "Resume research" })).toHaveLength(1);
+  expect(screen.getByRole("region", { name: "Acme" })).toBeTruthy();
+  expect(screen.getByText("Nothing is running right now.").tagName).toBe("P");
+  expect(document.querySelector(".empty-card")).toBeNull();
+  unmount();
+  render(<ResearchBoard initial={{ ...live, running: [], recent: [ended], detail: null } as unknown as ResearchLive} estimate={estimate} />);
+  expect(screen.queryByRole("button", { name: "Resume research" })).toBeNull(); // the row no longer carries one
 });

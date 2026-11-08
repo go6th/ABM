@@ -39,6 +39,8 @@ SWEEPER_LOOKUPS = (
     "due_scheduled_refreshes",
     "tenants_with_waiting_jobs",
     "library_publication_counts",
+    # no code calls it since the Mail and drive feature was removed (2026-11-08); the function
+    # stays in the database until a migration drops it, so its owner is still checked
     "maildrive_connections_due",
     "spend_runs_to_check",
     "tenants_with_credit_activity",
@@ -128,14 +130,6 @@ def planted() -> Iterator[Planted]:
             )
             put("credit_entries", job_id=job["id"], at=OLD)
             put("library_publications", revoked_at=None)
-            put(
-                "connector_connections",
-                kind="gmail",
-                status="active",
-                owner_user_id="m1-owner",
-                last_synced_at=None,
-                broken_reason=None,
-            )
     yield w
 
 
@@ -154,7 +148,6 @@ CALLS: dict[str, tuple[str, tuple[Any, ...]]] = {
     "document_parts_orphaned": ("SELECT tenant_id FROM document_parts_orphaned(%s)", (NOW,)),
     "due_scheduled_refreshes": ("SELECT tenant_id FROM due_scheduled_refreshes(%s)", (NOW,)),
     "tenants_with_waiting_jobs": ("SELECT tenant_id FROM tenants_with_waiting_jobs()", ()),
-    "maildrive_connections_due": ("SELECT tenant_id FROM maildrive_connections_due(%s)", (NOW,)),
     "spend_runs_to_check": ("SELECT tenant_id FROM spend_runs_to_check(%s)", (OLD,)),
     "tenants_with_credit_activity": (
         "SELECT tenant_id FROM tenants_with_credit_activity(%s)",

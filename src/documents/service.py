@@ -74,7 +74,6 @@ from contextlib import AbstractAsyncContextManager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from pathlib import Path
 from typing import Any, TypeVar, cast
 from uuid import UUID, uuid4
 
@@ -92,7 +91,6 @@ from documents.sandbox import ParsedUnit, SandboxFailed, parse_in_sandbox, plan_
 from documents.scan import ScanPort
 from documents.shapes import ShapeLog
 from obs.logging import log_context, logger
-from research_files import crc32c as crc
 from research_files.blobstore import BlobMissing, BlobStore, PartTooLarge, copy_between
 from research_files.detect import by_name, detect
 
@@ -441,49 +439,6 @@ class DocumentService:
             raise DocumentError("size_mismatch") from None
         return size
 
-    async def file_limit(self, tenant_id: UUID) -> int:
-        """The per-file limit for this client (what a server-side fetch may download)."""
-        async with self.txn(tenant_id) as s:
-            return await self.max_file_bytes(s)
-
-    async def import_file(
-        self,
-        tenant_id: UUID,
-        user: str,
-        name: str,
-        path: Path,
-        mime: str | None,
-        account_id: UUID | None,
-    ) -> dict[str, Any]:
-        """A file the server fetched for the user (a Google Drive import): declared like an
-        upload (name, type, size and the per-file limit checked first), streamed from ``path``
-        into quarantine, then completed, so the scan, typing from content and reading are
-        exactly an upload's. The caller deletes ``path``."""
-        size = path.stat().st_size
-        started = await self.start_upload(tenant_id, user, name, size, mime, account_id)
-        doc_id = UUID(started["document_id"])
-
-        checksum = 0
-
-        async def chunks() -> AsyncIterator[bytes]:
-            """The file read in bounded pieces, its CRC32C taken as it goes."""
-            nonlocal checksum
-            with path.open("rb") as source:
-                # LOOP(import spool): cap=size / chunk_bytes reads; exit=end of the spool file
-                while block := source.read(self.c.upload.chunk_bytes):
-                    checksum = crc.extend(checksum, block)
-                    yield block
-
-        try:
-            await self._incoming.write_stream(
-                quarantine_key(tenant_id, doc_id), chunks(), max_bytes=size
-            )
-        except PartTooLarge:
-            raise DocumentError("size_mismatch") from None
-        return await self.complete(
-            tenant_id, doc_id, declared_size=size, declared_crc32c=crc.to_base64(checksum)
-        )
-
     async def complete(
         self,
         tenant_id: UUID,
@@ -497,7 +452,7 @@ class DocumentService:
         the request, except in the local store, which has no metadata). ``declared_size`` and
         ``declared_crc32c`` are what the browser reported: a difference ends the document
         ``rejected`` (``size_mismatch`` / ``checksum_mismatch``) and removes the object. A
-        missing checksum (an older browser, a server-side import that did not pass one) skips
+        missing checksum (an older browser) skips
         only the checksum; the size is always checked against the size declared at the start."""
         async with self.txn(tenant_id) as s:
             row = await repo.get(s, document_id, lock=True)

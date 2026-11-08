@@ -18,7 +18,7 @@ function answer(url: string | null, text = "Plain text [1]"): ChatAnswer {
     offer: null,
     paragraphs: [[{ t: "text", v: text }, { t: "cite", v: "1" }]],
     sources: [{ account_domain: null, account_name: null, date: null, kind: "web", meta: "Careers page", n: 1, title: "Cloud lead", url }],
-    used: { mail_drive: "not_connected", web: "not_used", workspace: "used" },
+    used: { web: "not_used", workspace: "used" } as ChatAnswer["used"],
   };
 }
 

@@ -65,12 +65,14 @@ def _seed(plane: Any) -> dict[str, UUID]:
         from tests.conftest import ADMIN_DSN
 
         with psycopg.connect(ADMIN_DSN, autocommit=True) as c:
-            for d in domains:
-                c.execute(
-                    "INSERT INTO accounts (tenant_id, owner_user_id, domain)"
-                    " VALUES (%s, 'test-owner', %s)",
-                    (t, d),
-                )
+            # workspaces are private (migration 0063): each member gets their own copy
+            for who in members:
+                for d in domains:
+                    c.execute(
+                        "INSERT INTO accounts (tenant_id, owner_user_id, domain)"
+                        " VALUES (%s, %s, %s)",
+                        (t, f"{slug}:{who}", d),
+                    )
             if abm_enabled:
                 # The production setup agent requires a pursuing client. Seed one through the
                 # same validated, versioned tenant-settings shape the admin UI writes so the
@@ -124,7 +126,9 @@ def _seed_alert(tenant: UUID, user: str) -> None:
 
     with psycopg.connect(ADMIN_DSN) as c:
         account = c.execute(
-            "SELECT id FROM accounts WHERE tenant_id = %s AND domain = 'acme-a.example'", (tenant,)
+            "SELECT id FROM accounts WHERE tenant_id = %s AND owner_user_id = %s"
+            " AND domain = 'acme-a.example'",
+            (tenant, user),
         ).fetchone()[0]
 
     async def go() -> None:
@@ -174,21 +178,20 @@ def build() -> Any:
 
     container = plane.app.state.container
     container.limits = replace(container.limits, budget_usd=Decimal("20.00"))
+    # Ask answers through the hermetic fake model (LLM_FAKE), wired as the application's lifespan
+    # wires it (api/main.py): the same chat provider over the fake's client, never a provider
+    from account_intelligence.app.container import hermetic_fake_model
+    from account_intelligence.chat.registry import get_chat_registry
+    from account_intelligence.chat.service import AnthropicChatProvider, ChatService
+    from account_intelligence.platform.llm import chat_effort
+
+    container.llm = hermetic_fake_model(os.environ)
     tenants = _seed(plane)
     nxt: dict[str, Any] = {"subject": "ada", "groups": ["admins"]}
     app = plane.app
-    from account_intelligence.chat.registry import get_chat_registry
-    from account_intelligence.chat.service import ChatEvent, ChatService, ChatUsage
-
-    class SyntheticChatProvider:
-        async def stream(self, model: Any, messages: Any, max_output_tokens: int, **_: Any) -> Any:
-            """A deterministic stream for browser coverage; never contacts a model provider.
-            The route also passes user_id, request_id and fresh_output, which it ignores."""
-            del model, messages, max_output_tokens
-            yield ChatEvent("text", text="Synthetic response")
-            yield ChatEvent("usage", usage=ChatUsage(input_tokens=24, output_tokens=4))
-
-    app.state.chat_service = ChatService(get_chat_registry(), SyntheticChatProvider())
+    client = getattr(container.llm, "client", None)
+    provider = AnthropicChatProvider(client, effort=chat_effort()) if client is not None else None
+    app.state.chat_service = ChatService(get_chat_registry(), provider)
 
     @app.post("/fake-idp/next")
     async def choose(request: Request) -> JSONResponse:

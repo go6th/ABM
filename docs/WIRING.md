@@ -9,10 +9,10 @@ provider calls. Those require separate local-stack or externally configured chec
 
 ## Summary
 
-- Backend operations in OpenAPI: **223**.
-- Frontend literal call sites found: **99**.
-- Frontend call sites mapped to backend operations: **95**.
-- Backend operations without a direct frontend call site: **139**.
+- Backend operations in OpenAPI: **216**.
+- Frontend literal call sites found: **95**.
+- Frontend call sites mapped to backend operations: **91**.
+- Backend operations without a direct frontend call site: **137**.
 - Route-policy/catalog violations: **0**.
 - Unmapped frontend calls: **0**.
 
@@ -67,6 +67,7 @@ calls are listed only when their wrapper has a statically visible literal call s
 | `web/components/accounts/AddAccount.tsx` | tenant client | `POST /v1/accounts/from-library` | FromLibrary (required) | LibraryAdded | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `web/components/accounts/DeleteAccount.tsx` | tenant client | `DELETE /v1/accounts/{domain}` | AccountDeleteBody (required) | AccountDeleted | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `web/components/accounts/DownloadEverything.tsx` | tenant client | `POST /v1/accounts/{domain}/download-everything` | EverythingBody (required) | DownloadJob | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=export |
+| `web/components/ws/FileAnalysis.tsx` | tenant client | `GET /v1/accounts/{domain}/file-analysis` | — | FileAnalysisRun | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `web/components/accounts/RefreshDialog.tsx` | tenant client | `GET /v1/accounts/{domain}/refresh` | — | RefreshOptions | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `web/components/accounts/RefreshForm.tsx` | tenant client | `POST /v1/accounts/{domain}/refresh` | RefreshBody (required) | RefreshStarted | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `web/components/ask/ChatList.tsx` | tenant client | `DELETE /v1/chat/threads/{thread_id}` | — | ChatThreadDeleted | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=none |
@@ -74,8 +75,6 @@ calls are listed only when their wrapper has a statically visible literal call s
 | `web/components/accounts/NewResearch.tsx` | tenant client | `POST /v1/documents/confirm-company` | ConfirmCompany (required) | CompanyConfirmed | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `web/components/ws/AccountPicker.tsx` | tenant client | `POST /v1/documents/confirm-company` | ConfirmCompany (required) | CompanyConfirmed | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `web/components/ws/WorkspaceCompanyPrompt.tsx` | tenant client | `POST /v1/documents/confirm-company` | ConfirmCompany (required) | CompanyConfirmed | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
-| `web/components/ws/DriveChooser.tsx` | tenant client | `GET /v1/documents/drive-files` | — | DriveFileList | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=read |
-| `web/components/ws/DocumentDrop.tsx` | tenant client | `POST /v1/documents/from-drive` | FromDrive (required) | DocumentStatus | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `web/components/accounts/DeleteFileButton.tsx` | tenant client | `DELETE /v1/documents/{document_id}` | — | DocumentDeleted | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `web/components/ws/DocumentDrop.tsx` | tenant client | `DELETE /v1/documents/{document_id}` | — | DocumentDeleted | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `web/components/ws/FileAnalysis.tsx` | tenant client | `DELETE /v1/documents/{document_id}` | — | DocumentDeleted | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
@@ -89,16 +88,13 @@ calls are listed only when their wrapper has a statically visible literal call s
 | `web/components/accounts/DownloadEverything.tsx` | tenant client | `GET /v1/downloads/{job_id}` | — | DownloadJob | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `web/components/ws/RunSteps.tsx` | tenant client | `GET /v1/exports` | — | ExportPackages | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `web/components/Limits.tsx` | tenant client | `POST /v1/limits/requests` | MoreBody (required) | LimitRequestSent | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=admin |
-| `web/components/ws/DriveChooser.tsx` | tenant client | `GET /v1/mail-and-drive` | — | MailAndDrive | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
-| `web/components/accounts/MailDrive.tsx` | tenant client | `POST /v1/mail-and-drive/{kind}/connect` | — | MailDriveConnect | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=admin |
-| `web/components/accounts/MailDrive.tsx` | tenant client | `POST /v1/mail-and-drive/{family}/disconnect` | — | MailDriveDisconnected | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=admin |
-| `web/components/accounts/MailDrive.tsx` | tenant client | `POST /v1/mail-and-drive/{family}/sync` | — | MailDriveSynced | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=admin |
 | `web/components/Limits.tsx` | tenant client | `GET /v1/me/limits` | — | MyLimits | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `web/components/ModelPreferences.tsx` | tenant client | `PUT /v1/me/model-preferences` | Preferences (required) | ModelChoices | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=none |
 | `web/components/ask/ContextMeter.tsx` | tenant client | `GET /v1/models` | — | ChatModels | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `web/components/ModelMenu.tsx` | tenant client | `GET /v1/models/choices` | — | ModelChoices | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `web/components/ws/WorkspaceShell.tsx` | tenant client | `POST /v1/notifications/{notification_id}/read` | — | NotificationRead | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=none |
 | `web/components/accounts/ResearchCompany.tsx` | tenant client | `POST /v1/research` | ResearchBody (required) | ResearchStarted | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
+| `web/components/accounts/ResearchProgress.tsx` | tenant client | `GET /v1/research/live` | — | ResearchLive | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `web/lib/useResearchLive.ts` | tenant client | `GET /v1/research/live` | — | ResearchLive | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `web/lib/useResearchLive.ts` | progress event stream | `GET /v1/research/live/stream` | — | — | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `web/components/accounts/ResumeResearch.tsx` | tenant client | `POST /v1/research/resume` | ResumeBody (required) | ResearchResumed | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
@@ -198,7 +194,6 @@ Schema names come from the live application OpenAPI document. Policy values come
 | `GET /v1/credits` | — | Credits (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/crm/{crm}/writes` | — | CrmWrites (200) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/documents` | — | DocumentList (200) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=read |
-| `GET /v1/documents/drive-files` | — | DriveFileList (200) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/documents/policy` | — | DocumentPolicy (200) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/documents/{document_id}/members` | — | DocumentMembers (200) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/documents/{document_id}/members/{member_id}` | — | — | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=read |
@@ -211,8 +206,6 @@ Schema names come from the live application OpenAPI document. Policy values come
 | `GET /v1/exports/{package_id}/files/{index}` | — | — | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=export |
 | `GET /v1/feedback` | — | FeedbackList (200) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/library/available` | — | LibraryAvailable (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
-| `GET /v1/mail-and-drive` | — | MailAndDrive (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
-| `GET /v1/mail-and-drive/callback` | — | — | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=admin |
 | `GET /v1/me` | — | Me (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/me/limits` | — | MyLimits (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/models` | — | ChatModels (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
@@ -304,7 +297,6 @@ Schema names come from the live application OpenAPI document. Policy values come
 | `POST /v1/crm/{crm}/writes/approve` | Approval (required) | CrmApproved (200) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=admin |
 | `POST /v1/documents/confirm-company` | ConfirmCompany (required) | CompanyConfirmed (200) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `POST /v1/documents/estimate` | EstimateBody (required) | DocumentEstimate (200) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=read |
-| `POST /v1/documents/from-drive` | FromDrive (required) | DocumentStatus (201) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `POST /v1/documents/uploads` | UploadStart (required) | DocumentUploadStarted (201) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `POST /v1/documents/{document_id}/authoritative` | account_intelligence__api__routes__documents__FlagBody (required) | DocumentFlag (200) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=admin |
 | `POST /v1/documents/{document_id}/complete` | inline schema | DocumentStatus (200) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
@@ -313,9 +305,6 @@ Schema names come from the live application OpenAPI document. Policy values come
 | `POST /v1/exports` | ExportBody (required) | ExportPackage (201) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=export |
 | `POST /v1/feedback` | FeedbackBody (required) | FeedbackCreated (201) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=none |
 | `POST /v1/limits/requests` | MoreBody (required) | LimitRequestSent (201) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=admin |
-| `POST /v1/mail-and-drive/{family}/disconnect` | — | MailDriveDisconnected (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=admin |
-| `POST /v1/mail-and-drive/{family}/sync` | — | MailDriveSynced (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=admin |
-| `POST /v1/mail-and-drive/{kind}/connect` | — | MailDriveConnect (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=admin |
 | `POST /v1/notifications/{notification_id}/read` | — | NotificationRead (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=none |
 | `POST /v1/research` | ResearchBody (required) | ResearchStarted (201) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `POST /v1/research/resume` | ResumeBody (required) | ResearchResumed (201) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |

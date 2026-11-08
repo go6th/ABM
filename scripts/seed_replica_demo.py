@@ -84,7 +84,6 @@ class Account:
     credits: list[tuple[str, str, int, int]] = field(default_factory=list)
     extra_sources: int = 0
     narrative_keys: list[str] = field(default_factory=list)
-    mail_threads: int = 0
 
 
 def highmark() -> Account:
@@ -328,7 +327,6 @@ def highmark() -> Account:
         "hiring.salesforce_build_roles",
         "hiring.integration_architect",
     ]
-    acct.mail_threads = 3
     return acct
 
 
@@ -395,7 +393,6 @@ def cambia() -> Account:
         ("technology", "ServiceNow used for IT service management", "probable", 30, "first"),
     ]
     acct.credits = [("scheduled_refresh", "full", 90, 4)]
-    acct.mail_threads = 8
     return acct
 
 
@@ -504,7 +501,6 @@ def cigna() -> Account:
         ("leadership", "IT service management leadership identified", "probable", 8, "first")
     ]
     acct.credits = [("new_research", "full", 170, 6)]
-    acct.mail_threads = 7
     return acct
 
 
@@ -980,8 +976,6 @@ class Seeder:
         for purpose, scope, credits, days in acct.credits:
             self.job(tid, aid, subject, purpose, scope, credits, days, runs["latest"])
         self.files(tid, aid, runs["latest"], acct)
-        if acct.mail_threads:
-            self.mail(tid, aid, subject, acct)
         # The first scan of a refreshed account happened earlier; record it as a done job too.
         if len(acct.scans) > 1:
             self.job(
@@ -1126,64 +1120,6 @@ class Seeder:
         out = io.BytesIO()
         book.save(out)
         return out.getvalue()
-
-    def mail(self, tid: uuid.UUID, aid: uuid.UUID, subject: str, acct: Account) -> None:
-        """The user's connected mail and the threads matched to this account (private to them)."""
-        conn_id = self.x(
-            "SELECT id FROM connector_connections WHERE tenant_id = %(t)s AND owner_user_id ="
-            " %(u)s AND kind = 'gmail'",
-            {"t": tid, "u": subject},
-        ).fetchone()
-        if conn_id is None:
-            conn_id = self.x(
-                "INSERT INTO connector_connections (tenant_id, kind, status, scopes, consented_by,"
-                " consented_at,"
-                " created_by, created_at, owner_user_id, provider, last_synced_at) VALUES (%(t)s,"
-                " 'gmail', 'active',"
-                " %(sc)s, %(u)s, %(n)s, %(u)s, %(n)s, %(u)s, 'google', %(syn)s) RETURNING id",
-                {
-                    "t": tid,
-                    "u": subject,
-                    "n": self.now - timedelta(days=20),
-                    "sc": ["https://www.googleapis.com/auth/gmail.readonly"],
-                    "syn": self.now.replace(hour=9, minute=12, second=0, microsecond=0),
-                },
-            ).fetchone()
-        topics = [
-            "Intro call follow-up",
-            "Proposal timing",
-            "Integration workstream notes",
-            "Budget review dates",
-            "Partner question",
-            "Security questionnaire",
-            "Pilot scope",
-            "Reference request",
-        ]
-        for i in range(acct.mail_threads):
-            rid = f"thread-{acct.domain}-{i + 1}"
-            topic = topics[i % len(topics)]
-            self.x(
-                "INSERT INTO connector_items (tenant_id, connection_id, resource_id, sha256,"
-                " object_key, bytes, state,"
-                " fetched_at, owner_user_id, account_id, item_kind, title, snippet, item_date,"
-                " location)"
-                " VALUES (%(t)s, %(c)s, %(r)s, %(sha)s, %(k)s, 2048, 'matched', %(n)s, %(u)s,"
-                " %(a)s, 'thread', %(ti)s,"
-                " %(sn)s, %(d)s, 'Gmail')",
-                {
-                    "t": tid,
-                    "c": conn_id[0],
-                    "r": rid,
-                    "sha": h(rid),
-                    "k": f"tenants/{tid}/connector-quarantine/{h(rid)}",
-                    "n": self.now,
-                    "u": subject,
-                    "a": aid,
-                    "ti": f"{acct.name}: {topic}",
-                    "sn": f"Thread with the {acct.name} team about {topic.lower()}.",
-                    "d": self.now - timedelta(days=2 + i * 3),
-                },
-            )
 
     def job(
         self,

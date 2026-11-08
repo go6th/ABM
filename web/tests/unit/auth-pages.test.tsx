@@ -108,3 +108,32 @@ test.each([
   await waitFor(() => expect(screen.getByRole("status").textContent).toContain(text));
   expect(calls[0]).toMatchObject({ url: "/v1/auth/email/verify", body: { token: "verify-token" } });
 });
+
+test("a verification link that no longer works points to the sign-in page, not to a screen that does not exist", async () => {
+  window.location.hash = "#old-token";
+  reply(400, { detail: "x" });
+  render(<VerifyEmailPage />);
+  await waitFor(() => expect(screen.getByRole("status").textContent).toContain("invalid or expired"));
+  const text = screen.getByRole("status").textContent ?? "";
+  expect(text).toContain("sign-in page offers a new link");
+  expect(text).toContain("ask your administrator");
+  expect(text).not.toContain("Security settings");
+  cleanup();
+  window.location.hash = "";
+  render(<VerifyEmailPage />); // no token at all
+  await waitFor(() => expect(screen.getByRole("status").textContent).toContain("incomplete or expired"));
+  expect(screen.getByRole("status").textContent).not.toContain("Security settings");
+});
+
+test("the workspace choice names each workspace and the role in words, never a bare id", async () => {
+  reply(409, {
+    code: "tenant_selection_required",
+    tenants: [{ tenant_id: "7b1f-0000-91ac", role: "analyst" }, { tenant_id: "t2-4444", role: "admin", name: "Acme Corp" }],
+  });
+  render(<LoginPage />);
+  fireEvent.change(screen.getByLabelText("Work email"), { target: { value: "ann@acme.example" } });
+  fireEvent.change(screen.getByLabelText("Password"), { target: { value: "a-long-password" } });
+  fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+  const choice = (await screen.findByLabelText("Workspace")) as HTMLSelectElement;
+  expect([...choice.options].map((o) => o.textContent)).toEqual(["Workspace 91ac (Analyst)", "Acme Corp (Admin)"]);
+});

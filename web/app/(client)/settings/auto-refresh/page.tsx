@@ -23,10 +23,10 @@ export default async function AutoRefreshPage({ searchParams }: { searchParams: 
     <>
       <header>
         <h2>Auto refresh</h2>
-        <p className="intro">Scheduled refreshes go to the web on your behalf. Each one uses one of your researches. Between refreshes, nothing is sent to the web.</p>
+        <p className="intro">Scheduled refreshes go to the web on your behalf. Between refreshes, nothing is sent to the web.</p>
       </header>
       {failed || !data ? (
-        <StateCard title="Schedules could not be loaded" body="Reload the page in a moment." action={<a className="btn" href="/settings/auto-refresh">Reload</a>} />
+        <StateCard title="Schedules could not be loaded" body="This is usually brief." action={<a className="btn" href="/settings/auto-refresh">Try again</a>} />
       ) : (
         <SchedulesView initial={data} focus={account ?? null} />
       )}

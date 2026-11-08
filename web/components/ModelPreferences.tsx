@@ -6,16 +6,16 @@
 // Refresh open with these models until the person changes one for a single question or research.
 import { useState } from "react";
 import { useModelChoicesState } from "@/components/ModelMenu";
-import { api, ApiError } from "@/lib/api";
+import { api, errorText } from "@/lib/api";
 import type { ModelChoices } from "@/lib/gen/api.gen";
 import { useSharedModelChoices } from "@/lib/model-choices";
 import { Pill, StateCard } from "@/ui/design";
 
 type Role = "research" | "analysis";
 
-const ROLES: Array<{ key: Role; title: string; text: string; where: string }> = [
-  { key: "research", title: "Research model", text: "Reads public sources and pulls out the facts.", where: "Used by New research, Refresh from web and scheduled refreshes." },
-  { key: "analysis", title: "Analysis model", text: "Writes answers, reads your files and writes the deliverables.", where: "Used by Ask, file analysis and the account files." },
+const ROLES: Array<{ key: Role; title: string; text: string }> = [
+  { key: "research", title: "Research model", text: "Reads public sources and pulls out the facts." },
+  { key: "analysis", title: "Analysis model", text: "Writes answers, reads your files and writes the deliverables." },
 ];
 const EFFORT_NAMES: Record<string, string> = { low: "Low", medium: "Medium", high: "High", xhigh: "Extra high", max: "Max" };
 const EFFORT_LINES: Record<string, string> = { low: "Fastest, cheapest", medium: "Balanced", high: "Slower, more thorough", xhigh: "Very thorough", max: "Everything it has" };
@@ -32,6 +32,7 @@ export function ModelPreferences() {
   if (!choices.models.length) return <StateCard title="No models are available" body="Ask your administrator to set up a model." />;
 
   const save = async (patch: Record<string, string>, label: string) => {
+    if (busy !== null) return;
     setBusy(label);
     setToast(null);
     try {
@@ -39,7 +40,7 @@ export function ModelPreferences() {
       shared?.setChoices(next); // every open screen now defaults to it
       setToast({ ok: true, text: `Saved. ${label} is now your default.` });
     } catch (cause) {
-      setToast({ ok: false, text: cause instanceof ApiError && cause.detail ? cause.detail : "Not saved. Try again." });
+      setToast({ ok: false, text: errorText(cause, "Not saved. Try again.") });
     } finally {
       setBusy(null);
     }
@@ -60,7 +61,6 @@ export function ModelPreferences() {
                 <h2 id={`mp-${r.key}`}>{r.title}</h2>
                 <p className="mut">{r.text}</p>
               </div>
-              <span className="mut sm-text mp-where">{r.where}</span>
             </div>
             <div className="mp-grid" role="radiogroup" aria-label={r.title}>
               {choices.models.map((m) => {
@@ -102,10 +102,9 @@ export function ModelPreferences() {
         );
       })}
       <div className="row-12 wrap">
-        <button type="button" className="btn" disabled={busy !== null || isDefault} onClick={() => void save({ research_model: choices.default_research, analysis_model: choices.default_analysis }, "The workspace default")}>
+        <button type="button" className="btn" disabled={busy !== null || isDefault} aria-busy={busy === "The workspace default" || undefined} onClick={() => void save({ research_model: choices.default_research, analysis_model: choices.default_analysis }, "The workspace default")}>
           Reset to workspace defaults
         </button>
-        <span className="mut sm-text">You can still pick another model for one question or one research on that screen.</span>
       </div>
       {toast ? <p className={`notice ${toast.ok ? "info" : "error"} sm-text`} role={toast.ok ? "status" : "alert"}>{toast.text}</p> : null}
     </div>

@@ -4,7 +4,7 @@ offline repair of an old export (records from ``offline.py``).
 
 Order matters and is fixed: postings first (the ranking, teams and signals read them), then
 technology, people, news, sources, searches, signals (read every table above) and finally
-coverage (it reads the people and mail tables to say honestly what could not run)."""
+coverage (it reads the people table to say honestly what could not run)."""
 
 from __future__ import annotations
 
@@ -20,7 +20,6 @@ from exports.repair.changes import CHANGES
 from exports.repair.core import UNKNOWN, Exclusion, RepairedTable, WorkspaceProfile
 from exports.repair.coverage import build_coverage
 from exports.repair.jobs import build_jobs
-from exports.repair.mail import build_mail
 from exports.repair.people import build_people
 from exports.repair.records import DeliverableClaim, RepairInput
 from exports.repair.searches import build_searches
@@ -72,7 +71,6 @@ def repair_tables(profile: WorkspaceProfile, inp: RepairInput) -> dict[str, Repa
     tables["news"] = build_news(profile, inp.articles)
     tables["sources"] = build_sources(profile, inp.sources, inp.articles)
     tables["searches"] = build_searches(profile, inp.searches)
-    tables["mail"] = build_mail(profile, inp.mail)
     tables["signals"] = build_signals(profile, tables, inp.signal_seeds)
     claims = [*inp.claims, *claims_from_deliverables(inp)]
     tables["coverage"] = build_coverage(profile, inp.coverage, tables, claims)

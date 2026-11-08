@@ -66,7 +66,7 @@ def _world() -> A.Workspace:
         A.Row(f"fact:{uuid4()}", "fact", acct, t, "Acme news", "Acme", now, None, "confirmed")
         for t in ("Acme is hiring Salesforce developers", "Acme builds a data platform")
     ]
-    return A.Workspace([acct], facts, [], [], [], [], [], {}, False)
+    return A.Workspace([acct], facts, [], [], [], [], {})
 
 
 async def _collect(chunks: list[str]) -> list[tuple[str, Any]]:

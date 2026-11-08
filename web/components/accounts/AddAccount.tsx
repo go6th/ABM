@@ -7,7 +7,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { api, ApiError } from "@/lib/api";
+import { api, errorText } from "@/lib/api";
 import type { LibraryAdded, LibraryAvailable, ResearchEstimate } from "@/lib/gen/api.gen";
 import { ResearchCompany } from "./ResearchCompany";
 
@@ -30,7 +30,7 @@ export function AddAccount({ estimate, library }: { estimate: ResearchEstimate |
       router.push("/accounts");
       router.refresh();
     } catch (cause) {
-      setMessage(cause instanceof ApiError && cause.status === 409 ? cause.detail : "The accounts could not be added. Try again in a moment.");
+      setMessage(errorText(cause, "The accounts could not be added. Try again in a moment."));
       setBusy(false);
     }
   };
@@ -46,7 +46,10 @@ export function AddAccount({ estimate, library }: { estimate: ResearchEstimate |
         <div className="lbl" id="way-2">2 · Ready-made research shared with your team</div>
         <p className="mut sm-text lead-tight">Research already completed. Add it and you can ask questions right away, with no wait.</p>
         {library === null ? (
-          <p className="mut sm-text">Ready-made research is unavailable right now. Reload the page in a moment.</p>
+          <p className="mut sm-text">
+            Ready-made research is unavailable right now.{" "}
+            <button type="button" className="link-btn" onClick={() => router.refresh()}>Try again</button>
+          </p>
         ) : offered.length === 0 && already.length === 0 ? (
           <p className="mut sm-text">No ready-made research has been shared with your team yet.</p>
         ) : (
@@ -72,7 +75,7 @@ export function AddAccount({ estimate, library }: { estimate: ResearchEstimate |
             {message ? <p className="sm-text" role="alert">{message}</p> : null}
             {offered.length ? (
               <div className="row-14 wrap">
-                <button type="button" className="btn" disabled={!selected.length || busy} onClick={() => void add()}>
+                <button type="button" className="btn" disabled={!selected.length || busy} aria-busy={busy || undefined} onClick={() => void add()}>
                   {busy ? "Adding…" : `Add ${selected.length} to workspace`}
                 </button>
                 <span className="mut sm-text">Ready to ask about right away. Uses no research.</span>

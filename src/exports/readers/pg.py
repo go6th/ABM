@@ -49,6 +49,8 @@ from datamodel.run_ledger import (
     load_ledger_calls,
     load_sense_check,
 )
+from exports import obs
+from exports.carry import MAX_DEPTH, carry_forward, scope_of
 from exports.content import (
     DetectionRow,
     EvidenceRow,
@@ -105,6 +107,24 @@ _FACT_COLS = (
     " confirming_question, flags, lead_status, visibility,"
     " value_json ->> 'event_date' AS event_date"
 )
+
+
+# the account's newest run before this one whose files were delivered: the run a refresh of part of
+# the checklist builds on (``exports.carry``)
+_PREVIOUS_DELIVERED = (
+    "SELECT d.run_id FROM deliverables d JOIN account_runs r ON r.id = d.run_id"
+    " WHERE d.account_id = :a AND d.run_id <> :r"
+    " AND r.created_at < (SELECT created_at FROM account_runs WHERE id = :r)"
+    " ORDER BY r.created_at DESC LIMIT 1"
+)
+
+
+async def previous_delivered(s: AsyncSession, account_id: UUID, run_id: UUID) -> UUID | None:
+    """The account's newest earlier run with delivered files (None: there is none)."""
+    found = (
+        await s.execute(text(_PREVIOUS_DELIVERED), {"a": account_id, "r": run_id})
+    ).scalar_one_or_none()
+    return UUID(str(found)) if found else None
 
 
 # the key every id sorts after: uuids compare bytewise, the same order as their lower-case hex text,
@@ -336,8 +356,10 @@ class PgContentReader:
         async with self.register(tid) as s:
             await register_posting_sources(s, account, rid, record.postings, missing_only=True)
 
-    async def read(self, tenant_id: str, run_id: str) -> SnapshotContent:
-        """All rows of the build (see the module docstring)."""
+    async def read(self, tenant_id: str, run_id: str, _depth: int = 0) -> SnapshotContent:
+        """All rows of the build (see the module docstring). A run that searched only part of
+        the checklist is laid over the previous delivered run's content (``exports.carry``):
+        that run's rows are finished and never change, so its own snapshot reads the same."""
         tid, rid = UUID(tenant_id), UUID(run_id)
         await self._register_posting_links(tid, rid)
         async with self.snapshot(tid) as s:
@@ -376,6 +398,12 @@ class PgContentReader:
                 ) from None
             account_id: UUID = head.account_id
             as_of: date = head.created_at.date()
+            scope = scope_of(head.run_input)
+            base = (
+                await previous_delivered(s, account_id, rid)
+                if scope is not None and _depth < MAX_DEPTH
+                else None
+            )
             policy = (
                 await s.execute(
                     text(
@@ -540,7 +568,7 @@ class PgContentReader:
                 else {}
             )
             releases = await self._releases(s, account_id)
-            tracker, tally = await self._tracker(s, rid)
+            tracker, tally = await self._tracker(s, rid, account_id, _depth)
             lock = await load_entity_lock(s, run_id=rid)
             ledger = await load_ledger_calls(s, run_id=rid)
             failed = await load_failed_call_count(s, run_id=rid)
@@ -690,6 +718,10 @@ class PgContentReader:
             **people_part,
             **jobs_part,
         )
+        if scope is not None and base is not None:
+            previous = await self.read(tenant_id, str(base), _depth + 1)
+            content = carry_forward(content, previous, scope)
+            obs.carried(_depth + 1)
         content = apply_exclusions(content, current_exclusions)
         if not content.exclusion_hash:
             content = content.model_copy(
@@ -945,14 +977,41 @@ class PgContentReader:
             )
         return {"postings": tuple(rows), "jobs_counts": counts}
 
-    async def _tracker(
-        self, s: AsyncSession, rid: UUID
-    ) -> tuple[tuple[TrackerLine, ...], tuple[str, ...]]:
+    async def _tracker_states(
+        self, s: AsyncSession, rid: UUID, account_id: UUID, depth: int
+    ) -> tuple[list[Any], dict[str, Any]]:
+        """The run's tracker rows and proofs; for a run that searched only part of the
+        checklist, the rows outside its scope (``not planned`` in its own tracker) are those of
+        the run it builds on (``exports.carry``)."""
         repo = CoverageRepo(s)
-        rows = await repo.get_all_rows(rid)
+        rows = list(await repo.get_all_rows(rid))
+        proofs = dict(await repo.get_proofs(rid))
+        run_input = (
+            await s.execute(text("SELECT run_input FROM account_runs WHERE id = :r"), {"r": rid})
+        ).scalar_one_or_none()
+        scope = scope_of(run_input)
+        if scope is None or depth >= MAX_DEPTH:
+            return rows, proofs
+        base = await previous_delivered(s, account_id, rid)
+        if base is None:
+            return rows, proofs
+        carried, carried_proofs = await self._tracker_states(s, base, account_id, depth + 1)
+        merged = [r for r in rows if r.key in scope]
+        own = {r.key for r in merged}
+        merged += [r for r in carried if r.key not in own]
+        # a row the earlier run had no line for keeps the refresh's own (not planned) line
+        known = {r.key for r in merged}
+        merged += [r for r in rows if r.key not in known]
+        out = {k: v for k, v in proofs.items() if k in own}
+        out.update({k: v for k, v in carried_proofs.items() if k not in own})
+        return merged, out
+
+    async def _tracker(
+        self, s: AsyncSession, rid: UUID, account_id: UUID, depth: int = 0
+    ) -> tuple[tuple[TrackerLine, ...], tuple[str, ...]]:
+        rows, proofs = await self._tracker_states(s, rid, account_id, depth)
         if not rows:
             return (), ()
-        proofs = await repo.get_proofs(rid)
         view = render_client_view(rows, proofs)
         ordered = list(sort_for_rendering(rows))
         lines = tuple(

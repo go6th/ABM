@@ -6,6 +6,7 @@ import "@/ui/shell.css";
 import "@/ui/auth.css";
 import "@/ui/ask.css";
 import "@/ui/ask-insights.css";
+import "@/ui/depth.css";
 
 // The proxy creates a request-scoped CSP nonce. Dynamic rendering lets Next attach that nonce
 // to its client scripts instead of serving prerendered HTML with unusable nonce-less scripts.
@@ -16,7 +17,7 @@ export const metadata: Metadata = {
   description: "Account intelligence workspace",
 };
 
-export const viewport: Viewport = { themeColor: "#F5F6F8" };
+export const viewport: Viewport = { themeColor: "#F5F6FD" };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (

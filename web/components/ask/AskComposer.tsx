@@ -1,6 +1,5 @@
 "use client";
-// The composer: the question field (Enter sends), then "+" (a menu with the two ways to add files,
-// owner decision 2026-10-14: "Add files" and "Connect Google Drive"), the Accounts chip
+// The composer: the question field (Enter sends), then "+" (a menu with "Add files"), the Accounts chip
 // (all accounts or one), the Search toggle, the model chip (the conversation's analysis model)
 // and Ask. Answers come from the workspace. With Search
 // on, the question becomes a web research topic for the chosen account and opens its Refresh
@@ -14,7 +13,7 @@ import type { ModelChoices } from "@/lib/gen/api.gen";
 
 export interface ScopeAccount { id: string; domain: string; name: string }
 
-/** "+": the same two choices as New research's file tab. */
+/** "+": the way to add files, as on New research's file tab. */
 function AddFilesMenu() {
   const menuId = useId();
   const [open, setOpen] = useState(false);
@@ -43,7 +42,6 @@ function AddFilesMenu() {
       {open ? (
         <div className="menu" role="menu" id={menuId} aria-label="Add files">
           <Link role="menuitem" href="/research?tab=file" prefetch={false}>Add files</Link>
-          <Link role="menuitem" href="/research?tab=file&source=drive" prefetch={false}>Connect Google Drive</Link>
         </div>
       ) : null}
     </div>
@@ -199,7 +197,7 @@ export function AskComposer({
         ) : (
           <button
             type="button"
-            className="btn primary"
+            className="btn primary go"
             disabled={busy || !draft.trim()}
             onClick={send}
           >

@@ -24,7 +24,6 @@ from account_intelligence.api.routes import (
     library,
     limits,
     live,
-    maildrive,
     me,
     model_choice,
     operator_admin,
@@ -56,7 +55,6 @@ v1_router.include_router(credits.router)
 v1_router.include_router(research.router)
 v1_router.include_router(live.router)
 v1_router.include_router(library.router)
-v1_router.include_router(maildrive.router)
 v1_router.include_router(schedules.router)
 v1_router.include_router(me.router)
 v1_router.include_router(model_choice.router)

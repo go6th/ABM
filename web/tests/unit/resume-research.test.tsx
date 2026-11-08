@@ -14,7 +14,8 @@ vi.mock("@/lib/api", () => {
       super(`${status} ${type}`);
     }
   }
-  return { api: (...args: unknown[]) => api(...args), ApiError };
+  const errorText = (cause: unknown, fallback: string) => (cause instanceof ApiError && cause.detail?.trim() ? cause.detail : fallback);
+  return { api: (...args: unknown[]) => api(...args), ApiError, errorText };
 });
 
 import { replayWarning, ResumeButton, ResumeResearch } from "@/components/accounts/ResumeResearch";
@@ -82,7 +83,7 @@ test("nothing is resumed until both questions are answered yes; No at either one
   fireEvent.click(screen.getByRole("button", { name: "Resume research" }));
   fireEvent.click(screen.getByRole("button", { name: "Yes, resume" }));
   expect(screen.getByText(/Are you sure\?/)).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "No, cancel" }));
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
   expect(screen.getByRole("button", { name: "Resume research" })).toBeTruthy();
   expect(api).not.toHaveBeenCalled();
 });

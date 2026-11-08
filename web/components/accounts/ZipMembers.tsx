@@ -4,7 +4,7 @@
 // produced. Loaded only when opened, from GET /v1/documents/{id}/members.
 import { useState } from "react";
 import Link from "next/link";
-import { api, ApiError } from "@/lib/api";
+import { api, errorText } from "@/lib/api";
 import type { DocumentMembers } from "@/lib/gen/api.gen";
 import { ROLE_TEXT, memberLine } from "@/lib/documents";
 import { cellText } from "@/lib/render";
@@ -24,7 +24,7 @@ export function ZipMembers({ documentId, name, page = null }: { documentId: stri
     try {
       setData(await api<DocumentMembers>("GET", `/v1/documents/${encodeURIComponent(documentId)}/members`));
     } catch (e) {
-      setError(e instanceof ApiError && e.detail ? e.detail : "The files inside could not be listed. Try again.");
+      setError(errorText(e, "The files inside could not be listed. Try again."));
     } finally {
       setBusy(false);
     }

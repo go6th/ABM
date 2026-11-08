@@ -74,7 +74,7 @@ def test_csv_prefixes_apostrophe_on_formula_like_cells(lead: str) -> None:
 
 def test_csv_private_sheet_gets_no_extra_rows() -> None:
     s = sheet(
-        "Mail", ("Title", "From"), [{"Title": "Re: plan", "From": "a@b.example"}], private=True
+        "Notes", ("Title", "From"), [{"Title": "Re: plan", "From": "a@b.example"}], private=True
     )
     rows = read_csv(P.csv_bytes(s))
     assert len(rows) == 2 and rows[0] == ["Title", "From"]
@@ -261,8 +261,8 @@ def test_xlsx_long_text_is_cut_at_a_word_boundary_with_a_visible_note() -> None:
 
 
 def test_xlsx_private_table_is_marked_and_not_scanned_as_shareable() -> None:
-    s = sheet("Mail", ("Title",), [{"Title": "Re: Q3 numbers"}], private=True)
-    book = open_book(make_xlsx([s], private=True, title="From your mail and drive"))
+    s = sheet("Notes", ("Title",), [{"Title": "Re: Q3 numbers"}], private=True)
+    book = open_book(make_xlsx([s], private=True, title="Your private notes"))
     about = {r[0].value: r[1].value for r in book["About"].iter_rows()}
     assert about["Note"] == "Internal: do not share"
 
@@ -353,7 +353,7 @@ MEMBERS = [
     "Deliverables/Account Summary.docx",
     "Tables/Job postings.csv",
     "Tables/Job postings.xlsx",
-    "Internal - your files/From your mail and drive.csv",
+    "Internal - your files/Your private notes.csv",
     "Logs/repair_report.md",
     "Logs/exclusions.csv",
 ]
@@ -407,14 +407,14 @@ def world() -> dict[str, RepairedTable]:
         exclusions=[Exclusion("Job postings", "J9", "duplicate posting", "merged into J1")],
         notes=["Live board not reached."],
     )
-    mail = table(
-        "mail",
-        "From your mail and drive",
+    private_notes = table(
+        "private_notes",
+        "Your private notes",
         [
             sheet(
-                "Mail",
+                "Notes",
                 ("Title",),
-                [{"Title": "Not collected: mail and drive not connected"}],
+                [{"Title": "Not collected: no notes yet"}],
                 private=True,
             )
         ],
@@ -422,7 +422,7 @@ def world() -> dict[str, RepairedTable]:
         notes=["Internal: do not share"],
     )
     people = table("people", "People", [sheet("People", ("Name",), [{"Name": "Ada Byrne"}])])
-    return {"jobs": jobs, "mail": mail, "people": people}
+    return {"jobs": jobs, "private_notes": private_notes, "people": people}
 
 
 def build(**kw: Any) -> bytes:
@@ -451,12 +451,12 @@ def test_zip_layout_order_and_readme_agreement() -> None:
         "Tables/People.csv",
         "Tables/People.xlsx",
         "Internal - your files/My notes.docx",
-        "Internal - your files/From your mail and drive (internal).csv",
-        "Internal - your files/From your mail and drive (internal).xlsx",
+        "Internal - your files/Your private notes (internal).csv",
+        "Internal - your files/Your private notes (internal).xlsx",
         "Logs/repair_report.md",
         "Logs/exclusions.csv",
     } <= set(names)
-    assert not any(n.startswith("Tables/From your mail") for n in names)
+    assert not any(n.startswith("Tables/Your private notes") for n in names)
     assert P.validate_readme(readme, names) == []
     assert "Searches: Partial, cap reached." in readme
     assert "Job postings: Live board not reached." in readme

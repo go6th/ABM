@@ -164,7 +164,7 @@ def test_rewrite_checks_every_citation_against_the_numbered_rows() -> None:
 def _workspace_fact() -> tuple[A.Workspace, A.Row]:
     a = _acct()
     fact = _row(a, "Two open Salesforce build roles point to a customer data program")
-    return A.Workspace([a], [fact], [], [], [], [], [], {}, False), fact
+    return A.Workspace([a], [fact], [], [], [], [], {}), fact
 
 
 def _strings(value: Any) -> Any:

@@ -57,3 +57,11 @@ test("operator pages are not special-cased by the proxy: it always passes the re
     expect(proxy(new NextRequest(`https://app.example${path}`)).status).toBe(200);
   }
 });
+
+test("the proxy passes the page asked for on to the server, so sign-in can come back to it", () => {
+  const forwarded = (url: string, init?: ConstructorParameters<typeof NextRequest>[1]) =>
+    proxy(new NextRequest(url, init)).headers.get("x-middleware-request-x-return-to");
+  expect(forwarded("https://app.example/accounts/acme.example/people?filter=all")).toBe("/accounts/acme.example/people?filter=all");
+  // a value the browser sends itself is replaced, never trusted
+  expect(forwarded("https://app.example/accounts", { headers: { "x-return-to": "https://evil.example" } })).toBe("/accounts");
+});

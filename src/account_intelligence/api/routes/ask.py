@@ -9,8 +9,7 @@ domain scans; no partial text is sent first. A repeated ``request_id`` replays t
 through the same guard. Answers never reach the web or a data tool; with a model key set, Claude
 writes the prose from the same rows and every sentence's citations are checked before composition
 (``replica.model_answer``). The rows include the account's
-research, the tracker, previous deliverables, the client's uploaded files (Internal) and the
-user's own mail and drive.
+research, the tracker, previous deliverables and the client's uploaded files (Internal).
 
 Tabular questions (2026-10-17): before retrieval, ``replica.router`` decides whether the
 question is a filter, count or lookup over the caller's ingested tables. A ``tabular`` turn

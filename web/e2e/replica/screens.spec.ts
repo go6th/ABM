@@ -11,8 +11,8 @@ const ACCOUNT = "/accounts/highmark.example";
 
 const CLIENT = [
   "/", "/accounts", "/accounts/add", ACCOUNT, `${ACCOUNT}/people`, `${ACCOUNT}/signals`, `${ACCOUNT}/jobs`,
-  `${ACCOUNT}/technology`, `${ACCOUNT}/news`, `${ACCOUNT}/mail-and-drive`, `${ACCOUNT}/sources`, `${ACCOUNT}/coverage`,
-  `${ACCOUNT}/files`, `${ACCOUNT}/refresh`, "/research", "/research/new", "/settings", "/settings/auto-refresh", "/settings/mail-and-drive",
+  `${ACCOUNT}/technology`, `${ACCOUNT}/news`, `${ACCOUNT}/sources`, `${ACCOUNT}/coverage`,
+  `${ACCOUNT}/files`, `${ACCOUNT}/refresh`, "/research", "/research/new", "/settings", "/settings/auto-refresh",
 ];
 const OPERATOR = ["/operator", "/operator/clients", "/operator/users", "/operator/library", "/operator/runs", "/operator/defaults", "/operator/view"];
 const PUBLIC = ["/login", "/forgot", "/reset", "/verify-email", "/invite", "/operator/login"];
@@ -53,6 +53,9 @@ test("the client workspace screens", async ({ page, baseURL }) => {
 });
 
 test("the admin console screens", async ({ page, baseURL }) => {
+  // a production build reaches the operator API only over https or the compose network
+  // (lib/operator-oidc.ts), so this runs against the replica stack, like the client screens
+  test.skip(!PASSWORD, "set DEMO_PASSWORD and run against the replica stack");
   const errors = watch(page);
   const host = new URL(baseURL!).hostname;
   await page.context().addCookies([

@@ -1,6 +1,6 @@
 """The connector scope table (CN1): which scopes each source may hold, and the CRM object and
 field allow-lists. A grant whose data scopes differ from the table (wider, or changed on refresh)
-is refused; sign-in scopes (openid, profile, email, offline_access, User.Read) are ignored.
+is refused; sign-in scopes (openid, profile, email) are ignored.
 ``config/connectors.yaml`` (status: proposal, scopes [VERIFY]).
 
 GUARANTEE(test_scopes_are_exactly_the_table_and_crm_fields_are_allow_listed)
@@ -16,16 +16,7 @@ import yaml
 
 from account_intelligence.config import CONFIG_DIR
 
-KINDS = (
-    "google_drive",
-    "salesforce",
-    "hubspot",
-    "gmail",
-    "call_notes",
-    "outlook",
-    "onedrive",
-    "sharepoint",
-)
+KINDS = ("salesforce", "hubspot", "call_notes")
 
 
 @dataclass(frozen=True)
@@ -38,11 +29,6 @@ class ConnectorSpec:
     authorize_endpoint: str
     grant_kinds: frozenset[str]
     objects: dict[str, frozenset[str]]
-    # Mail and drive sources: "mail" or "drive", the OAuth provider and its token endpoints
-    family: str | None = None
-    provider: str | None = None
-    token_endpoint: str | None = None
-    revoke_endpoint: str | None = None
 
 
 @dataclass(frozen=True)
@@ -52,10 +38,6 @@ class Limits:
     oauth_state_ttl_s: int
     refresh_attempts: int
     max_pages_per_pass: int
-    max_items_per_pass: int
-    max_bytes_per_item: int
-    max_ancestry_depth: int
-    max_folder_depth: int
 
 
 @lru_cache
@@ -70,10 +52,6 @@ def load() -> tuple[dict[str, ConnectorSpec], Limits]:
             authorize_endpoint=str(c["authorize_endpoint"]),
             grant_kinds=frozenset(c.get("grant_kinds") or ()),
             objects={o: frozenset(f) for o, f in (c.get("objects") or {}).items()},
-            family=c.get("family"),
-            provider=c.get("provider"),
-            token_endpoint=c.get("token_endpoint"),
-            revoke_endpoint=c.get("revoke_endpoint"),
         )
         for kind, c in raw["connectors"].items()
     }
@@ -87,33 +65,13 @@ def spec(kind: str) -> ConnectorSpec:
     return load()[0][kind]
 
 
-# Sign-in scopes an identity platform adds to (or reports with) a grant. They read no mail and
-# no files, so a grant may carry them or leave them out; ``offline_access`` is Microsoft's
-# refresh-token scope (the refresh token's presence is checked separately).
-IDENTITY_SCOPES = frozenset(
-    {
-        "openid",
-        "profile",
-        "email",
-        "offline_access",
-        "user.read",
-        "https://www.googleapis.com/auth/userinfo.email",
-        "https://www.googleapis.com/auth/userinfo.profile",
-    }
-)
-_GRAPH = "https://graph.microsoft.com/"
-
-
-def normalise_scope(scope: str) -> str:
-    """One scope in a comparable form: Microsoft returns Graph scopes either as full URLs
-    (``https://graph.microsoft.com/Mail.Read``) or short names, case-insensitively; Google
-    scopes are URLs. Lower-cased, with the Graph resource prefix removed."""
-    value = scope.strip().lower()
-    return value[len(_GRAPH) :] if value.startswith(_GRAPH) else value
+# Sign-in scopes an identity platform adds to (or reports with) a grant. They read no source
+# data, so a grant may carry them or leave them out.
+IDENTITY_SCOPES = frozenset({"openid", "profile", "email"})
 
 
 def _resource_scopes(scopes: tuple[str, ...] | frozenset[str]) -> frozenset[str]:
-    return frozenset(normalise_scope(s) for s in scopes if s.strip()) - IDENTITY_SCOPES
+    return frozenset(s.strip().lower() for s in scopes if s.strip()) - IDENTITY_SCOPES
 
 
 def scopes_ok(kind: str, granted: tuple[str, ...] | frozenset[str]) -> bool:

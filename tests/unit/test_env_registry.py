@@ -176,7 +176,7 @@ def test_cloud_urls_must_be_https() -> None:
 
 @pytest.mark.parametrize(
     "name",
-    ["MOONSHOT_BASE_URL", "GMAIL_API_BASE", "GOOGLE_DRIVE_API_BASE", "MICROSOFT_GRAPH_API_BASE"],
+    ["MOONSHOT_BASE_URL"],
 )
 def test_provider_api_bases_come_from_the_registry_and_are_https_in_the_cloud(name: str) -> None:
     """Hard-coded API hosts moved into the registry (S4); the cloud refuses a plain-http one."""

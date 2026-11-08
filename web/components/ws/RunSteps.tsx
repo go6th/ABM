@@ -1,20 +1,22 @@
 "use client";
-// A research run as its steps (done, running, paused, waiting, stopped, not reached), work counts
-// so far, files as they appear, Stop, Refresh, and the checkpoint card when the run waits for
-// approval. The steps come from the server (``RunProgress.steps``: the research graph's own steps);
-// an older server without them falls back to the stage counts. Progress comes from the run's event
-// stream with polling as the fallback; the run record and its progress are read again every few
-// seconds while the run is open, and once when it has ended. Continue 5 times and Auto continue are
-// kept by this page: each later pause is approved without asking while it stays open.
+// A research run as its steps (done, running, paused, waiting, stopped, not reached), the tokens
+// so far, files as they appear, Stop, and the checkpoint card when the run waits for approval. The
+// steps come from the server (``RunProgress.steps``: the research graph's own steps); an older
+// server without them falls back to the stage counts. Progress comes from the run's event stream
+// with polling as the fallback; the run record and its progress are read again every few seconds
+// while the run is open and the tab is on screen, and once when it has ended. One failed read keeps
+// the last steps and buttons on screen with a "Reconnecting" line. Continue 5 times and Auto
+// continue are kept by this page: each later pause is approved without asking while it stays open.
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ResumeButton, ResumingNote } from "@/components/accounts/ResumeResearch";
-import { api, ApiError } from "@/lib/api";
+import { api, ApiError, errorText } from "@/lib/api";
 import { useRunStream } from "@/lib/useRunStream";
 import { m } from "@/lib/messages";
 import { humanize } from "@/lib/ws-format";
 import { cellText } from "@/lib/render";
 import type { ProgressStep, RunProgress, RunStatusView, ExportPackages, ResearchResumed, TokenUse } from "@/lib/gen/api.gen";
+import { announce } from "@/ui/Toaster";
 import { Notice } from "@/ui/primitives";
 import { TokenMeter } from "./TokenMeter";
 
@@ -59,30 +61,52 @@ interface LiveSpend { status: string; as_of: string; calls_by_category: Record<s
 
 export const TERMINAL = new Set(["COMPLETED", "PARTIAL", "BUDGET_EXCEEDED", "CANCELED", "FAILED"]);
 
+/** The run on screen: its record (read again while it is open), its steps and its state. A read
+ *  that fails keeps what was already loaded and sets ``error``; the polling stops for good when the
+ *  run is missing (404) or the session ended (401). */
 export function useRun(runId: string | null) {
   const [run, setRun] = useState<RunStatusView | null>(null);
   const [progress, setProgress] = useState<RunProgress | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
-  // `tick` re-reads the run record (the open run is polled this way); `stepsTick` also re-reads
-  // the steps, which only a first read, Refresh and the end of the run need: while the run is
-  // open its steps arrive by event stream, so a poll that read them too doubled its requests
+  // `tick` re-reads the run record on demand; `stepsTick` also re-reads the steps, which only a
+  // first read, a manual reload and the end of the run need: while the run is open its steps
+  // arrive by event stream, so a poll that read them too doubled its requests
   const [tick, setTick] = useState(0);
   const [stepsTick, setStepsTick] = useState(0);
   const reload = useCallback(() => { setTick((t) => t + 1); setStepsTick((t) => t + 1); }, []);
-  const pollRun = useCallback(() => setTick((t) => t + 1), []);
   const status = run?.status.toUpperCase() ?? "";
   const terminal = TERMINAL.has(status);
+  const gone = error?.status === 404 || error?.status === 401;
 
+  // one read of the run record; a failure is remembered as ``error`` and passed on, so the poller
+  // can back off or stop
+  const readRun = useCallback((signal?: AbortSignal): Promise<void> => {
+    if (!runId) return Promise.resolve();
+    return api<RunStatusView>("GET", `/v1/runs/${encodeURIComponent(runId)}`, undefined, {}, signal).then(
+      (r) => {
+        if (signal?.aborted) return;
+        setRun(r);
+        setError(null);
+      },
+      (e: unknown) => {
+        if (signal?.aborted) return;
+        setError(e instanceof ApiError ? e : new ApiError(0, "network", ""));
+        throw e;
+      },
+    );
+  }, [runId]);
+
+  // the first read, and every manual reload
   useEffect(() => {
     if (!runId) return;
-    let alive = true;
-    api<RunStatusView>("GET", `/v1/runs/${encodeURIComponent(runId)}`)
-      .then((r) => { if (alive) { setRun(r); setError(null); } })
-      .catch((e: unknown) => { if (alive) setError(e instanceof ApiError ? e : new ApiError(0, "network", "")); });
-    return () => { alive = false; };
+    const controller = new AbortController();
+    api<RunStatusView>("GET", `/v1/runs/${encodeURIComponent(runId)}`, undefined, {}, controller.signal)
+      .then((r) => { if (!controller.signal.aborted) { setRun(r); setError(null); } })
+      .catch((e: unknown) => { if (!controller.signal.aborted) setError(e instanceof ApiError ? e : new ApiError(0, "network", "")); });
+    return () => controller.abort();
   }, [runId, tick]);
 
-  // the steps as well: an ended run opens no stream, and Refresh reads them again at once
+  // the steps as well: an ended run opens no stream, and a reload reads them again at once
   useEffect(() => {
     if (!runId) return;
     let alive = true;
@@ -94,7 +118,7 @@ export function useRun(runId: string | null) {
 
   // poll the run record while it is open, and follow progress by event stream or polling
   const onProgress = useCallback((p: RunProgress) => { setProgress(p); if (p.finished) reload(); }, [reload]);
-  useRunStream(runId, !terminal, onProgress, pollRun);
+  useRunStream(runId, !terminal && !gone, onProgress, readRun);
 
   return { run, progress, error, status, terminal, reload };
 }
@@ -170,7 +194,7 @@ export function Checkpoint({ runId, status, onDecided, auto, setAuto, tokens = n
         <p className="small">It has used {over.toFixed(1)}× the tokens a research like this usually takes, so it paused to ask you. Continue lets it carry on until it reaches 3× more, or stop it now and keep what it has found.</p>
         {message ? <p className="error-text small" role="alert">{message}</p> : null}
         <div className="actions">
-          <button type="button" className="btn primary" disabled={busy} onClick={() => { setAuto(0); void approve(); }}>{m.run.continueOne}</button>
+          <button type="button" className="btn primary" disabled={busy} aria-busy={busy || undefined} onClick={() => { setAuto(0); void approve(); }}>{m.run.continueOne}</button>
           <button type="button" className="btn danger" disabled={busy} onClick={() => void stop()}>{m.run.stop}</button>
         </div>
       </div>
@@ -185,7 +209,7 @@ export function Checkpoint({ runId, status, onDecided, auto, setAuto, tokens = n
       {auto !== 0 ? <p className="small">{m.run.autoOn}</p> : null}
       {message ? <p className="error-text small" role="alert">{message}</p> : null}
       <div className="actions">
-        <button type="button" className="btn primary" disabled={busy} onClick={() => { setAuto(0); void approve(); }}>{m.run.continueOne}</button>
+        <button type="button" className="btn primary" disabled={busy} aria-busy={busy || undefined} onClick={() => { setAuto(0); void approve(); }}>{m.run.continueOne}</button>
         <button type="button" className="btn" disabled={busy} onClick={() => { setAuto(4); void approve(); }}>{m.run.continueFive}</button>
         <button type="button" className="btn" disabled={busy} onClick={() => { setAuto(-1); void approve(); }}>{m.run.auto}</button>
         <button type="button" className="btn danger" disabled={busy} onClick={() => void stop()}>{m.run.stop}</button>
@@ -243,7 +267,7 @@ export function StopButton({ onStop, label = m.run.stop }: { onStop: () => Promi
   return (
     <span className="actions" role="group" aria-label={m.run.stopConfirm}>
       <span className="sm-text">{m.run.stopConfirm}</span>
-      <button type="button" className="btn danger" disabled={busy} onClick={() => { setBusy(true); void onStop().finally(() => { setBusy(false); setAsking(false); }); }}>{busy ? m.run.stopping : m.run.stopNow}</button>
+      <button type="button" className="btn danger" disabled={busy} aria-busy={busy || undefined} onClick={() => { setBusy(true); void onStop().finally(() => { setBusy(false); setAsking(false); }); }}>{busy ? m.run.stopping : m.run.stopNow}</button>
       <button type="button" className="btn" disabled={busy} onClick={() => setAsking(false)}>{m.run.keepRunning}</button>
     </span>
   );
@@ -271,52 +295,61 @@ export function RunFiles({ domain, runId, status = "" }: { domain: string | null
   );
 }
 
+/** What the panel says about a run that has ended, in the same words as the token card's pill:
+ *  Completed and Partial finished, Failed, Stopped and Over budget stopped before they finished. */
+function endNote(status: string): { tone: "ok" | "bad" | "neutral" | "warn"; text: string } | null {
+  if (status === "COMPLETED") return { tone: "ok", text: m.run.completed };
+  if (status === "FAILED") return { tone: "bad", text: `${m.run.failed} Everything found so far is kept.` };
+  if (status === "CANCELED") return { tone: "neutral", text: m.run.stopped };
+  if (status === "BUDGET_EXCEEDED") return { tone: "warn", text: "Stopped: it reached its limit before it finished. Everything found so far is kept." };
+  if (status === "PARTIAL") return { tone: "warn", text: m.run.partial };
+  return null;
+}
+
+/** The research run as the run page and the Ask side panel show it: the steps, the checkpoint
+ *  card, the token card, Stop (while it is open) and how it ended. It updates itself, so there is
+ *  no Refresh button; a failed read keeps the last data and says it is reconnecting. */
 export function RunPanel({ runId, compact = false, state }: { runId: string; compact?: boolean; state?: ReturnType<typeof useRun> }) {
   const own = useRun(state ? null : runId);
   const { run, progress, error, status, terminal, reload } = state ?? own;
   const [auto, setAuto] = useState(0);
-  const [live, setLive] = useState<LiveSpend | null>(null);
-  useEffect(() => {
-    if (terminal && !run) return;
-    let alive = true;
-    api<LiveSpend>("GET", `/v1/runs/${encodeURIComponent(runId)}/spend/live`).then((l) => { if (alive) setLive(l); }).catch(() => undefined);
-    return () => { alive = false; };
-  }, [runId, status, terminal, run]);
   const [stopError, setStopError] = useState<string | null>(null);
   // Resume research when the server offers it on this run (``can_resume``: the account page's
   // rule); the note stays after the offer goes (the account then has a job open)
   const [resumed, setResumed] = useState<ResearchResumed | null>(null);
   const onResumed = useCallback((r: ResearchResumed) => { setResumed(r); reload(); }, [reload]);
-  if (error) return <Notice kind="error">{error.status === 404 ? m.run.notFound : `${m.state.errorTitle} ${m.state.errorBody}`}</Notice>;
+  // a run that is missing, or a session that ended, will not come back by waiting
+  const gone = error?.status === 404 || error?.status === 401;
+  // the error replaces the panel only when nothing has loaded: later, one failed read must not
+  // take away the steps, Stop or the checkpoint buttons
+  if (error && (!run || gone)) {
+    return <Notice kind="error">{error.status === 404 ? m.run.notFound : error.status === 401 ? "Your session has ended. Reload the page to sign in again." : `${m.state.errorTitle} ${m.state.errorBody}`}</Notice>;
+  }
   const stop = async () => {
     setStopError(null);
-    try { await api("POST", `/v1/runs/${encodeURIComponent(runId)}/cancel`); reload(); } catch (e) {
-      setStopError(e instanceof ApiError && e.status === 403 ? m.run.stopNotAllowed : m.run.stopFailed);
+    try {
+      await api("POST", `/v1/runs/${encodeURIComponent(runId)}/cancel`);
+      announce("Research stopped");
+      reload();
+    } catch (e) {
+      setStopError(e instanceof ApiError && e.status === 403 ? m.run.stopNotAllowed : errorText(e, m.run.stopFailed));
     }
   };
+  const ended = terminal && run ? endNote(status) : null;
   return (
     <div className="stack">
       <StepList progress={progress} status={status} />
       <Checkpoint runId={runId} status={status} onDecided={reload} auto={auto} setAuto={setAuto} tokens={run?.token_use ?? null} />
       {run ? <TokenMeter run={run} steps={progress ? runSteps(progress, status) : []} at={currentStep(progress, status)} status={status} /> : null}
-      {!compact ? (
-        <div className="section">
-          <h3>{m.run.unitsSoFar}</h3>
-          <Counts counts={live?.calls_by_category ?? {}} />
-        </div>
-      ) : null}
+      {error ? <p className="mut sm-text" role="status">Reconnecting…</p> : null}
       <div className="actions">
         {!terminal && run ? <StopButton onStop={stop} /> : null}
-        <button type="button" className="btn" onClick={reload}>{m.run.refresh}</button>
         {compact ? <Link className="link-btn small" href={`/runs/${encodeURIComponent(runId)}`}>{m.ask.openRun}</Link> : null}
       </div>
       {stopError ? <p className="sm-text bad-text" role="alert">{stopError}</p> : null}
-      {terminal && run ? (
+      {ended ? (
         <p className="small" role="status">
-          {status === "COMPLETED" ? <span className="status ok">{m.run.completed}</span>
-            : status === "FAILED" ? <span className="status bad">{m.run.failed} Everything found so far is kept.</span>
-            : status === "CANCELED" ? <span className="status neutral">{m.run.stopped}</span>
-            : <span className="status warn">{m.run.partial}</span>}
+          <span className={`status ${ended.tone}`}>{ended.text}</span>
         </p>
       ) : null}
       {resumed ? <ResumingNote resumed={resumed} />

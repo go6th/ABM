@@ -78,7 +78,7 @@ const answer = {
   items: null,
   offer: null,
   followups: ["Which closed roles have successor postings?"],
-  used: { workspace: "used", web: "not_used", mail_drive: "not_used", model_name: "kimi-k3" },
+  used: { workspace: "used", web: "not_used", model_name: "kimi-k3" },
   account_domain: "holdings.example",
   account_name: "Synthetic Holdings",
 } as unknown as ChatAnswer;

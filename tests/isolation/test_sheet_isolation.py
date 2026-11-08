@@ -3,7 +3,7 @@ the upload hardening, 2026-11-04). SYNTHETIC data only.
 
 Tenants A and B each get an account on the same domain and upload the same workspace zip through
 the production path (scan, parts, index, import). The few sheets an upload cannot fill (web
-searches, calls, mail and drive, the five file-shaped sheets) get matching canary rows in both
+searches, calls, the five file-shaped sheets) get matching canary rows in both
 tenants, so every sheet has rows on both sides. Then, for every sheet:
 
 * with row level security on (A's transaction as the client's strongest user, the system scope),
@@ -117,17 +117,6 @@ def _plant_unfilled(tenant: UUID, account: UUID, run: UUID) -> None:
                     ),
                 },
             )
-        plant(
-            c,
-            tables["connector_items"],
-            tenant,
-            {
-                "account_id": account,
-                "owner_user_id": OWNER,
-                "state": "matched",
-                "object_key": "tenants/{tenant}/connector-quarantine/{uuid}/{hex64}",
-            },
-        )
         for kind in SH.FILE_TABLES.values():
             for position in (1, 2):
                 plant(

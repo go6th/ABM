@@ -348,7 +348,7 @@ def pick_rows(q: Question, ws: Workspace, local: Draft) -> list[Row]:
     passages = [r for r in ws.passages if not q.accounts or r.account in q.accounts]
     for r in passages[:MAX_PASSAGES]:
         rows.setdefault(r.key, r)
-    pool = ws.facts + ws.jobs + ws.people + ws.signals + ws.tech + ws.mail + ws.files + ws.reports
+    pool = ws.facts + ws.jobs + ws.people + ws.signals + ws.tech + ws.files + ws.reports
     if q.accounts:
         pool = [r for r in pool if r.account in q.accounts]
     ranked = sorted(

@@ -11,6 +11,8 @@ vi.mock("@/lib/server-api", async (original) => ({
   serverGet: (...args: unknown[]) => serverGet(...args),
 }));
 vi.mock("next/navigation", () => ({ redirect: (to: string) => { throw new Error(`redirect:${to}`); } }));
+// the page the browser asked for (proxy.ts sets it), so a sign-in comes back to it
+vi.mock("next/headers", () => ({ headers: async () => new Headers({ "x-return-to": "/accounts/acme.example" }) }));
 vi.mock("@/components/ws/WorkspaceShell", () => ({
   WorkspaceShell: (p: { recent: { id: string }[]; notes: { id: string }[]; children: React.ReactNode }) => (
     <div data-testid="shell" data-recent={p.recent.map((r) => r.id).join(",")} data-notes={p.notes.map((n) => n.id).join(",")}>{p.children}</div>
@@ -52,10 +54,11 @@ test("the shell reads the user, threads, notifications and models in ONE round, 
     return notifications.promise;
   });
   const rendering = ClientLayout({ children: <span>page</span> });
-  await Promise.resolve();
-  await Promise.resolve();
   // every read is in flight before any has answered (one round trip per page view, 2026-10-24)
+  await vi.waitFor(() => expect(serverGet).toHaveBeenCalledTimes(4));
   expect(serverGet.mock.calls.map((c) => c[0])).toEqual(["/v1/me", "/v1/chat/threads", "/v1/notifications", "/v1/models/choices"]);
+  // a signed-out read sends the browser to sign in and back to the page it opened
+  expect(serverGet.mock.calls.map((c) => c[1])).toEqual(Array(4).fill("/accounts/acme.example"));
   threads.reject(new ServerApiError(503, "ref"));
   notifications.resolve({ unread: 1, notifications: [{ id: "n1", kind: "research_finished", read: false, created_at: "2026-10-22T00:00:00Z", account_domain: "acme.example", account_name: "Acme", credits_used: null, reason: null, scope: null }] });
   const { getByTestId } = render(await rendering);

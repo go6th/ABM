@@ -175,7 +175,6 @@ class Me(Out):
     accounts_used: int = 0
     account_cap: int = 0
     accounts_total: int = 0
-    mail_drive_allowed: bool = True
     web_refresh_allowed: bool = True
     model_ready: bool = True
 
@@ -349,15 +348,14 @@ class Changes(Out):
 
 
 class DeepDiveCounts(Out):
-    """Row counts of the deep-dive tables (mail and drive: the caller's own items only; coverage:
-    the tracker items Done out of all items of the latest finished run)."""
+    """Row counts of the deep-dive tables (coverage: the tracker items Done out of all items of
+    the latest finished run)."""
 
     signals: int
     people: int
     jobs: int
     tech: int
     news: int
-    mail_drive: int
     sources: int
     searches: int = 0
     coverage_done: int = 0
@@ -2288,7 +2286,6 @@ class AnswerSource(Out):
         "person",
         "signal",
         "technology",
-        "mail_drive",
         "file",
         "tracker",
         "report",
@@ -2312,7 +2309,6 @@ class AnswerUsed(Out):
 
     workspace: Literal["used", "not_used"]
     web: Literal["used", "not_used"]
-    mail_drive: Literal["used", "not_used", "not_connected"]
     # the model that wrote the answer (owner decision 2026-10-14); None for the workspace's own
     model_name: str | None = None
 
@@ -2568,25 +2564,6 @@ class DocumentPassages(Out):
     next_after: int | None
 
 
-class DriveFile(Out):
-    """One file of the caller's Google Drive or OneDrive that a research can read (metadata only;
-    ``google_native``: a Google Doc, Sheet or Slides file, added as its export)."""
-
-    id: str
-    name: str
-    type: str
-    size_bytes: int | None
-    modified_at: str | None
-    google_native: bool
-
-
-class DriveFileList(Out):
-    """Response body: the caller's newest readable files in the chosen source (Google Drive or
-    OneDrive)."""
-
-    files: list[DriveFile]
-
-
 class DocumentList(Out):
     """Response body: the tenant's documents."""
 
@@ -2651,93 +2628,6 @@ class InternalFinding(Out):
     grade: str
     citation: str
     quote: str
-
-
-class MailDriveOption(Out):
-    """One source the user may connect."""
-
-    kind: str
-    label: str
-    available: bool
-
-
-class MailDriveFamily(Out):
-    """The Mail card or the Drive card."""
-
-    status: Literal["connected", "not_connected", "not_available", "broken"]
-    kind: str | None
-    source: str | None
-    options: list[MailDriveOption]
-    accounts: int
-    items: int
-    last_synced_at: str | None
-    broken_reason: str | None = None
-    last_sync_status: Literal["ok", "partial", "failed"] | None = None
-    last_error: str | None = None
-    last_error_at: str | None = None
-    last_sync_listed: int | None = None
-    last_sync_matched: int | None = None
-
-
-class MailDriveSource(Out):
-    """One source (Gmail, Google Drive, Outlook, OneDrive or SharePoint) of the signed-in user:
-    its status, last sync outcome and error code (never provider text), and what was matched."""
-
-    kind: str
-    label: str
-    family: Literal["google", "microsoft"]
-    group: Literal["mail", "drive"]
-    available: bool
-    status: Literal["connected", "not_connected", "not_available", "broken"]
-    accounts: int
-    items: int
-    last_synced_at: str | None
-    broken_reason: str | None = None
-    last_sync_status: Literal["ok", "partial", "failed"] | None = None
-    last_error: str | None = None
-    last_error_at: str | None = None
-    last_sync_listed: int | None = None
-    last_sync_matched: int | None = None
-
-
-class MailAndDrive(Out):
-    """The signed-in user's Mail and drive page."""
-
-    allowed: bool
-    mail: MailDriveFamily
-    drive: MailDriveFamily
-    sources: list[MailDriveSource] = []
-
-
-class MailDriveSyncedSource(Out):
-    """One source's "Sync now" outcome (counts and a code only)."""
-
-    kind: str
-    label: str
-    state: Literal["ok", "partial", "failed", "broken", "skipped"]
-    listed: int
-    matched: int
-    reason: str | None
-
-
-class MailDriveSynced(Out):
-    """What "Sync now" did for one family."""
-
-    family: Literal["google", "microsoft"]
-    sources: list[MailDriveSyncedSource]
-
-
-class MailDriveConnect(Out):
-    """Where to send the browser for the consent."""
-
-    authorize_url: str
-
-
-class MailDriveDisconnected(Out):
-    """What Disconnect did."""
-
-    disconnected: int
-    items_deleted: int
 
 
 class FileAnalysisRun(Out):
@@ -2865,7 +2755,6 @@ class ConsoleClientSettings(Out):
     idle_expiry_days: int
     monthly_credit_pool: int
     fastest_schedule: str
-    mail_drive_allowed: bool
     web_refresh_allowed: bool
     research_limit_default: int
     chat_limit_default: int

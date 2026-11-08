@@ -6,8 +6,12 @@
 // The page is drawn on the server, so nothing on it changed by itself. This island, rendered with
 // the uploads, does three cheap things:
 //   * while any upload is still being read (uploading, scanning, parsing, indexing) it asks for the
-//     document list every few seconds and re-draws the page the moment a file's stage or passage
-//     count changes (the list is one small query; the page itself is drawn only on a change);
+//     document list every few seconds and re-draws the page only when a file's STAGE changes (the
+//     list is one small query; the page itself is drawn only on a change of stage, not on every
+//     passage that is read). Progress inside a stage keeps the check going: the 15-minute give-up
+//     window starts again whenever anything moves, so a long read is never abandoned while it
+//     makes progress. Nothing is asked while the tab is hidden; when it comes back, checking
+//     restarts;
 //   * when the last file finishes, it re-draws the page again a few times (5 s, 20 s, 60 s):
 //     the rows a work zip holds (people, postings, technologies) are imported just after
 //     indexing, so the counts arrive a little after "Ready";
@@ -15,10 +19,11 @@
 //     restored from its history (Back after an upload on another screen) is re-drawn at once;
 //     the same when the tab comes back into view, at most every 15 seconds.
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { api } from "@/lib/api";
 import { isWorking, stageOf } from "@/lib/documents";
 import type { DocumentList, DocumentStatus } from "@/lib/gen/api.gen";
+import { useVisible } from "@/lib/useVisible";
 
 export const POLL_MS = 4000;
 /** An upload that never finishes (the tab was closed mid-upload) must not poll for ever: the
@@ -38,27 +43,47 @@ export function docsSignature(docs: Doc[]): string {
   return docs.map((d) => `${d.document_id}:${stageOf(d)}:${d.passages ?? 0}:${d.parts_done ?? 0}:${d.members_read ?? 0}:${d.indexed_passages ?? 0}`).join("|");
 }
 
+/** Only the files and the stage each is in: a change in it means the page's file lists are out of date. */
+export function stagesSignature(docs: Doc[]): string {
+  return docs.map((d) => `${d.document_id}:${stageOf(d)}`).join("|");
+}
+
 export function LiveSync({ accountId, docs }: { accountId: string; docs: Doc[] }) {
   const router = useRouter();
+  const visible = useVisible();
   const working = docs.some((d) => isWorking(stageOf(d)));
   const signature = docsSignature(docs);
-  const shown = useRef(signature);
+  const stages = stagesSignature(docs);
+  const shown = useRef(signature); // everything the page was drawn from
+  const shownStages = useRef(stages); // the stages the page was drawn from
+  const latest = useRef(signature); // the last list read, however far the files have got
+  const windowStart = useRef(0); // when the give-up window began (set when checking starts, again on progress)
   const drawn = useRef(0); // when the page was last drawn (set on arrival and on each re-draw)
   const wasWorking = useRef(working);
 
   // the page was drawn again from newer files: that is what it shows now
   useEffect(() => {
     shown.current = signature;
+    shownStages.current = stages;
+    latest.current = signature;
     drawn.current = Date.now();
-  }, [signature]);
+  }, [signature, stages]);
 
-  // ask for the list; a change from what the page shows re-draws the page
-  const check = useCallback(async (): Promise<void> => {
+  // ask for the list. On arrival any difference from what the page shows re-draws it (the page may
+  // come from the browser's history); while files are read only a change of stage does, and any
+  // movement at all gives the file more time before the checking gives up
+  const check = useCallback(async (onArrival = false): Promise<void> => {
     try {
       const list = await api<DocumentList>("GET", `/v1/documents?account_id=${encodeURIComponent(accountId)}`);
       const next = docsSignature(list.documents);
-      if (next !== shown.current) {
+      if (next !== latest.current) {
+        latest.current = next;
+        windowStart.current = Date.now();
+      }
+      const nextStages = stagesSignature(list.documents);
+      if (onArrival ? next !== shown.current : nextStages !== shownStages.current) {
         shown.current = next;
+        shownStages.current = nextStages;
         drawn.current = Date.now();
         router.refresh();
       }
@@ -66,16 +91,17 @@ export function LiveSync({ accountId, docs }: { accountId: string; docs: Doc[] }
   }, [accountId, router]);
 
   // on arrival: a page restored from the browser's history may be older than the files
-  useEffect(() => { void check(); }, [check]);
+  useEffect(() => { void check(true); }, [check]);
 
-  // while a file is being read: check every few seconds
+  // while a file is being read and the tab is on screen: check every few seconds; the window
+  // starts again when the tab comes back
   useEffect(() => {
-    if (!working) return;
+    if (!working || !visible) return;
     let stopped = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const began = Date.now();
+    windowStart.current = Date.now();
     const next = () => {
-      const wait = pollEvery(Date.now() - began);
+      const wait = pollEvery(Date.now() - windowStart.current);
       if (wait !== null && !stopped) timer = setTimeout(tick, wait);
     };
     const tick = async () => {
@@ -84,7 +110,7 @@ export function LiveSync({ accountId, docs }: { accountId: string; docs: Doc[] }
     };
     next();
     return () => { stopped = true; clearTimeout(timer); };
-  }, [working, check]);
+  }, [working, visible, check]);
 
   // the last file finished: the rows of a work zip are imported just after indexing
   useEffect(() => {
@@ -115,13 +141,37 @@ export function LiveSync({ accountId, docs }: { accountId: string; docs: Doc[] }
   return null;
 }
 
-/** Shown in place of the uploads when the list could not be read (a server error while the page
- * was re-drawn): the page tries once more after 15 seconds instead of staying without its sync. */
+/** The wait before the nth try again after a page could not be read: 15 s, 30 s, then 60 s. */
+export function retryAfter(attempt: number): number {
+  return Math.min(15_000 * 2 ** attempt, 60_000);
+}
+
+/** Shown in place of the uploads (or the whole page) when it could not be read, a server error
+ * while the page was re-drawn: the page is asked for again after 15 seconds, and again after 30
+ * and 60 if that fails too, instead of staying without its live updates. It waits while the tab is
+ * hidden. Each try counts as an attempt, so a second failure arms the next one. */
 export function RetryRefresh() {
   const router = useRouter();
+  const visible = useVisible();
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
-    const timer = setTimeout(() => router.refresh(), 15000);
+    if (!visible) return;
+    const timer = setTimeout(() => {
+      router.refresh();
+      setAttempt((n) => n + 1);
+    }, retryAfter(attempt));
     return () => clearTimeout(timer);
-  }, [router]);
+  }, [router, visible, attempt]);
   return null;
+}
+
+/** "Try again" for a page that could not be read: asks the server for it again at once. */
+export function TryAgain() {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  return (
+    <button type="button" className="btn" aria-busy={pending || undefined} disabled={pending} onClick={() => start(() => router.refresh())}>
+      Try again
+    </button>
+  );
 }

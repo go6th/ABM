@@ -314,7 +314,7 @@ class _Recorder:
 @pytest.mark.asyncio
 async def test_stream_with_model_offers_the_tools_the_rules_and_the_temperature() -> None:
     acct = A.Acct(uuid4(), "holdings.example", "Synthetic Holdings", [], None, None, 1)
-    ws = A.Workspace([acct], [], [], [], [], [], [], {}, False)
+    ws = A.Workspace([acct], [], [], [], [], [], {})
     ws.tables = [
         A.Row(
             "table:1",

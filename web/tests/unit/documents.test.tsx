@@ -76,52 +76,23 @@ test("a dropped file is uploaded, completed and followed to Ready; a refused one
   expect(seen.at(-1)?.map((d) => d.stage)).toEqual(["indexed"]);
 });
 
-test("Google Drive: files are listed by the server and an added one is fetched into the same path", async () => {
-  apiMock.mockImplementation(async (method: string, path: string, body?: unknown) => {
-    if (method === "GET" && path.startsWith("/v1/documents/drive-files")) {
-      return { files: [{ id: "drive-file-0001", name: "Plan.docx", type: "docx", size_bytes: null, modified_at: "2026-10-14T00:00:00Z", google_native: true }] };
-    }
-    if (method === "POST" && path === "/v1/documents/from-drive") {
-      expect(body).toEqual({ file_id: "drive-file-0001", account_id: null });
-      return doc({ document_id: "d9", name: "Plan.docx", stage: "scanning", status: "quarantined", size_bytes: 42 });
-    }
-    return doc({ document_id: "d9", name: "Plan.docx", stage: "indexed" });
-  });
-  render(<DocumentDrop onChange={() => undefined} initialDrive />);
-  expect(await screen.findByText("Plan.docx")).toBeTruthy();
-  expect(screen.getByText(/Google file, added as DOCX/)).toBeTruthy();
-  fireEvent.click(screen.getByRole("checkbox", { name: "Select Plan.docx" }));
-  fireEvent.click(screen.getByRole("button", { name: "Add 1 file" }));
-  await waitFor(() => expect(apiMock).toHaveBeenCalledWith("POST", "/v1/documents/from-drive", { file_id: "drive-file-0001", account_id: null }));
-  expect(await screen.findByText("Added")).toBeTruthy();
-});
-
-test("Google Drive not connected: a link to the Mail and drive page, no file list", async () => {
-  const { ApiError } = await import("@/lib/api");
-  apiMock.mockRejectedValue(new ApiError(409, "drive_not_connected", "Connect Google Drive on the Mail and drive page first."));
-  render(<DocumentDrop onChange={() => undefined} initialDrive />);
-  const link = await screen.findByRole("link", { name: "Connect Google Drive" });
-  expect(link.getAttribute("href")).toBe("/settings/mail-and-drive");
-  expect(screen.queryByRole("search")).toBeNull();
-});
-
 test("after the company is confirmed the files are read again, so they reach Ready", async () => {
   let indexed = false;
   apiMock.mockImplementation(async (method: string, path: string) => {
-    if (method === "GET" && path.startsWith("/v1/documents/drive-files")) {
-      return { files: [{ id: "drive-file-0002", name: "Deck.pdf", type: "pdf", size_bytes: 9, modified_at: null, google_native: false }] };
+    if (method === "POST" && path === "/v1/documents/uploads") {
+      return { document_id: "d7", upload_url: "/v1/documents/d7/content?token=t", method: "PUT", headers: {}, expires_at: "x", max_bytes: 5, direct: false };
     }
-    if (method === "POST" && path === "/v1/documents/from-drive") return doc({ document_id: "d7", name: "Deck.pdf", stage: "parsed" });
+    if (method === "PUT") return { document_id: "d7", received_bytes: 5 };
+    if (path.endsWith("/complete")) return doc({ document_id: "d7", name: "Deck.pdf", stage: "parsed" });
     if (path === "/v1/documents/d7/status") return doc({ document_id: "d7", name: "Deck.pdf", stage: indexed ? "indexed" : "parsed", needs_company: !indexed });
     return doc({});
   });
   const seen: DocumentStatus[][] = [];
-  const { rerender } = render(<DocumentDrop onChange={(d) => seen.push(d)} initialDrive refresh={0} />);
-  fireEvent.click(await screen.findByRole("checkbox", { name: "Select Deck.pdf" }));
-  fireEvent.click(screen.getByRole("button", { name: "Add 1 file" }));
+  const { rerender } = render(<DocumentDrop onChange={(d) => seen.push(d)} refresh={0} />);
+  fireEvent.change(screen.getByLabelText("Add files"), { target: { files: [new File(["hello"], "Deck.pdf")] } });
   expect(await screen.findByText("Read, waiting for the company")).toBeTruthy();
   indexed = true; // the company was confirmed: the server indexes the file
-  rerender(<DocumentDrop onChange={(d) => seen.push(d)} initialDrive refresh={1} />);
+  rerender(<DocumentDrop onChange={(d) => seen.push(d)} refresh={1} />);
   expect(await screen.findByText("Ready")).toBeTruthy();
   expect(seen.at(-1)?.[0]?.stage).toBe("indexed");
 });
@@ -132,18 +103,19 @@ test("a file bound to its company but still at parsed keeps being followed to Re
   expect(stageOf({ stage: "parsed", needs_company: false })).toBe("indexing");
   let polls = 0;
   apiMock.mockImplementation(async (method: string, path: string) => {
-    if (method === "GET" && path.startsWith("/v1/documents/drive-files")) {
-      return { files: [{ id: "drive-file-0003", name: "Tech.xlsx", type: "xlsx", size_bytes: 9, modified_at: null, google_native: false }] };
+    if (method === "POST" && path === "/v1/documents/uploads") {
+      return { document_id: "d8", upload_url: "/v1/documents/d8/content?token=t", method: "PUT", headers: {}, expires_at: "x", max_bytes: 5, direct: false };
     }
-    if (method === "POST" && path === "/v1/documents/from-drive") return doc({ document_id: "d8", name: "Tech.xlsx", stage: "parsed", needs_company: false });
+    if (method === "PUT") return { document_id: "d8", received_bytes: 5 };
+    if (path.endsWith("/complete")) return doc({ document_id: "d8", name: "Tech.xlsx", stage: "parsed", needs_company: false });
+    if (path === "/v1/documents/d8/status" && polls === 0) { polls += 1; return doc({ document_id: "d8", name: "Tech.xlsx", stage: "parsed", needs_company: false }); }
     if (path === "/v1/documents/d8/status") { polls += 1; return doc({ document_id: "d8", name: "Tech.xlsx", stage: "indexed", needs_company: false }); }
     return doc({});
   });
-  render(<DocumentDrop onChange={() => undefined} initialDrive />);
-  fireEvent.click(await screen.findByRole("checkbox", { name: "Select Tech.xlsx" }));
-  fireEvent.click(screen.getByRole("button", { name: "Add 1 file" }));
+  render(<DocumentDrop onChange={() => undefined} />);
+  fireEvent.change(screen.getByLabelText("Add files"), { target: { files: [new File(["hello"], "Tech.xlsx")] } });
   expect(await screen.findByText("Ready", {}, { timeout: 5000 })).toBeTruthy();
-  expect(polls).toBeGreaterThan(0);
+  expect(polls).toBeGreaterThan(1);
 });
 
 test("a picked folder sends the supported files, ignores hidden ones and lists the rest", async () => {

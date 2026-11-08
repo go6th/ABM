@@ -17,7 +17,16 @@ const TOO_MANY = "Too many attempts, try again in a minute.";
 const UNAVAILABLE = "Sign in is unavailable right now. Try again in a moment.";
 
 type Notice = { text: string; tone: "error" | "info"; resend?: boolean };
-type TenantChoice = { tenant_id: string; role: string };
+type TenantChoice = { tenant_id: string; role: string; name?: string | null };
+
+const ROLE_WORD: Record<string, string> = { admin: "Admin", analyst: "Analyst", seller: "Seller", viewer: "Viewer" };
+
+/** A workspace in the picker as a person reads it: its name when the reply carries one, else
+ *  "Workspace" and the last four characters of its id, then the role as a word. */
+function workspaceLabel(tenant: TenantChoice): string {
+  const name = (typeof tenant.name === "string" && tenant.name.trim()) || `Workspace ${tenant.tenant_id.slice(-4)}`;
+  return `${name} (${ROLE_WORD[tenant.role] ?? tenant.role})`;
+}
 
 /** Where to go after signing in: ?next= when it is a page of this site (never another origin or
  *  back to sign-in), else Ask. */
@@ -195,7 +204,7 @@ export default function TenantLoginPage() {
           <div className="field">
             <label htmlFor="tenant">Workspace</label>
             <select id="tenant" className="select" value={tenantId} onChange={(event) => setTenantId(event.target.value)}>
-              {tenants.map((tenant) => <option key={tenant.tenant_id} value={tenant.tenant_id}>{tenant.tenant_id} ({tenant.role})</option>)}
+              {tenants.map((tenant) => <option key={tenant.tenant_id} value={tenant.tenant_id}>{workspaceLabel(tenant)}</option>)}
             </select>
           </div>
         ) : null}

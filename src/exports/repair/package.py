@@ -485,8 +485,7 @@ def write_xlsx_checked(
     ``ExportBlocked`` the offending cells are found by scanning each cell alone and each pair of
     neighbouring cells joined by a space, repaired and the workbook is written and checked again
     (up to 3 times); a cell that still fails is replaced by the withheld marker and logged. The
-    check is skipped for a private table (the user's own mail and drive), as ``replica.sheets``
-    does."""
+    check is skipped for a private table, as ``replica.sheets`` does."""
     rules = guard()
     shareable = not (private or any(s.private for s in table_sheets))
     pages, exclusions = _prepare(table_sheets, title, shareable)

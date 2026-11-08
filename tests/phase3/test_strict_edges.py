@@ -222,19 +222,6 @@ def test_the_connector_table_refuses_an_unknown_or_missing_source(
         scopes.load.__wrapped__()
 
 
-# --- Drive ancestry ---------------------------------------------------------------------------
-
-
-def test_a_shared_drive_root_is_part_of_the_ancestry_to_resolve() -> None:
-    from connectors_client.drive import ancestors_to_resolve
-    from connectors_client.ports import DriveMeta
-
-    meta = DriveMeta("f1", "doc", "text/plain", parents=("p1",), drive_id="d1")
-    assert ancestors_to_resolve(meta) == ("p1", "d1")
-    root = DriveMeta("d1", "drive", "application/vnd.google-apps.folder", drive_id="d1")
-    assert ancestors_to_resolve(root) == ()
-
-
 # --- database: limits and the chain -----------------------------------------------------------
 
 

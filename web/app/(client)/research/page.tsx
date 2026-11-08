@@ -11,7 +11,7 @@ import { NewResearch } from "@/components/accounts/NewResearch";
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Research · Account Intelligence" };
 
-export default async function ResearchPage({ searchParams }: { searchParams: Promise<{ r?: string; tab?: string; source?: string }> }) {
+export default async function ResearchPage({ searchParams }: { searchParams: Promise<{ r?: string; tab?: string }> }) {
   const query = await searchParams;
   const selected = query.r && /^[0-9a-f-]{36}$/i.test(query.r) ? `?selected=${query.r}` : "";
   let initial: ResearchLive | null = null;
@@ -34,7 +34,7 @@ export default async function ResearchPage({ searchParams }: { searchParams: Pro
       </div>
       <div className="research-grid">
         <section className="research-start" aria-label="Start a research">
-          <NewResearch estimate={estimate} initialTab={tab} initialDrive={tab === "file" && query.source === "drive"} />
+          <NewResearch estimate={estimate} initialTab={tab} />
         </section>
         <ResearchBoard initial={initial} estimate={estimate} embedded />
       </div>

@@ -101,9 +101,6 @@ or a value has the wrong type (errors name the variable, never the value).
 | `XAI_BASE_URL` | Grok 4.5 API base URL (https): xAI. | no | - | - | api, worker |
 | `EVAL_MODEL` | The live tabular eval suite's model override (default: models.yaml surfaces.eval). Test tooling only; the app never reads it. | no | - | - | eval |
 | `EVAL_EFFORT` | The live tabular eval suite's effort override (default: models.yaml surfaces.eval). Test tooling only; the app never reads it. | no | - | - | eval |
-| `GMAIL_API_BASE` | Gmail API base URL for the per-user Mail and drive sync. | no | - | - | worker |
-| `GOOGLE_DRIVE_API_BASE` | Google Drive API base URL for the per-user Mail and drive sync. | no | - | - | worker |
-| `MICROSOFT_GRAPH_API_BASE` | Microsoft Graph API base URL (Outlook, OneDrive, SharePoint sync). | no | - | - | worker |
 | `MOONSHOT_SECRET` | Secret Manager secret id holding the Kimi K3 (Moonshot AI) key; unset: not set up. | no | - | - | api, worker |
 | `XAI_SECRET` | Secret Manager secret id holding the Grok 4.5 (xAI) key; unset: not set up. | no | - | - | api, worker |
 | `CSRF_KEY_SECRET` | Secret Manager secret id of the CSRF signing key (32 or more random bytes). | no | - | - | api |
@@ -137,12 +134,6 @@ or a value has the wrong type (errors name the variable, never the value).
 | `SMTP_PASSWORD` | SMTP password or app password (cloud: injected from Secret Manager). | **secret** | - | - | api, worker |
 | `MAIL_FROM` | From address of outgoing email (default: SMTP login). | no | - | - | api, worker |
 | `MAIL_FROM_NAME` | From name of outgoing email. | no | - | - | api, worker |
-| `MAILDRIVE_GOOGLE_CLIENT_ID` | Google OAuth app client id for Gmail and Google Drive (Mail and drive). | no | - | - | api, worker |
-| `MAILDRIVE_GOOGLE_CLIENT_SECRET` | Google OAuth app client secret (cloud: injected from Secret Manager). | **secret** | - | - | api, worker |
-| `MAILDRIVE_GOOGLE_CLIENT_SECRET_FILE` | Path to a file holding the Google client secret (instead of the variable). | no | - | - | api, worker |
-| `MAILDRIVE_MICROSOFT_CLIENT_ID` | Microsoft OAuth app client id for Outlook, OneDrive and SharePoint. | no | - | - | api, worker |
-| `MAILDRIVE_MICROSOFT_CLIENT_SECRET` | Microsoft OAuth app client secret (cloud: injected from Secret Manager). | **secret** | - | - | api, worker |
-| `MAILDRIVE_MICROSOFT_CLIENT_SECRET_FILE` | Path to a file holding the Microsoft client secret (instead of the variable). | no | - | - | api, worker |
 | `RESEARCH_ENGINE` | Research job engine: graph (the run lifecycle on the ABM agent graph; cloud default), hermetic (no outside call; dev and test default) or skill (the skill executor, refused until it is built). | no | - | - | api, worker |
 | `EXPORT_RENDERER` | Word renderer override (see exports.wiring). | no | - | - | api, worker |
 | `EXPORT_RENDER_CHECKS` | Run LibreOffice render checks on every export. | no | - | - | api, worker |

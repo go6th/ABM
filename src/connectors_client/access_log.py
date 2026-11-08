@@ -1,7 +1,7 @@
 """Every connector access, logged (CN3): principal, connection, source, resource, purpose and
 outcome in the insert-only ``connector_access_log`` (never a token or content). The one writer.
 
-GUARANTEE(test_a_fetch_pass_is_bounded_resumable_logged_and_read_only)
+GUARANTEE(test_a_fetch_pass_is_bounded_logged_and_read_only)
 """
 
 from __future__ import annotations

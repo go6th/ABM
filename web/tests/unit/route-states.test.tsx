@@ -3,9 +3,12 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { RouteError } from "@/ui/RouteError";
+
+const refresh = vi.fn();
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
 import { ModelPreferences } from "@/components/ModelPreferences";
 
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); refresh.mockClear(); });
 
 test("a route error shows the standard message and a reference, not the error text", () => {
   const reset = vi.fn();
@@ -15,8 +18,20 @@ test("a route error shows the standard message and a reference, not the error te
   expect(container.textContent).toContain("This page could not be loaded.");
   expect(container.textContent).toContain("Reference abcdef12");
   expect(container.textContent).not.toContain("hunter2");
+  // without Next's ``retry`` the page is refreshed from the server, then reset
   fireEvent.click(screen.getByRole("button", { name: "Reload" }));
+  expect(refresh).toHaveBeenCalledOnce();
   expect(reset).toHaveBeenCalledOnce();
+});
+
+test("Reload uses retry when Next passes it, so a server error is fetched again, not redrawn", () => {
+  const reset = vi.fn();
+  const retry = vi.fn();
+  render(<RouteError error={new Error("x")} reset={reset} retry={retry} />);
+  fireEvent.click(screen.getByRole("button", { name: "Reload" }));
+  expect(retry).toHaveBeenCalledOnce();
+  expect(reset).not.toHaveBeenCalled();
+  expect(refresh).not.toHaveBeenCalled();
 });
 
 test("without a digest there is no reference line", () => {

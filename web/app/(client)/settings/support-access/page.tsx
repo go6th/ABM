@@ -29,12 +29,13 @@ export default async function SupportAccessPage() {
     <>
         <header>
           <h2>Support access</h2>
-          <p className="intro">Let a named person at 6th see your workspace, read-only, for a limited time. They see accounts and counts, never your questions, answers or files. Every view is recorded below.</p>
+          <p className="intro">They see accounts and counts, never your questions, answers or files. Every view is recorded below.</p>
         </header>
         {grants && events ? <SupportAccess grants={grants.grants} events={events.events} /> : (
           <StateCard
             title={forbidden ? "Only your administrator can give support access" : "Support access is unavailable right now"}
-            body={forbidden ? "Ask an administrator of your workspace." : "Reload the page in a moment."}
+            body={forbidden ? "Ask an administrator of your workspace." : "This is usually brief."}
+            action={forbidden ? undefined : <a className="btn" href="/settings/support-access">Try again</a>}
           />
         )}
     </>

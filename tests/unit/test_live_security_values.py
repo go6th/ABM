@@ -259,14 +259,11 @@ def test_every_step_up_action_guards_at_least_one_route(action: str) -> None:
 
 USER_BUCKETS = {  # (capacity, refill per second) as live on 2026-11-03
     "document_upload": (120, 0.5),
-    "drive_list": (60, 0.5),
     "part_retry": (60, 0.2),
     "research_resume": (20, 0.05),
     "download_everything": (10, 0.0028),
     "export": (30, 0.05),
     "archive_read": (120, 2),
-    "maildrive_sync_google": (1, 0.0084),
-    "maildrive_sync_microsoft": (1, 0.0084),
 }
 
 

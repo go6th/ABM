@@ -220,7 +220,7 @@ test("the account's More menu lists Archive beside the other tables", async () =
   render(await AccountLayout({ params: Promise.resolve({ domain: "synthetic-acme.example" }), children: <p>page</p> }));
   const tabs = screen.getByRole("navigation", { name: "Synthetic Acme sections" });
   expect(within(tabs).getAllByRole("link").map((a) => a.textContent)).toContain("Jobs");
-  const archive = screen.getByRole("menuitem", { name: "Archive" });
+  const archive = screen.getByRole("link", { name: "Archive" });
   expect(archive.getAttribute("href")).toBe("/accounts/synthetic-acme.example/archive");
 });
 

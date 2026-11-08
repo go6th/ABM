@@ -29,7 +29,7 @@ npm run e2e                 # Playwright (needs the stack: make e2e)
 | | `/accounts/[domain]/refresh`, `/accounts/[domain]/files` | Refresh from web (scopes, estimate); the account's uploaded files | `/v1/accounts/{domain}/refresh`, `/v1/credits`, `/v1/documents/*` |
 | | `/research/new` | New research: company name or upload a file | `/v1/research`, `/v1/research/estimate`, `/v1/documents/uploads`, `…/complete`, `…/confirm-company`, `…/estimate` |
 | | `/runs/[run_id]` | one run's steps (there is no runs index screen) | `/v1/runs/{run_id}`, `…/progress`, `…/events`, `…/collected` |
-| | `/research` (live board), `/chats`, `/schedules`, `/team`, `/mail-and-drive`, `/model-preferences`, `/support-access` | the remaining client screens | the route of the same name |
+| | `/research` (live board), `/chats`, `/schedules`, `/team`, `/model-preferences`, `/support-access` | the remaining client screens | the route of the same name |
 
 The `/alerts`, `/chat`, `/downloads`, `/runs` index, `/usage`, `/settings/**` and `/audit` screens
 were removed (their redirect stubs too, fix prompt B); `docs/handover/` describes the product as
@@ -42,7 +42,7 @@ it is.
 | Folder | What it holds |
 | --- | --- |
 | `app/` | the routes above (one `page.tsx` per screen, layouts, route handlers) |
-| `components/accounts/` | the Account workspace pieces: AddAccount, NewResearch, ResearchCompany, RefreshForm, ResumeResearch, SheetView, FilesCard, UploadedFilesCard, WhatWasRead, DownloadEverything, SchedulesView, MailDrive, SupportAccess, AccountAsk |
+| `components/accounts/` | the Account workspace pieces: AddAccount, NewResearch, ResearchCompany, RefreshForm, ResumeResearch, SheetView, FilesCard, UploadedFilesCard, WhatWasRead, DownloadEverything, SchedulesView, SupportAccess, AccountAsk |
 | `components/ask/` | Ask, AskComposer, AnswerView |
 | `components/ws/` | the workspace shell, run steps, document drop, drive chooser, file analysis |
 | `components/*.tsx` | Limits, ModelMenu, ModelPreferences, UsageProceed |

@@ -2,7 +2,7 @@
 what the answer used.
 
 Answers come only from what the workspace holds: stored facts, job postings, people, signals,
-technology, and the caller's own matched mail and drive items. Nothing here calls the web or a
+technology, and the client's uploaded files. Nothing here calls the web or a
 data tool (GUARANTEE(test_workspace_answer_makes_no_paid_call)). Every statement that rests on a
 row carries a numbered citation to that row, numbered in order of first appearance.
 
@@ -242,9 +242,7 @@ class Workspace:
     people: list[Row]
     signals: list[Row]
     tech: list[Row]
-    mail: list[Row]
     questions: dict[UUID, list[str]]
-    mail_connected: bool
     # Internal facts from the client's uploaded files (labelled "From your files"), the research
     # tracker of each account's latest run, and the text of previous deliverables
     files: list[Row] = field(default_factory=list)
@@ -286,7 +284,7 @@ def wants_closed(question: str) -> bool:
 async def load_workspace(
     session: Any, user_id: str, account_id: UUID | None = None, *, include_closed: bool = False
 ) -> Workspace:
-    """Read the rows an answer may cite (tenant scoped by RLS; mail and drive by owner).
+    """Read the rows an answer may cite (tenant scoped by RLS).
     Closed postings are read only when the question asks about them (``include_closed``)."""
     acct_rows = (
         await session.execute(
@@ -494,46 +492,6 @@ async def load_workspace(
             )
         )
 
-    mail: list[Row] = []
-    connected = bool(
-        await session.scalar(
-            text(
-                "SELECT count(*) FROM connector_connections WHERE owner_user_id = :u AND status ="
-                " 'active'"
-            ),
-            {"u": user_id},
-        )
-    )
-    for r in (
-        await session.execute(
-            text(
-                "SELECT id, account_id, item_kind, title, snippet, item_date, location FROM"
-                " connector_items"
-                " WHERE owner_user_id = :u AND state = 'matched' AND account_id IS NOT NULL LIMIT"
-                " 500"
-            ),
-            {"u": user_id},
-        )
-    ).all():
-        acct = by_id.get(r.account_id)
-        if acct is None or r.account_id not in scope:
-            continue
-        when = _as_dt(r.item_date)
-        mail.append(
-            Row(
-                key=f"mail_drive:{r.id}",
-                kind="mail_drive",
-                account=acct,
-                text=str(r.snippet or r.title or ""),
-                title=str(r.title or "Mail and drive item"),
-                meta=f"From your mail and drive · {day_month(when)}",
-                when=when,
-                url=None,
-                grade="internal",
-                extra={"location": r.location or ""},
-            )
-        )
-
     questions: dict[UUID, list[str]] = defaultdict(list)
     for r in (
         await session.execute(
@@ -574,9 +532,7 @@ async def load_workspace(
         people=people,
         signals=signals,
         tech=tech,
-        mail=mail,
         questions=questions,
-        mail_connected=connected,
         files=await _file_rows(session, by_id, scope),
         tracker=await _tracker_rows(session, by_id, scope),
         reports=await _report_rows(session, by_id, scope),
@@ -1510,7 +1466,7 @@ def compose_other(q: Question, ws: Workspace, now: datetime, d: Draft) -> None:
             "please",
         }
     ]
-    pool = ws.facts + ws.jobs + ws.signals + ws.mail + ws.files + ws.reports + ws.tracker
+    pool = ws.facts + ws.jobs + ws.signals + ws.files + ws.reports + ws.tracker
     if q.accounts:
         pool = [r for r in pool if r.account in q.accounts]
     scored = []
@@ -1944,7 +1900,6 @@ def finish(
     held = [r for r in cited if not r.extra.get("knowledge") and not r.extra.get("web")]
     answered = bool(held)
     focus = d.focus or (held[0].account if held else None)
-    used_mail = any(r.kind == "mail_drive" for r in cited)
     return {
         "paragraphs": paragraphs,
         "structured": structured_out(d.structured, numbering) if d.structured else None,
@@ -1953,9 +1908,6 @@ def finish(
         "used": {
             "workspace": "used" if answered else "not_used",
             "web": "used" if any(r.extra.get("web") for r in cited) else "not_used",
-            "mail_drive": "used"
-            if used_mail
-            else ("not_used" if ws.mail_connected else "not_connected"),
         },
         "offer": offer_for(focus, held, answered, now, scope),
         "followups": followups(ws, q, focus, now),

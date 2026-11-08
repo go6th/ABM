@@ -12,7 +12,6 @@ credential  # noqa: B018, F821 - IdentityVerifier.verify protocol parameter
 artifact_id  # noqa: B018, F821 - LinkSigner.create_link protocol parameter
 principal_id  # noqa: B018, F821 - RateLimiterPort.consume protocol parameter
 total_micros  # noqa: B018, F821 - CreditPort request contract; adapter rebuilds unit estimates
-folder_id  # noqa: B018, F821 - ConnectorClient.list_folder contract and unconfigured adapter
 timeout_millis  # noqa: B018, F821 - OpenTelemetry SpanExporter.force_flush contract
 parent_context  # noqa: B018, F821 - OpenTelemetry SpanProcessor.on_start contract
 functions  # noqa: B018, F821 - PeopleSearchPort contract; provider args are technology-scoped

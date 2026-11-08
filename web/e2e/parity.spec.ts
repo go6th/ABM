@@ -120,7 +120,8 @@ test("the screens, the stored data and the downloads agree", async ({ page }) =>
     }
   }
 
-  await page.goto(`/accounts/${DOMAIN}`);
+  // the parity section sits on the account's Files tab (redesign 2026-11-07)
+  await page.goto(`/accounts/${DOMAIN}/files`);
   const section = page.locator("section.parity");
   await expect(section).toBeVisible();
   expect(await section.getByTestId("download-all").getAttribute("href")).toContain("_workspace.zip?version=1");

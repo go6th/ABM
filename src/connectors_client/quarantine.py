@@ -1,9 +1,8 @@
-"""Off limits until cleared (CN2): items that surface outside the allow-list, with unknown
-ancestry, or as a shortcut pointing outside, are recorded HELD and never read; a tenant admin
-clears (or refuses) each one, once. Cleared items may be fetched by a later pass. The one writer
-of ``connector_quarantine``.
+"""Off limits until cleared (CN2): an item recorded HELD is never read; a tenant admin clears
+(or refuses) each one, once. The one writer of ``connector_quarantine``. Since the Drive source
+was removed (2026-11-08) no fetch pass holds an item; the admin's listing and decisions stay.
 
-GUARANTEE(test_a_fetch_pass_is_bounded_resumable_logged_and_read_only)
+GUARANTEE(test_a_held_item_is_cleared_or_refused_once)
 """
 
 from __future__ import annotations
@@ -68,20 +67,6 @@ async def decide(
     if row is None:
         raise QuarantineError("no such held item")
     return str(row.resource_id)
-
-
-async def cleared(s: Any, connection_id: UUID) -> list[str]:
-    """Resource ids an admin cleared (a later pass may read them)."""
-    rows = (
-        await s.execute(
-            text(
-                "SELECT resource_id FROM connector_quarantine WHERE connection_id = :c"
-                " AND status = 'cleared' ORDER BY resource_id"
-            ),
-            {"c": connection_id},
-        )
-    ).all()
-    return [str(r.resource_id) for r in rows]
 
 
 async def listing(s: Any, connection_id: UUID) -> list[dict[str, Any]] | None:

@@ -77,6 +77,12 @@ def releases_scrubbed(count: int) -> None:
         _logger.info("exports.releases_scrubbed", extra={"count": count})
 
 
+def carried(depth: int) -> None:
+    """A build of a refresh of part of the checklist laid over an earlier run's content
+    (``exports.carry``), one line per run carried: its depth below the build's own run."""
+    _logger.info("exports.carried", extra={"count": depth})
+
+
 def leaks_withheld(count: int, parts: tuple[str, ...] = ()) -> None:
     """Log how many rendered texts a client-output rule replaced by the withheld note in a
     delivered set, by part of a file and rule when known. Counts and rule names only: the

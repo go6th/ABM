@@ -121,7 +121,6 @@ async def current_user(request: Request, ident: Identity = Depends(authorize)) -
         "accounts_used": used,
         "account_cap": limits_now.account_cap_per_user,
         "accounts_total": total,
-        "mail_drive_allowed": limits_now.mail_drive_allowed,
         "web_refresh_allowed": limits_now.web_refresh_allowed,
         # the model is set up (a real or, in dev and test, the hermetic one); the client shows
         # one plain message when it is not, instead of failing quietly

@@ -62,7 +62,6 @@ async def test_workspace_after_a_refresh_shows_what_changed_and_live_counts(
         "jobs": 27,
         "tech": 15,  # 14 detections and one tech fact the research found
         "news": 12,
-        "mail_drive": 3,
         "sources": 86,
         "searches": 0,
         "coverage_done": 24,
@@ -312,15 +311,6 @@ async def test_sheet_export_is_a_real_workbook_of_the_filtered_rows(world: dict[
     ws = load_workbook(io.BytesIO(r.content))["Sheet 1"]
     assert ws.max_row - 1 == 17
     assert [c.value for c in ws[1]][:3] == ["#", "Name", "Title as reported"]
-
-
-async def test_mail_and_drive_sheet_holds_only_the_callers_items(world: dict[str, Any]) -> None:
-    owner = _plane(world["a"], "priya-test", world["payloads"])
-    colleague = _plane(world["a"], "colleague-test", world["payloads"])
-    mine = (await _call(owner, "GET", "/v1/accounts/highmark.example/sheets/mail-and-drive")).json()
-    theirs = await _call(colleague, "GET", "/v1/accounts/highmark.example/sheets/mail-and-drive")
-    assert mine["total"] == 3 and mine["private"] is True
-    assert theirs.status_code == 404  # the account itself is the owner's (migration 0063)
 
 
 async def test_another_clients_sheets_are_not_found(world: dict[str, Any]) -> None:

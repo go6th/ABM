@@ -8,10 +8,10 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ResearchCompany } from "@/components/accounts/ResearchCompany";
-import { reasonOr, ResumeButton, resumingLine } from "@/components/accounts/ResumeResearch";
+import { ResumeButton, resumingLine } from "@/components/accounts/ResumeResearch";
 import { StopButton } from "@/components/ws/RunSteps";
 import { formatTokens } from "@/components/ws/TokenMeter";
-import { api, ApiError } from "@/lib/api";
+import { api, errorText } from "@/lib/api";
 import type { ResearchEstimate, ResearchLive, ResearchResumed, ResearchStarted } from "@/lib/gen/api.gen";
 import { m } from "@/lib/messages";
 import { useResearchLive, type LiveState } from "@/lib/useResearchLive";
@@ -84,15 +84,13 @@ function Connection({ state, asOf, now }: { state: LiveState; asOf: string | nul
   );
 }
 
-function Row({ item, selected, now, onSelect, onStop, onResumed }: {
+function Row({ item, selected, now, onSelect, onStop }: {
   item: Item;
   selected: boolean;
   now: number | null;
   onSelect: (id: string) => void;
   onStop: (item: Item) => Promise<void>;
-  onResumed: (resumed: ResearchResumed) => void;
 }) {
-  const resumeRun = resumableRun(item);
   const when = item.open ? ago(item.started_at ?? item.created_at, now) : ago(item.finished_at, now);
   return (
     <li className="trow cols-research" aria-current={selected ? "true" : undefined}>
@@ -114,7 +112,6 @@ function Row({ item, selected, now, onSelect, onStop, onResumed }: {
           {selected ? m.board.showing : m.board.show}
         </button>
         {item.can_stop ? <StopButton onStop={() => onStop(item)} label={m.board.stop} /> : null}
-        {resumeRun ? <ResumeButton runId={resumeRun} compact onResumed={onResumed} /> : null}
       </span>
     </li>
   );
@@ -231,9 +228,9 @@ export function ResearchBoard({ initial, estimate, embedded = false }: { initial
       await api("POST", `/v1/research/${encodeURIComponent(item.job_id)}/stop`);
       setNote({ text: m.board.stopped });
     } catch (cause) {
-      // 409: the research has ended or cannot stop from here; 503: a worker holds it right now
-      const explained = cause instanceof ApiError && (cause.status === 409 || cause.status === 503);
-      setNote({ text: explained ? reasonOr(cause, m.board.stopFailed) : m.board.stopFailed, bad: true });
+      // 409 (the research has ended) and 503 (a worker holds it) come with a reason when the API
+      // wrote one; a bare status text gives the plain sentence
+      setNote({ text: errorText(cause, m.board.stopFailed), bad: true });
     }
     restart();
   }, [restart]);
@@ -297,25 +294,12 @@ export function ResearchBoard({ initial, estimate, embedded = false }: { initial
             </div>
             <ul aria-label={m.board.running}>
               {data.running.map((item) => (
-                <Row key={item.job_id} item={item} selected={item.job_id === shown} now={now} onSelect={select} onStop={stop} onResumed={resumed} />
+                <Row key={item.job_id} item={item} selected={item.job_id === shown} now={now} onSelect={select} onStop={stop} />
               ))}
             </ul>
           </div>
         ) : (
-          <div className="empty-card">
-            <span className="ti" aria-hidden="true">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4a7 7 0 1 0 0 14a7 7 0 1 0 0-14M20 20l-4-4M8 11h6M11 8v6" /></svg>
-            </span>
-            <h3>Nothing is running right now</h3>
-            <p>Start a research and it shows here as it works, step by step, with what it finds.</p>
-            {!starting && !embedded ? (
-              <button type="button" className="btn primary" onClick={() => {
-                setStarting(true);
-                // the form opens above: bring its first field to the keyboard
-                setTimeout(() => document.getElementById("rb-name")?.focus(), 0);
-              }}>{m.board.start}</button>
-            ) : null}
-          </div>
+          <p className="mut sm-text">Nothing is running right now.</p>
         )}
       </section>
 
@@ -327,7 +311,7 @@ export function ResearchBoard({ initial, estimate, embedded = false }: { initial
           <div className="card tscroll">
             <ul aria-label={m.board.recent}>
               {data.recent.map((item) => (
-                <Row key={item.job_id} item={item} selected={item.job_id === shown} now={now} onSelect={select} onStop={stop} onResumed={resumed} />
+                <Row key={item.job_id} item={item} selected={item.job_id === shown} now={now} onSelect={select} onStop={stop} />
               ))}
             </ul>
           </div>

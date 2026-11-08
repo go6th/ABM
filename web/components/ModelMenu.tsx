@@ -53,7 +53,8 @@ export function ModelMenu({ choices, value, onChange, role, menuDown = false, cl
     (wrap.current?.querySelector<HTMLElement>('[role="menuitemradio"][aria-checked="true"]') ?? items()[0])?.focus();
     const onDown = (event: MouseEvent) => { if (wrap.current && !wrap.current.contains(event.target as Node)) setOpen(false); };
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") { setOpen(false); button.current?.focus(); }
+      // handled here, so a pop-up around the menu stays open (Modal skips a prevented Escape)
+      if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setOpen(false); button.current?.focus(); }
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
         const list = items();
         const i = list.indexOf(document.activeElement as HTMLElement);
@@ -161,7 +162,8 @@ export function useResearchModels() {
   };
 }
 
-/** "Research: Opus 5.5 · Effort: Medium" and "Analysis: …", changeable before Start. */
+/** "Research: Opus 5.5" and its effort, changeable before Start. The analysis model and effort
+ * come from Settings > Models (2026-11-07: four chips on every start form were too many). */
 export function ResearchModelChips({ state }: { state: ReturnType<typeof useResearchModels> }) {
   if (!state.choices || !state.picked) return null;
   const { choices, picked } = state;
@@ -169,8 +171,6 @@ export function ResearchModelChips({ state }: { state: ReturnType<typeof useRese
     <div className="row-12 wrap" role="group" aria-label="Models for this research">
       <ModelMenu choices={choices} value={picked.research} onChange={state.setResearch} role="Research" menuDown className="chipa" />
       <EffortChip efforts={choices.efforts} value={picked.researchEffort} onChange={state.setResearchEffort} role="Research" />
-      <ModelMenu choices={choices} value={picked.analysis} onChange={state.setAnalysis} role="Analysis" menuDown className="chipa" />
-      <EffortChip efforts={choices.efforts} value={picked.analysisEffort} onChange={state.setAnalysisEffort} role="Analysis" />
     </div>
   );
 }
