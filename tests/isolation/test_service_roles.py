@@ -210,7 +210,7 @@ def _direct(c: psycopg.Connection, member: str) -> set[str]:
         str(r[0])
         for r in c.execute(
             "SELECT g.rolname FROM pg_auth_members m JOIN pg_roles g ON g.oid = m.roleid"
-            " WHERE m.member = %s::regrole",
+            " WHERE m.member = (SELECT u.oid FROM pg_roles u WHERE u.rolname = %s)",
             (member,),
         ).fetchall()
     }
@@ -227,7 +227,10 @@ def _sync(c: psycopg.Connection, api: str, worker: str) -> None:
 
 
 def test_iam_users_move_from_app_rw_to_their_service_role() -> None:
-    api, worker = f"m101_api_{uuid4().hex[:8]}", f"m101_worker_{uuid4().hex[:8]}"
+    # named like Cloud SQL IAM users ("<service account>@<project>.iam"): the "@" and "." are
+    # not plain identifier characters (staging 2026-11-08: a ``name::regrole`` cast refused them)
+    tag = uuid4().hex[:8]
+    api, worker = f"m101-api-{tag}@synthetic.iam", f"m101-worker-{tag}@synthetic.iam"
     with psycopg.connect(ADMIN_DSN, autocommit=True) as c:
         for role in (api, worker):
             c.execute(sql.SQL("CREATE ROLE {} LOGIN").format(sql.Identifier(role)))
