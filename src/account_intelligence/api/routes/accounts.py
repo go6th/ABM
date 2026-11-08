@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 import os
 import re
 from typing import Any, Literal
@@ -41,7 +40,9 @@ from account_intelligence.runs import lifecycle
 from account_intelligence.runs.transitions import TERMINAL
 from metering import events as usage
 from metering import limits
+from obs.logging import logger
 from tenancy import settings
+from tenancy.lifecycle import purge_own_deleted_account as tenancy_purge
 from views import materialize, query, saved
 from views.tables import TABLES, specs
 
@@ -52,7 +53,7 @@ register("DELETE", "/v1/accounts/{domain}", tenant_route("add_account", "run"))
 register("GET", "/v1/accounts/{domain}/tables/{table}", tenant_route("read_public", "read"))
 register("GET", "/v1/accounts/{domain}", tenant_route("read_public", "read"))
 DOMAIN = r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9-]+)+$"
-log = logging.getLogger(__name__)
+log = logger(__name__)
 # the stored-object cleanups of erased accounts in flight (an unreferenced task may be collected)
 _ERASING: set[asyncio.Task[None]] = set()
 # object deletion passes per erased account (each pass deletes up to the lifecycle batch cap)
@@ -188,16 +189,6 @@ class AccountDeleteBody(BaseModel):
     confirm: Literal[True]
 
 
-async def _purge(s: Any, account_id: UUID, *, execute: bool, allow_shared: bool) -> dict[str, Any]:
-    """One call of the user's own purge (migration 0113) inside the caller's transaction."""
-    row = await s.execute(
-        text("SELECT purge_own_deleted_account(:a, :x, :sh)"),
-        {"a": account_id, "x": execute, "sh": allow_shared},
-    )
-    summary: dict[str, Any] = row.scalar_one()
-    return summary
-
-
 async def _erase_stored(
     tenant_id: UUID, account_id: UUID, summary: dict[str, Any], *, keep_objects: bool
 ) -> None:
@@ -273,9 +264,9 @@ async def delete_account(
             raise HTTPException(404, "not found")
         account_id = removed[0]
         try:
-            plan = await _purge(s, account_id, execute=False, allow_shared=False)
+            plan = await tenancy_purge(s, account_id, execute=False, allow_shared=False)
             shared = int(plan.get("shared_payload_refs") or 0) > 0
-            done = await _purge(s, account_id, execute=True, allow_shared=shared)
+            done = await tenancy_purge(s, account_id, execute=True, allow_shared=shared)
         except DBAPIError:
             log.exception("account.erase_failed", extra={"account_id": str(account_id)})
             raise APIProblem(

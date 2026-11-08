@@ -500,7 +500,7 @@ async def test_a_part_refresh_does_not_replace_the_researchs_opening_or_findings
     """Staging 2026-11-07: after a topic refresh the page's one-minute version was the refresh's
     5-row opening, a question ("Is the account Olympus America, Inc. ...?"), and Findings counted
     its sections. A refresh of part of the checklist ranks after the research, as in the files
-    (``exports.carry``), and a question is never the opening."""
+    (``exports.carry``), and a statement is the opening before a question."""
     from tests.conftest import ADMIN_DSN
 
     domain = f"part-refresh-{uuid4().hex[:8]}.example"

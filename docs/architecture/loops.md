@@ -9,7 +9,7 @@ unannotated (the generator's check fails otherwise).
 | CRM reconcile | `src/crm_writeback/service.py:299` | 100 writes per pass | end |
 | abandon clients | `src/documents/service.py:1804` | every client once per pass, `limit` documents each | last client |
 | abandon objects | `src/documents/service.py:1810` | `limit` per client | documents exhausted |
-| account object deletion | `src/tenancy/lifecycle.py:471` | OBJECT_BATCHES_PER_PASS batches per target | a batch shorter than the limit (the target is empty) or the cap |
+| account object deletion | `src/tenancy/lifecycle.py:485` | OBJECT_BATCHES_PER_PASS batches per target | a batch shorter than the limit (the target is empty) or the cap |
 | agent schema re-ask | `src/agents/production/wiring.py:130` | 2 attempts, then 2 on the Claude default when the chosen model is Kimi K3 | valid reply, SchemaInvalid |
 | alert fan-out | `src/alerts/engine.py:205` | len(recipients) | end |
 | archive copy | `src/account_intelligence/replica/downloads.py:680` | the file's size / 1 MiB | end of file |
@@ -49,7 +49,7 @@ unannotated (the generator's check fails otherwise).
 | criterion characters | `src/account_intelligence/replica/workbook_formulas.py:194` | the pattern's characters | end of pattern |
 | crm fetch pass | `src/connectors_client/framework.py:239` | max_pages_per_pass pages per pass | last page, page_cap |
 | dash positions | `src/exports/verify.py:591` | the text length (each find starts after the last hit) | no further occurrence |
-| deletion cascade | `src/tenancy/lifecycle.py:512` | max_batches_per_pass erasing batches per pass, plus one empty probe per table | completed, blocked (blocked items remain), batch_cap |
+| deletion cascade | `src/tenancy/lifecycle.py:526` | max_batches_per_pass erasing batches per pass, plus one empty probe per table | completed, blocked (blocked items remain), batch_cap |
 | delimited lines | `src/research_files/parsers/tabular.py:144` | the file's lines | end of stream |
 | delimited unit rows | `src/research_files/parsers/tabular.py:207` | rows_per_unit rows | unit full, end of rows |
 | delimited units | `src/research_files/parsers/tabular.py:200` | rows / rows_per_unit units | end of rows, corrupt row |
@@ -61,6 +61,7 @@ unannotated (the generator's check fails otherwise).
 | document parts | `src/documents/service.py:786` | parts_total parts per worker, parts_per_request per call | no part left, client busy, request's share read (the next task continues) |
 | drop read siblings | `src/research_files/parsers/tabular.py:423` | the elements already read | none left before |
 | drop trailing credentials | `src/exports/repair/names.py:318` | the words of the name | no credential word last |
+| erased account objects | `src/account_intelligence/api/routes/accounts.py:210` | ERASE_OBJECT_PASSES passes | clean |
 | eval repeats | `src/evalgate/runner.py:104` | accounts x repeats_k runs | all cases executed |
 | event evidence | `src/refresh/probe.py:349` | outlets of one item | end |
 | export keyset pagination | `src/exports/readers/pg.py:159` | ceil(snapshot count / keyset_batch) + 1 batches | converged (rows read equal the count), RowConservation (more or fewer rows) |

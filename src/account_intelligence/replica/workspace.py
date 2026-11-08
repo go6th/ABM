@@ -226,11 +226,11 @@ async def workspace(session: Any, account_id: UUID, user_id: str, now: datetime)
                 " AND (visibility = 'public' OR EXISTS (SELECT 1 FROM account_runs x"
                 "   WHERE x.id = r.run_id AND (x.finished_reason = 'file_import'"
                 "   OR x.run_input->>'input_mode' = 'file')))"
-                # a question is not an opening (the Summary file refuses it the same way:
-                # Olympus 2026-11-07 showed "Is the account Olympus America, Inc. ...?")
-                " AND btrim(text) !~ '[?]$'"
-                f" ORDER BY {part_refresh_last('r')}, created_at DESC, version DESC, position"
-                " LIMIT 1"
+                # a statement before a question (the Summary file refuses a question as its
+                # opening: Olympus 2026-11-07 showed "Is the account Olympus America, Inc. ...?");
+                # a question still beats a blank opening when it is all there is
+                f" ORDER BY {part_refresh_last('r')}, btrim(text) ~ '[?]$',"
+                " created_at DESC, version DESC, position LIMIT 1"
             ),
             {"a": account_id},
         )

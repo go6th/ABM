@@ -1,9 +1,7 @@
 {
-  "tag": "rel-832c077b-11081146",
-  "commit": "832c077b85bb9efa54b71c0b1279456f267bc7db",
-  "patches": [
-    "03-page-opening-after-part-refresh.patch"
-  ],
+  "tag": "rel-7418a617-live",
+  "commit": "7418a617b8fe3fa22a8ab133a4ca1841826780f2",
+  "patches": [],
   "migrations": [
     "0001_core.sql",
     "0002_rls.sql",
@@ -226,14 +224,14 @@
     "0112_remove_mail_and_drive.down.sql",
     "0112_remove_mail_and_drive.sql",
     "0113_delete_erases_account.down.sql",
-    "0113_delete_erases_account.sql"
+    "0113_delete_erases_account.sql",
+    "0114_service_roles_sync_iam_names.down.sql",
+    "0114_service_roles_sync_iam_names.sql"
   ],
   "digests": {
-    "worker": "sha256:768680860154d5b336e9c2c929f747bd618e6886329f0f9a71f5b90a66ba3cbc",
-    "api": "sha256:9370889a892f943669bb1574a0c4ac894a2c5672e5ef74c4c59032763c0900da",
-    "web": "sha256:361a2950acf3d7515933b9d0f1e1a45d757763d99dee4892924c5f35ab35b716"
+    "worker": "sha256:772abd78bb30bc7fd40ea49caddf70a9b8bf1b5f32609b829fd1ec10d3cf94f8",
+    "api": "sha256:39def888534a0b0a1261ee9562a49634b090a2648e79601d8373111569a35f3d",
+    "web": "sha256:1fa9a56df7e6bc6ad1b69ed4ea766262d98f82dec6bb8f2bbd00c8cfb29c57c7"
   },
-  "adopted_at": "2026-11-08T11:46:30+00:00",
-  "build": "b2bfcedf-43e8-4b3d-8037-9436cc98a865",
-  "built_at": "2026-11-08T11:52:46+00:00"
+  "adopted_at": "2026-11-08T12:58:20+00:00"
 }

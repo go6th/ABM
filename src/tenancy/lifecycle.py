@@ -452,6 +452,20 @@ def account_object_targets(
     return sorted(set(targets)), sorted(set(skipped))
 
 
+async def purge_own_deleted_account(
+    session: AsyncSession, account_id: UUID, *, execute: bool, allow_shared: bool
+) -> dict[str, Any]:
+    """One call of the user's own account purge (migration 0113, ``purge_own_deleted_account``)
+    inside the caller's transaction: the plan when ``execute`` is false, else the erase and its
+    summary (row counts, the cache keys and object prefixes left to clean up)."""
+    row = await session.execute(
+        text("SELECT purge_own_deleted_account(:a, :x, :sh)"),
+        {"a": account_id, "x": execute, "sh": allow_shared},
+    )
+    summary: dict[str, Any] = row.scalar_one()
+    return summary
+
+
 async def erase_account_objects(
     store: ObjectEraser,
     tenant_id: UUID,
