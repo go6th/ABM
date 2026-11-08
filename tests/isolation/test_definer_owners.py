@@ -39,9 +39,6 @@ SWEEPER_LOOKUPS = (
     "due_scheduled_refreshes",
     "tenants_with_waiting_jobs",
     "library_publication_counts",
-    # no code calls it since the Mail and drive feature was removed (2026-11-08); the function
-    # stays in the database until a migration drops it, so its owner is still checked
-    "maildrive_connections_due",
     "spend_runs_to_check",
     "tenants_with_credit_activity",
 )

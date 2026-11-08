@@ -88,13 +88,6 @@ variable "moonshot_api" {
   })
   default = { base_url = "https://api.moonshot.ai/v1", dialect = "moonshot", model = "" }
 }
-variable "maildrive" {
-  type = object({
-    google_client_id    = string
-    microsoft_client_id = string
-  })
-  default = { google_client_id = "", microsoft_client_id = "" }
-}
 # IRREVERSIBLE (ADR-0125): `true` locks the audit-archive bucket's 7-year retention policy. Once
 # applied, the lock can NEVER be removed or shortened, the bucket cannot be deleted until every
 # object has aged 7 years, and the project cannot be deleted while it holds objects. The owner
@@ -164,7 +157,6 @@ module "stack" {
   token_guard             = var.token_guard
   moonshot_enabled        = var.moonshot_enabled
   moonshot_api            = var.moonshot_api
-  maildrive               = var.maildrive
   mail                    = var.mail
   archive_lock            = var.archive_lock
   workload_alerts_enabled = var.workload_alerts_enabled

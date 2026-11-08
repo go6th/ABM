@@ -117,4 +117,4 @@ def test_the_chain_is_linear_and_the_two_live_migrations_keep_their_numbers() ->
     # every revision has exactly one child but the head: no branch
     children = [d for d in chain.values() if d is not None]
     assert len(children) == len(set(children))
-    assert set(chain) - set(children) == {"0111"}
+    assert set(chain) - set(children) == {"0112"}

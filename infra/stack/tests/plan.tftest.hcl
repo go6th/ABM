@@ -96,18 +96,6 @@ run "secret_readers" {
   }
 }
 
-run "maildrive_and_moonshot_are_opt_in" {
-  command = plan
-  variables {
-    moonshot_enabled = true
-    maildrive        = { google_client_id = "g.apps.googleusercontent.com", microsoft_client_id = "" }
-  }
-  assert {
-    condition     = contains(keys(module.secret_manager.secret_ids), "maildrive-google-client-secret") && !contains(keys(module.secret_manager.secret_ids), "maildrive-microsoft-client-secret")
-    error_message = "a mail and drive client secret exists only for a configured client id"
-  }
-}
-
 run "clamav_must_be_pinned_by_digest" {
   command = plan
   variables {

@@ -9,7 +9,7 @@ PROJECT=abmgenerator
 REGION=us-central1
 SQL_INSTANCE=ai-staging-pg
 QUEUES="ai-staging-runs ai-staging-jobs ai-staging-documents"
-JOBS="ai-staging-schedules-tick ai-staging-isolation-check ai-staging-access-expiry ai-staging-audit-verify ai-staging-metrics ai-staging-maildrive-sync ai-staging-notify-relay ai-staging-spend-invariants ai-staging-sweep"
+JOBS="ai-staging-schedules-tick ai-staging-isolation-check ai-staging-access-expiry ai-staging-audit-verify ai-staging-metrics ai-staging-notify-relay ai-staging-spend-invariants ai-staging-sweep"
 
 ensure_login() {
   if ! command -v gcloud >/dev/null 2>&1; then

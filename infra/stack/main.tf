@@ -121,14 +121,6 @@ variable "moonshot_api" {
     error_message = "moonshot_api.dialect must be moonshot or ollama, and base_url must be https."
   }
 }
-variable "maildrive" {
-  type = object({
-    google_client_id    = string
-    microsoft_client_id = string
-  })
-  description = "Mail and drive OAuth client ids; a non-empty id wires its client secret (which must then have a version)."
-  default     = { google_client_id = "", microsoft_client_id = "" }
-}
 variable "mail" {
   type = object({
     host      = string
@@ -306,8 +298,6 @@ locals {
       "p-org-api-key"                 = ["worker"]
       "smtp-password"                 = ["api", "worker"] # SMTP password or app password (mail)
     },
-    var.maildrive.google_client_id != "" ? { "maildrive-google-client-secret" = ["api", "worker"] } : {},
-    var.maildrive.microsoft_client_id != "" ? { "maildrive-microsoft-client-secret" = ["api", "worker"] } : {},
   )
   redis_ca_dir = "/etc/redis-ca"
   common_env = merge(
@@ -362,8 +352,6 @@ locals {
       MOONSHOT_API_DIALECT = var.moonshot_api.dialect
     } : {},
     var.moonshot_enabled && var.moonshot_api.model != "" ? { MOONSHOT_MODEL = var.moonshot_api.model } : {},
-    var.maildrive.google_client_id != "" ? { MAILDRIVE_GOOGLE_CLIENT_ID = var.maildrive.google_client_id } : {},
-    var.maildrive.microsoft_client_id != "" ? { MAILDRIVE_MICROSOFT_CLIENT_ID = var.maildrive.microsoft_client_id } : {},
     var.mail.host != "" ? {
       SMTP_HOST      = var.mail.host
       SMTP_PORT      = tostring(var.mail.port)
@@ -374,11 +362,8 @@ locals {
   )
   # the checkpointer's IAM sign-in target (ADR-0125): the processes that run slices only
   checkpoint_env = { CLOUD_SQL_PRIVATE_IP = module.cloud_sql.private_ip }
-  maildrive_secret = merge(
-    var.maildrive.google_client_id != "" ? { MAILDRIVE_GOOGLE_CLIENT_SECRET = "maildrive-google-client-secret" } : {},
-    var.maildrive.microsoft_client_id != "" ? { MAILDRIVE_MICROSOFT_CLIENT_SECRET = "maildrive-microsoft-client-secret" } : {},
-    var.mail.host != "" ? { SMTP_PASSWORD = "smtp-password" } : {},
-  )
+  # outbound email (notifications); the Mail and drive client secrets were removed 2026-11-08
+  mail_secret = var.mail.host != "" ? { SMTP_PASSWORD = "smtp-password" } : {}
   providers_secret = {
     P_SEARCH_API_KEY    = "p-search-api-key"
     P_SCRAPE_API_KEY    = "p-scrape-api-key"
@@ -615,7 +600,7 @@ module "cloud_run" {
         EVAL_EFFORT = "high"
       })
       # the search key: Ask's web lookups (replica.web_tools, owner decision 2026-11-02)
-      secret_env          = merge(local.maildrive_secret, { P_SEARCH_API_KEY = "p-search-api-key" })
+      secret_env          = merge(local.mail_secret, { P_SEARCH_API_KEY = "p-search-api-key" })
       secret_files        = local.redis_ca_file
       min_instances       = var.scaling.api.min
       max_instances       = var.scaling.api.max
@@ -645,7 +630,7 @@ module "cloud_run" {
         CLAMD_PORT       = "3310"
         BLOB_MOUNT_DIR   = local.blob_mount # read once the handoff lands (no full-file temp copy)
       })
-      secret_env    = merge(local.providers_secret, local.maildrive_secret)
+      secret_env    = merge(local.providers_secret, local.mail_secret)
       secret_files  = local.redis_ca_file
       gcs_mounts    = { (local.blob_mount) = module.gcs.bucket }
       min_instances = var.scaling.worker.min
@@ -812,7 +797,6 @@ module "scheduler" {
     isolation-check   = { schedule = "0 2 * * *", path = "/tasks/isolation-check", deadline = "1800s", paused = false }
     documents-abandon = { schedule = "20 2 * * *", path = "/tasks/documents-abandon", deadline = "900s", paused = false }
     access-expiry     = { schedule = "30 3 * * *", path = "/tasks/access-expiry", deadline = "900s", paused = false }
-    maildrive-sync    = { schedule = "5 * * * *", path = "/tasks/maildrive-sync", deadline = "900s", paused = false }
     sweep             = { schedule = "*/5 * * * *", path = "/tasks/sweep", deadline = "300s", paused = false }
     audit-verify      = { schedule = "15 4 * * *", path = "/tasks/audit-verify", deadline = "1800s", paused = false }
     notify-relay      = { schedule = "*/5 * * * *", path = "/tasks/notify-relay", deadline = "300s", paused = false }

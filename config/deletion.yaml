@@ -269,7 +269,6 @@ account_purge:
     - alerts
     - chat_turns
     - chat_threads
-    - connector_items
     - coverage_row_events
     - coverage_rows
     - crm_write_events
@@ -378,11 +377,12 @@ account_purge:
     stuck_run_observations: 'sweeper observations; ids and states only'
     usefulness_events: 'usage analytics events (kind, subject id, time); no content; the account id stays pointing at the tombstone'
   tenant_level:
-    connector_access_log: 'a connection to a mailbox or drive belongs to the user, not to an account; only the items filed under the account (connector_items) are erased'
-    connector_grants: 'a connection to a mailbox or drive belongs to the user, not to an account; only the items filed under the account (connector_items) are erased'
-    connector_quarantine: 'a connection to a mailbox or drive belongs to the user, not to an account; only the items filed under the account (connector_items) are erased'
-    connector_oauth_states: 'a connection to a mailbox or drive belongs to the user, not to an account; only the items filed under the account (connector_items) are erased'
-    connector_connections: 'a connection to a mailbox or drive belongs to the user, not to an account; only the items filed under the account (connector_items) are erased'
+    connector_access_log: 'a CRM connection belongs to the user who made it, not to an account (Mail and drive removed 2026-11-08, migration 0112)'
+    connector_items: 'CRM items held in quarantine; no account column since migration 0112'
+    connector_grants: 'a CRM connection belongs to the user who made it, not to an account (Mail and drive removed 2026-11-08, migration 0112)'
+    connector_quarantine: 'a CRM connection belongs to the user who made it, not to an account (Mail and drive removed 2026-11-08, migration 0112)'
+    connector_oauth_states: 'a CRM connection belongs to the user who made it, not to an account (Mail and drive removed 2026-11-08, migration 0112)'
+    connector_connections: 'a CRM connection belongs to the user who made it, not to an account (Mail and drive removed 2026-11-08, migration 0112)'
     digest_runs: 'per-user record; no account link'
     research_file_chunks: 'files uploaded to the workspace for a file-driven research carry no account column; they are not reachable from an account and are left to the tenant deletion or to the person who uploaded them'
     research_file_deletions: 'files uploaded to the workspace for a file-driven research carry no account column; they are not reachable from an account and are left to the tenant deletion or to the person who uploaded them'
