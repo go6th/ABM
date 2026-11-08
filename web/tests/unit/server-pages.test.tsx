@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 // Server pages whose optional reads are independent read them together: the workspace shell's
-// recent threads and notifications, and support access's grants and events.
+// notifications and models, and support access's grants and events.
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import type { Me } from "@/lib/gen/api.gen";
@@ -14,8 +14,8 @@ vi.mock("next/navigation", () => ({ redirect: (to: string) => { throw new Error(
 // the page the browser asked for (proxy.ts sets it), so a sign-in comes back to it
 vi.mock("next/headers", () => ({ headers: async () => new Headers({ "x-return-to": "/accounts/acme.example" }) }));
 vi.mock("@/components/ws/WorkspaceShell", () => ({
-  WorkspaceShell: (p: { recent: { id: string }[]; notes: { id: string }[]; children: React.ReactNode }) => (
-    <div data-testid="shell" data-recent={p.recent.map((r) => r.id).join(",")} data-notes={p.notes.map((n) => n.id).join(",")}>{p.children}</div>
+  WorkspaceShell: (p: { notes: { id: string }[]; children: React.ReactNode }) => (
+    <div data-testid="shell" data-notes={p.notes.map((n) => n.id).join(",")}>{p.children}</div>
   ),
 }));
 vi.mock("@/components/accounts/SupportAccess", () => ({
@@ -43,26 +43,23 @@ function deferred<T>() {
 // the page's own rejected reads as unhandled
 afterEach(cleanup);
 
-test("the shell reads the user, threads, notifications and models in ONE round, and one failing leaves the others in place", async () => {
+test("the shell reads the user, notifications and models in ONE round, and one failing leaves the others in place", async () => {
   serverGet.mockClear();
-  const threads = deferred<unknown>();
   const notifications = deferred<unknown>();
   serverGet.mockImplementation((path: string) => {
     if (path === "/v1/me") return Promise.resolve(ME);
-    if (path === "/v1/chat/threads") return threads.promise;
     if (path === "/v1/models/choices") return Promise.reject(new ServerApiError(503, "ref")); // optional
     return notifications.promise;
   });
   const rendering = ClientLayout({ children: <span>page</span> });
   // every read is in flight before any has answered (one round trip per page view, 2026-10-24)
-  await vi.waitFor(() => expect(serverGet).toHaveBeenCalledTimes(4));
-  expect(serverGet.mock.calls.map((c) => c[0])).toEqual(["/v1/me", "/v1/chat/threads", "/v1/notifications", "/v1/models/choices"]);
+  await vi.waitFor(() => expect(serverGet).toHaveBeenCalledTimes(3));
+  // Ask left the sidebar (2026-11-08), so the recent chats are not read
+  expect(serverGet.mock.calls.map((c) => c[0])).toEqual(["/v1/me", "/v1/notifications", "/v1/models/choices"]);
   // a signed-out read sends the browser to sign in and back to the page it opened
-  expect(serverGet.mock.calls.map((c) => c[1])).toEqual(Array(4).fill("/accounts/acme.example"));
-  threads.reject(new ServerApiError(503, "ref"));
+  expect(serverGet.mock.calls.map((c) => c[1])).toEqual(Array(3).fill("/accounts/acme.example"));
   notifications.resolve({ unread: 1, notifications: [{ id: "n1", kind: "research_finished", read: false, created_at: "2026-10-22T00:00:00Z", account_domain: "acme.example", account_name: "Acme", credits_used: null, reason: null, scope: null }] });
   const { getByTestId } = render(await rendering);
-  expect(getByTestId("shell").getAttribute("data-recent")).toBe("");
   expect(getByTestId("shell").getAttribute("data-notes")).toBe("n1");
   expect(getByTestId("shell").textContent).toBe("page");
 });

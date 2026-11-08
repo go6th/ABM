@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
-// "Upload a file" (owner, 2026-11-05): a file is never attached to an account by itself. Once it is
+// Import a file (owner, 2026-11-05): a file is never attached to an account by itself. Once it is
 // read the page asks which account it is for and its company link, prefilled from what the file
 // names, and nothing is sent until Continue is pressed.
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useEffect } from "react";
 import { afterEach, expect, test, vi } from "vitest";
-import { NewResearch } from "@/components/accounts/NewResearch";
+import { ImportFile } from "@/components/accounts/ImportFile";
 import type { DocumentStatus } from "@/lib/gen/api.gen";
 
 const apiMock = vi.fn();
@@ -41,7 +41,7 @@ afterEach(() => apiMock.mockReset());
 
 test("a read file asks for the account and its link and sends nothing until Continue", async () => {
   apiMock.mockResolvedValue({ account_id: "acc-1", domain: "ucb.com", document_ids: ["doc-1"] });
-  render(<NewResearch estimate={null} initialTab="file" />);
+  render(<ImportFile estimate={null} />);
 
   expect(await screen.findByText("Which company is this file for?")).toBeTruthy();
   expect((screen.getByLabelText("Company name") as HTMLInputElement).value).toBe("UCB");
@@ -56,7 +56,7 @@ test("a read file asks for the account and its link and sends nothing until Cont
 });
 
 test("Continue stays off until the link is a company link", async () => {
-  render(<NewResearch estimate={null} initialTab="file" />);
+  render(<ImportFile estimate={null} />);
   const link = await screen.findByLabelText("Website");
   fireEvent.change(link, { target: { value: "not a link" } });
   expect((screen.getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(true);

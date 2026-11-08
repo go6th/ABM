@@ -1,21 +1,26 @@
 "use client";
-// The Research screen (owner request 2026-10-21): every web research running now and finished
-// recently on one page, Start and Stop, and the selected research in detail: its steps, what it
-// has found so far by kind, and its newest findings as they are saved. Everything comes from the
-// server's live stream (useResearchLive); the browser stores nothing. The selected research is in
-// the address (?r=<job id>), so a reload or a shared link shows the same one.
+// The Research page (redesign 2026-11-08, owner: "design the research page"; accounts are added
+// and files imported on Accounts, so this page is only about research). The head says what the
+// page is for and opens "Start new research" as a pop-up. Below it, every web research running now
+// as a card: the company, a progress bar with the step it is on, when it started, and Show steps,
+// Open account and Stop. Under them, the research finished in the last two weeks as a quiet list
+// with how each one ended. The research shown with its steps is in the address (?r=<job id>), so a
+// reload or a shared link ("Watch it live" on an account) opens the same one; with none chosen the
+// server shows the first one running. Token counts and the findings feed are gone from this page
+// (the account page is where results are read). Everything comes from the server's live stream
+// (useResearchLive); the browser stores nothing.
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ResearchCompany } from "@/components/accounts/ResearchCompany";
 import { ResumeButton, resumingLine } from "@/components/accounts/ResumeResearch";
 import { StopButton } from "@/components/ws/RunSteps";
-import { formatTokens } from "@/components/ws/TokenMeter";
 import { api, errorText } from "@/lib/api";
 import type { ResearchEstimate, ResearchLive, ResearchResumed, ResearchStarted } from "@/lib/gen/api.gen";
 import { m } from "@/lib/messages";
 import { useResearchLive, type LiveState } from "@/lib/useResearchLive";
-import { Grade, StateCard } from "@/ui/design";
+import { Modal } from "@/ui/Modal";
+import { Pill, StateCard, type PillTone } from "@/ui/design";
 
 type Item = ResearchLive["running"][number];
 type Detail = NonNullable<ResearchLive["detail"]>;
@@ -53,74 +58,45 @@ function useNow(every = 15000): number | null {
   return now;
 }
 
-function where(item: Item): string {
-  if (item.step) return m.board.stepOf(item.step.index, item.step.total, item.step.name);
-  return item.label;
-}
-
-function tone(item: Item): "run" | "ok" | "warn" | "" {
-  if (item.open) return "run";
-  if (item.status === "done" && item.run_status === "COMPLETED") return "ok";
-  if (item.status === "failed" || item.status === "canceled" || item.run_status === "PARTIAL") return "warn";
-  return "";
-}
-
 /** The run Resume research is offered on for this item (the server's ``can_resume``), or null. */
 export function resumableRun(item: Item | undefined): string | null {
   return item && !item.open && item.can_resume && item.run_id ? item.run_id : null;
 }
 
-function Connection({ state, asOf, now }: { state: LiveState; asOf: string | null; now: number | null }) {
-  const when = ago(asOf, now);
+/** How a finished research ended, in a word and a tone (the pill on its row). */
+export function outcome(item: Item): { text: string; tone: PillTone } {
+  if (item.run_status === "PARTIAL") return { text: m.board.partial, tone: "warn" };
+  if (item.status === "done") return { text: m.board.complete, tone: "ok" };
+  if (item.status === "canceled") return { text: m.board.cancelled, tone: "neutral" };
+  if (item.status === "failed") return { text: m.board.didNotFinish, tone: "bad" };
+  return { text: item.label, tone: "neutral" };
+}
+
+/** "New research", "Refresh from web, job postings: pricing". */
+function kindLine(item: Item): string {
+  const scope = item.scope !== "Everything" ? `, ${item.scope.toLowerCase()}` : "";
+  return `${item.kind}${scope}${item.topic ? `: ${item.topic}` : ""}`;
+}
+
+function initialOf(name: string): string {
+  return (name.replace(/^www\./i, "").match(/[a-z0-9]/i)?.[0] ?? "?").toUpperCase();
+}
+
+function Connection({ state }: { state: LiveState }) {
   const text = state === "live" ? m.board.live : state === "polling" ? m.board.polling : m.board.connecting;
-  // only the connection state is a live region: the "updated 5 s ago" clock changes every few
-  // seconds and would be read out each time
+  // only the connection state is a live region; it changes rarely, so it is read out only then
   return (
     <span className="live-state" data-state={state}>
       <span className="pdot" aria-hidden="true" />
       <span role="status" aria-live="polite">{text}</span>
-      {when && state !== "polling" ? <span className="mut">{` (${m.board.updated(when)})`}</span> : null}
     </span>
-  );
-}
-
-function Row({ item, selected, now, onSelect, onStop }: {
-  item: Item;
-  selected: boolean;
-  now: number | null;
-  onSelect: (id: string) => void;
-  onStop: (item: Item) => Promise<void>;
-}) {
-  const when = item.open ? ago(item.started_at ?? item.created_at, now) : ago(item.finished_at, now);
-  return (
-    <li className="trow cols-research" aria-current={selected ? "true" : undefined}>
-      <span className="strong">
-        {item.company}
-        <span className="sub">{item.kind}{item.scope !== "Everything" ? `, ${item.scope.toLowerCase()}` : ""}{item.topic ? `: ${item.topic}` : ""}</span>
-      </span>
-      <span>
-        <span className={`sub-line ${tone(item)}`}>{where(item)}</span>
-        {item.open && item.steps_total ? <span className="sub">{m.board.stepsDone(item.steps_done, item.steps_total)}</span> : null}
-      </span>
-      <span>
-        <span className="num">{m.board.counts(item.findings, item.searches)}</span>
-        {item.tokens ? <span className="sub">{formatTokens(item.tokens)} {m.board.tokens.toLowerCase()}</span> : null}
-      </span>
-      <span className="mut sm-text">{when ? (item.open ? m.board.started(when) : m.board.finished(when)) : null}</span>
-      <span className="row-12 wrap end-actions">
-        <button type="button" className="btn sm" aria-pressed={selected} aria-label={`${selected ? m.board.showing : m.board.show} ${item.company}`} onClick={() => onSelect(item.job_id)}>
-          {selected ? m.board.showing : m.board.show}
-        </button>
-        {item.can_stop ? <StopButton onStop={() => onStop(item)} label={m.board.stop} /> : null}
-      </span>
-    </li>
   );
 }
 
 function Steps({ detail }: { detail: Detail }) {
   if (!detail.steps.length) return <p className="mut sm-text">{detail.label}</p>;
   return (
-    <ol className="steps" aria-label={m.board.steps}>
+    <ol className="steps rs-steps" aria-label={m.board.steps}>
       {detail.steps.map((st, i) => (
         <li key={st.id} data-state={st.state} aria-current={st.state === "running" || st.state === "paused" ? "step" : undefined}>
           <span className="n">{i + 1}</span>
@@ -132,95 +108,123 @@ function Steps({ detail }: { detail: Detail }) {
   );
 }
 
-function DetailPanel({ detail, item, now, onResumed }: {
-  detail: Detail;
-  item: Item | undefined;
-  now: number | null;
-  onResumed: (resumed: ResearchResumed) => void;
-}) {
-  const resumeRun = resumableRun(item);
-  // finished with nothing counted on the board: the live sections would only say "nothing yet"
-  const quietDone = Boolean(item && !item.open && !detail.findings && !detail.searches && !detail.pages_read);
+/** The opened research's steps (and why it stopped, when it did), under its card or row. */
+function Opened({ detail }: { detail: Detail }) {
+  const id = `rs-detail-${detail.job_id}`;
   return (
-    <section className="card pad stack-14" aria-labelledby="research-detail-title">
-      <div className="row-12 wrap">
-        <div className="grow stack-4">
-          <h2 id="research-detail-title">{detail.company}</h2>
-          <div className="mut sm-text">{detail.label}{detail.reason ? `. ${m.board.reason(detail.reason)}` : ""}</div>
-        </div>
-        {resumeRun ? <ResumeButton key={resumeRun} runId={resumeRun} compact onResumed={onResumed} /> : null}
-        <Link className="btn sm" href={`/accounts/${encodeURIComponent(detail.domain)}`} prefetch={false}>{m.board.openAccount}</Link>
+    <section className="rs-detail stack-10" aria-labelledby={id}>
+      <h3 id={id} className="sr-only">{detail.company}</h3>
+      <div className="rs-detail-head">
+        <span className="strong">{m.board.steps}</span>
+        <span className="mut sm-text">{detail.label}</span>
       </div>
-      {quietDone ? (
-        // a finished research with nothing counted here (an older run, or one that only rebuilt
-        // files): say where its results are instead of a row of zeros
-        <p className="notice info sm-text">This research has finished and its results are on the account page.</p>
-      ) : (
-        <dl className="kpi-tiles">
-          <div className="kpi-tile hl"><dt className="k">{m.board.findings}</dt><dd className="v">{detail.findings}</dd></div>
-          <div className="kpi-tile"><dt className="k">{m.board.sources}</dt><dd className="v">{detail.searches}</dd></div>
-          <div className="kpi-tile"><dt className="k">{m.board.pages}</dt><dd className="v">{detail.pages_read}</dd></div>
-          <div className="kpi-tile"><dt className="k">{m.board.tokens}</dt><dd className="v">{formatTokens(detail.tokens)}</dd></div>
-        </dl>
-      )}
-      <div className="live-split">
-        <div className="stack-8">
-          <h3>{m.board.steps}</h3>
-          <Steps detail={detail} />
-        </div>
-        {quietDone ? null : (
-          <div className="stack-8">
-            <h3>{m.board.byKind}</h3>
-            {detail.findings_by_kind.length ? (
-              <ul className="rows">
-                {detail.findings_by_kind.map((k) => <li key={k.kind}><span>{k.kind}</span><span className="end num">{k.count}</span></li>)}
-              </ul>
-            ) : <p className="mut sm-text">{m.board.noFindings}</p>}
-          </div>
-        )}
-      </div>
-      {quietDone ? null : <div className="stack-8">
-        <h3>{m.board.newest}</h3>
-        {detail.latest_findings.length ? (
-          <ul className="live-findings" aria-live="polite" aria-relevant="additions">
-            {detail.latest_findings.map((f) => (
-              <li key={f.fact_id} className="lrow">
-                <span className="grow stack-4">
-                  <span className="mut xs-text">{f.kind}: {f.label}</span>
-                  <span>{f.value}</span>
-                  {f.source ? <span className="mut xs-text">{m.board.from(f.source)}</span> : null}
-                </span>
-                <span className="stack-4 align-end">
-                  <Grade grade={f.grade} />
-                  <span className="when">{ago(f.found_at, now)}</span>
-                </span>
-              </li>
-            ))}
-          </ul>
-        ) : <p className="mut sm-text">{m.board.noFindings}</p>}
-        {detail.withheld ? <p className="fine">{m.board.withheld(detail.withheld)}</p> : null}
-      </div>}
+      {detail.reason ? <p className="notice warn sm-text">{m.board.reason(detail.reason)}</p> : null}
+      <Steps detail={detail} />
     </section>
   );
 }
 
-/** ``embedded``: on the Research page beside the start form (redesign 2026-11-07), so the board
- * draws no title and no start form of its own. */
-export function ResearchBoard({ initial, estimate, embedded = false }: { initial: ResearchLive | null; estimate: ResearchEstimate | null; embedded?: boolean }) {
+function RunningCard({ item, detail, now, onToggle, onStop }: {
+  item: Item;
+  detail: Detail | null;
+  now: number | null;
+  onToggle: (item: Item, open: boolean) => void;
+  onStop: (item: Item) => Promise<void>;
+}) {
+  const open = detail !== null;
+  const total = item.step?.total ?? item.steps_total;
+  const done = Math.min(item.steps_done, total);
+  const when = ago(item.started_at ?? item.created_at, now);
+  const stepLine = item.step ? m.board.stepOf(item.step.index, item.step.total, item.step.name) : item.label;
+  return (
+    <li className="card rs-card" data-open={open || undefined}>
+      <div className="rs-top">
+        <span className="ti" aria-hidden="true">{initialOf(item.company)}</span>
+        <div className="rs-name">
+          <b>{item.company}</b>
+          <span className="mut xs-text">{kindLine(item)}</span>
+        </div>
+        <Pill tone="run" small>{m.board.researching}</Pill>
+      </div>
+      <div className="rs-progress">
+        <div className="rs-progress-line">
+          <span className="rs-step">{stepLine}</span>
+          {total ? <span className="mut xs-text num">{m.board.stepsDone(done, total)}</span> : null}
+        </div>
+        {total ? (
+          <progress className="pbar rs-bar" max={total} value={done} aria-label={`${item.company}: ${m.board.stepsDone(done, total)}`} />
+        ) : null}
+      </div>
+      <div className="rs-foot">
+        <span className="mut xs-text">{when ? m.board.started(when) : m.board.startingSoon}</span>
+        <span className="rs-actions">
+          <button type="button" className="btn sm" aria-expanded={open} aria-label={`${open ? m.board.hideSteps : m.board.showSteps}: ${item.company}`} onClick={() => onToggle(item, !open)}>
+            {open ? m.board.hideSteps : m.board.showSteps}
+          </button>
+          <Link className="btn sm" href={`/accounts/${encodeURIComponent(item.domain)}`} prefetch={false}>{m.board.openAccount}</Link>
+          {item.can_stop ? <StopButton onStop={() => onStop(item)} label={m.board.stop} /> : null}
+        </span>
+      </div>
+      {detail ? <Opened detail={detail} /> : null}
+    </li>
+  );
+}
+
+function RecentRow({ item, detail, now, onToggle, onResumed }: {
+  item: Item;
+  detail: Detail | null;
+  now: number | null;
+  onToggle: (item: Item, open: boolean) => void;
+  onResumed: (resumed: ResearchResumed) => void;
+}) {
+  const open = detail !== null;
+  const end = outcome(item);
+  const when = ago(item.finished_at, now);
+  const resumeRun = resumableRun(item);
+  return (
+    <li className="rs-row" data-open={open || undefined}>
+      <div className="rs-row-main">
+        <span className="ti lav" aria-hidden="true">{initialOf(item.company)}</span>
+        <div className="rs-name">
+          <b>{item.company}</b>
+          <span className="mut xs-text">{kindLine(item)}</span>
+        </div>
+        <span className="rs-end"><Pill tone={end.tone} small>{end.text}</Pill></span>
+        <span className="rs-when mut xs-text">{when ? m.board.finished(when) : null}</span>
+        <span className="rs-actions">
+          {resumeRun ? <ResumeButton key={resumeRun} runId={resumeRun} compact onResumed={onResumed} /> : null}
+          <button type="button" className="btn sm" aria-expanded={open} aria-label={`${open ? m.board.hideSteps : m.board.showSteps}: ${item.company}`} onClick={() => onToggle(item, !open)}>
+            {open ? m.board.hideSteps : m.board.showSteps}
+          </button>
+          <Link className="btn sm" href={`/accounts/${encodeURIComponent(item.domain)}`} prefetch={false}>{m.board.openAccount}</Link>
+        </span>
+      </div>
+      {detail ? <Opened detail={detail} /> : null}
+    </li>
+  );
+}
+
+export function ResearchBoard({ initial, estimate, startOpen = false }: { initial: ResearchLive | null; estimate: ResearchEstimate | null; startOpen?: boolean }) {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
   const selected = params.get("r");
   const { data, state, restart } = useResearchLive(initial, selected);
   const now = useNow(state === "live" ? 5000 : 15000);
-  const [starting, setStarting] = useState(false);
+  const [starting, setStarting] = useState(startOpen);
+  // the research whose steps were closed by hand (the server still sends it as the detail)
+  const [closed, setClosed] = useState<string | null>(null);
   const [note, setNote] = useState<{ text: string; bad?: boolean } | null>(null);
-  // where focus goes once the start form closes after a start (the form's button is gone)
-  const startToggle = useRef<HTMLButtonElement>(null);
 
   const select = useCallback((id: string) => {
+    setClosed(null);
     router.replace(`${pathname}?r=${encodeURIComponent(id)}`, { scroll: false });
   }, [router, pathname]);
+
+  const toggle = useCallback((item: Item, open: boolean) => {
+    if (open) select(item.job_id);
+    else setClosed(item.job_id);
+  }, [select]);
 
   const stop = useCallback(async (item: Item) => {
     setNote(null);
@@ -246,77 +250,85 @@ export function ResearchBoard({ initial, estimate, embedded = false }: { initial
     setNote({ text: m.board.startedNote });
     select(s.job_id);
     restart();
-    // after the form unmounts, focus the Start button again instead of losing it to the page
-    setTimeout(() => startToggle.current?.focus(), 0);
   }, [select, restart]);
+
+  const head = (
+    <div className="head">
+      <div className="ttl">
+        <h1>{m.board.title}</h1>
+        <div className="sub">{m.board.sub} <Link className="link" href="/accounts" prefetch={false}>{m.board.toAccounts}</Link></div>
+      </div>
+      <div className="row-12 wrap">
+        {data ? <Connection state={state} /> : null}
+        <button type="button" className="btn primary" aria-haspopup="dialog" onClick={() => setStarting(true)}>{m.board.start}</button>
+      </div>
+    </div>
+  );
+
+  const startDialog = starting ? (
+    <Modal title={m.board.startTitle} wide onClose={() => setStarting(false)}>
+      <p className="mut sm-text">{m.board.startIntro}</p>
+      <ResearchCompany estimate={estimate} idPrefix="rb" onStarted={started} />
+    </Modal>
+  ) : null;
 
   if (!data) {
     // a full reload: a client navigation to the same address keeps this board (and its empty
     // state), so the button would seem to do nothing
-    return <StateCard title={m.board.title} body={m.board.loadFailed} action={<a className="btn" href={selected ? `/research?r=${encodeURIComponent(selected)}` : "/research"}>{m.run.refresh}</a>} />;
+    return (
+      <div className="stack-22">
+        {head}
+        <StateCard title={m.board.title} body={m.board.loadFailed} action={<a className="btn" href={selected ? `/research?r=${encodeURIComponent(selected)}` : "/research"}>{m.run.refresh}</a>} />
+        {startDialog}
+      </div>
+    );
   }
-  const shown = data.detail?.job_id ?? null;
-  const shownItem = shown ? [...data.running, ...data.recent].find((i) => i.job_id === shown) : undefined;
+  const shown = data.detail && data.detail.job_id !== closed ? data.detail : null;
+  const detailFor = (item: Item) => (shown && shown.job_id === item.job_id ? shown : null);
 
   return (
     <div className="stack-22">
-      {embedded ? (
-        // the connection is worth a word only when it is not live
-        state !== "live" ? <Connection state={state} asOf={data.as_of} now={now} /> : null
-      ) : <div className="head">
-        <div className="ttl">
-          <h1>{m.board.title}</h1>
-          <div className="sub">{m.board.sub}</div>
+      {head}
+
+      {note ? <p className={`notice ${note.bad ? "error" : "info"} sm-text`} role={note.bad ? "alert" : "status"}>{note.text}</p> : null}
+
+      <section className="stack-12" aria-labelledby="research-running-title">
+        <div className="rs-sec-head">
+          <h2 id="research-running-title">{m.board.running}</h2>
+          {data.running.length ? <span className="rs-count">{data.running.length}</span> : null}
         </div>
-        <div className="row-12 wrap">
-          <Connection state={state} asOf={data.as_of} now={now} />
-          <button ref={startToggle} type="button" className="btn primary" aria-expanded={starting} aria-controls={starting ? "research-start" : undefined} onClick={() => setStarting((v) => !v)}>
-            {starting ? m.board.hideStart : m.board.start}
-          </button>
-        </div>
-      </div>}
-
-      {starting ? (
-        <section id="research-start" className="card pad stack-14" aria-labelledby="research-start-title">
-          <h2 id="research-start-title">{m.board.startTitle}</h2>
-          <ResearchCompany estimate={estimate} idPrefix="rb" onStarted={started} />
-        </section>
-      ) : null}
-
-      {note ? <p className={`sm-text${note.bad ? " bad-text" : ""}`} role={note.bad ? "alert" : "status"}>{note.text}</p> : null}
-
-      <section className="stack-10" aria-labelledby="research-running-title">
-        <h2 id="research-running-title">{m.board.running}</h2>
         {data.running.length ? (
-          <div className="card tscroll">
-            <div className="trow th cols-research" aria-hidden="true">
-              <span>{m.board.company}</span><span>{m.board.progress}</span><span>{m.board.found}</span><span /><span />
-            </div>
-            <ul aria-label={m.board.running}>
-              {data.running.map((item) => (
-                <Row key={item.job_id} item={item} selected={item.job_id === shown} now={now} onSelect={select} onStop={stop} />
-              ))}
-            </ul>
-          </div>
+          <ul className="rs-cards" aria-label={m.board.running}>
+            {data.running.map((item) => (
+              <RunningCard key={item.job_id} item={item} detail={detailFor(item)} now={now} onToggle={toggle} onStop={stop} />
+            ))}
+          </ul>
         ) : (
-          <p className="mut sm-text">Nothing is running right now.</p>
+          <div className="card rs-empty">
+            <div className="stack-4">
+              <span className="strong">{m.board.noneRunningTitle}</span>
+              <span className="mut sm-text">{m.board.noneRunning}</span>
+            </div>
+            <button type="button" className="btn" aria-haspopup="dialog" onClick={() => setStarting(true)}>{m.board.start}</button>
+          </div>
         )}
       </section>
 
-      {data.detail ? <DetailPanel detail={data.detail} item={shownItem} now={now} onResumed={resumed} /> : null}
-
-      <section className="stack-10" aria-labelledby="research-recent-title">
-        <h2 id="research-recent-title">{m.board.recent}</h2>
+      <section className="stack-12" aria-labelledby="research-recent-title">
+        <div className="rs-sec-head">
+          <h2 id="research-recent-title">{m.board.recent}</h2>
+          {data.recent.length ? <span className="rs-count">{data.recent.length}</span> : null}
+        </div>
         {data.recent.length ? (
-          <div className="card tscroll">
-            <ul aria-label={m.board.recent}>
-              {data.recent.map((item) => (
-                <Row key={item.job_id} item={item} selected={item.job_id === shown} now={now} onSelect={select} onStop={stop} />
-              ))}
-            </ul>
-          </div>
+          <ul className="card clip rs-list" aria-label={m.board.recent}>
+            {data.recent.map((item) => (
+              <RecentRow key={item.job_id} item={item} detail={detailFor(item)} now={now} onToggle={toggle} onResumed={resumed} />
+            ))}
+          </ul>
         ) : <p className="mut sm-text">{m.board.noneRecent}</p>}
       </section>
+
+      {startDialog}
     </div>
   );
 }

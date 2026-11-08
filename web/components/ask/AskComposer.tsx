@@ -41,7 +41,7 @@ function AddFilesMenu() {
       <button ref={button} type="button" className="chipa plus" aria-haspopup="menu" aria-expanded={open} aria-controls={open ? menuId : undefined} aria-label="Add files" title="Add files" onClick={() => setOpen((v) => !v)}>+</button>
       {open ? (
         <div className="menu" role="menu" id={menuId} aria-label="Add files">
-          <Link role="menuitem" href="/research?tab=file" prefetch={false}>Add files</Link>
+          <Link role="menuitem" href="/accounts/import" prefetch={false}>Add files</Link>
         </div>
       ) : null}
     </div>

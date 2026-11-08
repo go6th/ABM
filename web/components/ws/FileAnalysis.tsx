@@ -217,7 +217,7 @@ export function FileAnalysis({ domain, run }: { domain: string; run: FileAnalysi
             <span className="mut xs-text">{d.passages.toLocaleString()} section{d.passages === 1 ? "" : "s"} read</span>
           </div>
         )) : <p className="mut sm-text">The files were deleted.</p>}
-        <Link className="link-strong" href="/research?tab=file">Add another file</Link>
+        <Link className="link-strong" href="/accounts/import">Add another file</Link>
         <div className="line-top" />
         <div className="lbl">Privacy</div>
         <p className="mut sm-text">Kept in your workspace only. Never included in the research files you share with a prospect. Delete any file and its findings are removed.</p>

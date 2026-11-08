@@ -1,12 +1,13 @@
 "use client";
-// The client workspace frame (redesign 2026-11-07): logo, workspace card, the nav (Ask, Accounts,
-// Research, Settings), updates, recent chats with New chat, then the signed-in person and
-// Sign out (no "Accounts used" meter: owner decision 2026-10-14; Add account still enforces the
+// The client workspace frame (redesign 2026-11-07): logo, workspace card, the nav (Accounts,
+// Research, Settings), updates, then the signed-in person and Sign out. Ask and its recent chats
+// left the sidebar on 2026-11-08 (owner: "remove that Ask from the left side"); the logo opens
+// Accounts (no "Accounts used" meter: owner decision 2026-10-14; Add account still enforces the
 // cap). Below 760px the sidebar is an overlay menu: Escape or the
 // scrim closes it, focus stays inside while open and returns to the Menu button, and the page
 // behind is inert.
 import Link from "next/link";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, clearSession } from "@/lib/api";
 import type { ShellNote } from "@/lib/notifications";
@@ -14,8 +15,6 @@ import { setUploadOwner } from "@/lib/upload-store";
 import { Logo, NavIcon } from "@/ui/design";
 import { NavProgress } from "@/ui/NavProgress";
 import { Toaster } from "@/ui/Toaster";
-
-export interface RecentChat { id: string; title: string }
 
 export type { ShellNote };
 
@@ -34,7 +33,6 @@ export interface ShellUser {
 export const NEW_CHAT_EVENT = "ask:new-chat";
 
 export function isCurrent(pathname: string, href: string): boolean {
-  if (href === "/") return pathname === "/";
   // starting, watching and reading a research all sit under Research
   if (href === "/research") return pathname === "/research" || pathname.startsWith("/research/") || pathname.startsWith("/runs/");
   // every account screen, its file analysis included, sits under Accounts
@@ -46,9 +44,8 @@ function initial(name: string | null, email: string | null): string {
   return ((name ?? email ?? "?").trim()[0] ?? "?").toUpperCase();
 }
 
-export function WorkspaceShell({ user, recent, notes = [], children }: { user: ShellUser; recent: RecentChat[]; notes?: ShellNote[]; children: React.ReactNode }) {
+export function WorkspaceShell({ user, notes = [], children }: { user: ShellUser; notes?: ShellNote[]; children: React.ReactNode }) {
   const pathname = usePathname();
-  const params = useSearchParams();
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -58,10 +55,8 @@ export function WorkspaceShell({ user, recent, notes = [], children }: { user: S
   const hideModelNote = () => setModelNoteHidden(true);
   const menuButton = useRef<HTMLButtonElement>(null);
   const side = useRef<HTMLElement>(null);
-  const thread = params.get("thread");
 
   const nav = [
-    { href: "/", label: "Ask", icon: "ask" },
     { href: "/accounts", label: "Accounts", icon: "accounts" },
     { href: "/research", label: "Research", icon: "research" },
     { href: "/settings", label: "Settings", icon: "settings" },
@@ -123,30 +118,24 @@ export function WorkspaceShell({ user, recent, notes = [], children }: { user: S
     router.refresh();
   };
 
-  const newChat = () => {
-    setOpen(false);
-    window.dispatchEvent(new Event(NEW_CHAT_EVENT));
-    router.push("/");
-  };
-
   return (
     <div className="app ui-pastel">
       <NavProgress />
       <a className="skip-link" href="#main">Skip to content</a>
       <div className="topbar" inert={open || undefined}>
-        <Link href="/" aria-label="Account Intelligence home"><Logo /></Link>
+        <Link href="/accounts" aria-label="Account Intelligence home"><Logo /></Link>
         <button ref={menuButton} type="button" className="btn sm" aria-expanded={open} aria-controls="sidebar" onClick={() => setOpen(true)}>Menu</button>
       </div>
       <button type="button" className="scrim" data-open={open} aria-label="Close menu" tabIndex={-1} onClick={close} />
       <aside ref={side} className="side" id="sidebar" data-open={open} aria-label="Workspace">
-        <Link href="/" prefetch={false} onClick={() => setOpen(false)}><Logo /></Link>
+        <Link href="/accounts" prefetch={false} aria-label="Account Intelligence home" onClick={() => setOpen(false)}><Logo /></Link>
         <div className="card wscard"><div className="k">Workspace</div><div className="v" title={user.clientName}>{user.clientName}</div></div>
         <nav className="nav" aria-label="Main">
           {nav.map((item) => (
             <Link
               key={item.href}
               href={item.href}
-              aria-current={isCurrent(pathname, item.href) && !(item.href === "/" && thread) ? "page" : undefined}
+              aria-current={isCurrent(pathname, item.href) ? "page" : undefined}
               onClick={() => setOpen(false)}
             >
               <NavIcon name={item.icon} />{item.label}
@@ -172,17 +161,6 @@ export function WorkspaceShell({ user, recent, notes = [], children }: { user: S
             ))}
           </section>
         ) : null}
-        <nav className="rec" aria-label="Recent chats">
-          <div className="rec-head"><span className="lbl">Recent chats</span><button type="button" className="new" onClick={newChat}>New chat</button></div>
-          {recent.length ? (<>
-            {recent.map((t) => (
-              <Link key={t.id} href={`/?thread=${encodeURIComponent(t.id)}`} prefetch={false} aria-current={thread === t.id ? "page" : undefined} onClick={() => setOpen(false)}>
-                {t.title || "Untitled chat"}
-              </Link>
-            ))}
-            <Link className="all" href="/chats" prefetch={false} aria-current={pathname === "/chats" ? "page" : undefined} onClick={() => setOpen(false)}>All chats</Link>
-          </>) : <p className="rec-empty">Your questions appear here.</p>}
-        </nav>
         <div className="side-foot">
           <div className="me">
             <div className="avatar" aria-hidden="true">{initial(user.userName, user.email)}</div>

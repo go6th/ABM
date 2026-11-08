@@ -51,7 +51,7 @@ export function UploadedFilesCard({ docs, domain = null }: { docs: DocumentStatu
         </ul>
       )}
       <div className="files-actions">
-        <Link className="btn" href="/research?tab=file" prefetch={false}>Add files</Link>
+        <Link className="btn" href="/accounts/import" prefetch={false}>Add files</Link>
       </div>
     </section>
   );

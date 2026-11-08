@@ -46,7 +46,7 @@ export default async function FileAnalysisPage({ params, searchParams }: { param
             <StateCard
               title="No file analysis yet"
               body="Upload account notes, a plan or an export and get an analysis from the file alone."
-              action={<Link className="btn" href="/research?tab=file">Upload a file</Link>}
+              action={<Link className="btn" href="/accounts/import">Upload a file</Link>}
             />
           )}
         </div>

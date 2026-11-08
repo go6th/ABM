@@ -24,7 +24,7 @@ test("each uploaded file shows its name, size, passages and status", () => {
   expect(screen.getByText(/420 sections/)).toBeTruthy();
   expect(screen.getByText("Ready")).toBeTruthy();
   expect(screen.getByText("Getting ready")).toBeTruthy(); // bound to the account, on its way to Ready
-  expect(screen.getByRole("link", { name: "Add files" }).getAttribute("href")).toBe("/research?tab=file");
+  expect(screen.getByRole("link", { name: "Add files" }).getAttribute("href")).toBe("/accounts/import");
   // each file can be deleted on its own (it asks first)
   expect(screen.getByRole("button", { name: "Delete Workday_People_List.xlsx" })).toBeTruthy();
 });

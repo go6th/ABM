@@ -3,7 +3,7 @@
 // none is left at "Read, waiting for the company" once the choice has closed (2026-10-15).
 import { renderHook, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
-import { useAttachLate } from "@/components/accounts/NewResearch";
+import { useAttachLate } from "@/components/accounts/ImportFile";
 import { ApiError } from "@/lib/api";
 import type { DocumentStatus } from "@/lib/gen/api.gen";
 

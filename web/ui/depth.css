@@ -327,3 +327,11 @@ html.modal-open { overflow: hidden; }
 .ui-pastel .acct > .pg, .ui-pastel .acct > .split { padding-left: 32px; padding-right: 32px; }
 @media (max-width: 759px) { .ui-pastel .acct > .pg, .ui-pastel .acct > .split { padding-left: 12px; padding-right: 12px; } }
 @media (max-width: 759px) { .ui-pastel .ask-empty h1 { font-size: 30px; } }
+
+/* Research cards and the model summary (2026-11-08): the same soft lift as the other client cards */
+.ui-pastel .rs-card { box-shadow: var(--sh-2), var(--hl); transition: box-shadow var(--ease), border-color var(--ease); }
+.ui-pastel .rs-card[data-open] { box-shadow: var(--sh-lift), var(--hl); }
+.ui-pastel .rs-bar::-webkit-progress-value { background: var(--grad-primary); }
+.ui-pastel .rs-bar::-moz-progress-bar { background: var(--grad-primary); }
+.ui-pastel .mps-row { box-shadow: var(--sh-1); }
+.ui-pastel .rs-detail { animation: rise 220ms ease-out both; }

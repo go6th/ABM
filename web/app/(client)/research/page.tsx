@@ -1,18 +1,20 @@
-// Research (redesign 2026-11-07): start a research on a company, or analyze your own file, on the
-// left; every web research running now and finished recently on the right, live from the server
-// (owner request 2026-10-21). Was two pages, Research and New research; the old address
-// redirects here with its tab.
+// Research (redesign 2026-11-08): every web research running now and finished recently, live from
+// the server (owner request 2026-10-21), with "Start new research" as a pop-up. Accounts are added
+// and files imported on Accounts, so the old "Upload a file" tab (?tab=file) now opens Import a
+// file there. ?start=1 opens the start pop-up (the old New research address); ?r=<job id> shows
+// that research's steps.
 import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 import type { ResearchEstimate, ResearchLive } from "@/lib/gen/api.gen";
 import { serverGet, ServerApiError } from "@/lib/server-api";
 import { ResearchBoard } from "@/components/research/ResearchBoard";
-import { NewResearch } from "@/components/accounts/NewResearch";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Research · Account Intelligence" };
 
-export default async function ResearchPage({ searchParams }: { searchParams: Promise<{ r?: string; tab?: string }> }) {
+export default async function ResearchPage({ searchParams }: { searchParams: Promise<{ r?: string; tab?: string; start?: string }> }) {
   const query = await searchParams;
+  if (query.tab === "file") redirect("/accounts/import");
   const selected = query.r && /^[0-9a-f-]{36}$/i.test(query.r) ? `?selected=${query.r}` : "";
   let initial: ResearchLive | null = null;
   let estimate: ResearchEstimate | null = null;
@@ -25,19 +27,9 @@ export default async function ResearchPage({ searchParams }: { searchParams: Pro
   }
   if (live.status === "fulfilled") initial = live.value;
   if (est.status === "fulfilled") estimate = est.value;
-  const tab = query.tab === "file" ? "file" : "company";
   return (
     <div className="pg">
-      <div>
-        <h1>Research</h1>
-        <p className="intro">Research a company from public sources, or upload your own file to analyze. You are told when it is ready.</p>
-      </div>
-      <div className="research-grid">
-        <section className="research-start" aria-label="Start a research">
-          <NewResearch estimate={estimate} initialTab={tab} />
-        </section>
-        <ResearchBoard initial={initial} estimate={estimate} embedded />
-      </div>
+      <ResearchBoard initial={initial} estimate={estimate} startOpen={query.start === "1"} />
     </div>
   );
 }

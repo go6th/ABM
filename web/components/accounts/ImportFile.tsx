@@ -1,6 +1,6 @@
 "use client";
-// New research as designed: Company name | Upload a file tabs. The company tab is the shared
-// ResearchCompany form. The file tab: "Add files", the file list
+// Import a file (Accounts, 2026-11-08: the owner keeps adding and importing accounts on Accounts,
+// so the upload left the Research page): "Add files", the file list
 // (Uploading, Scanning, Reading, Ready, Failed). When the files name one company they are attached
 // to it (its account is created when needed; owner decision 2026-10-14), with "Change"; otherwise
 // "Which company is this file for?" with just a company name and website (no list of detected
@@ -17,7 +17,6 @@ import type { CompanyConfirmed, DocumentStatus, ResearchEstimate, RunCreated, Ru
 import { LimitNote, LimitReached, limitReached, useMyLimits } from "@/components/Limits";
 import { CONFIRMED_TWICE, UsageProceed } from "@/components/UsageProceed";
 import { DocumentDrop } from "@/components/ws/DocumentDrop";
-import { ResearchCompany } from "./ResearchCompany";
 import { errorText } from "@/lib/api";
 
 function startError(error: unknown): string {
@@ -95,7 +94,7 @@ export function useAttachLate(waiting: DocumentStatus[], company: Company | null
   }, [waiting, company, accountId, onDone]);
 }
 
-function FileTab({ estimate }: { estimate: ResearchEstimate | null }) {
+export function ImportFile({ estimate }: { estimate: ResearchEstimate | null }) {
   const router = useRouter();
   const [docs, setDocs] = useState<DocumentStatus[]>([]);
   const [accountId, setAccountId] = useState<string | null>(null);
@@ -209,50 +208,5 @@ function FileTab({ estimate }: { estimate: ResearchEstimate | null }) {
         </>
       ) : null}
     </div>
-  );
-}
-
-const TABS = ["company", "file"] as const;
-type Tab = (typeof TABS)[number];
-
-export function NewResearch({ estimate, initialTab }: { estimate: ResearchEstimate | null; initialTab: Tab }) {
-  const [tab, setTabNow] = useState<Tab>(initialTab);
-  // a panel mounts on its first visit and then stays (hidden when not shown), so switching tabs
-  // never drops typed text or files mid-upload
-  const [seen, setSeen] = useState<Record<Tab, boolean>>({ company: initialTab === "company", file: initialTab === "file" });
-  const setTab = (t: Tab) => { setTabNow(t); setSeen((v) => (v[t] ? v : { ...v, [t]: true })); };
-  const list = useRef<HTMLDivElement>(null);
-  // the tab pattern: one stop in the tab order, arrow keys (and Home, End) move between tabs
-  const onKey = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    const at = TABS.indexOf(tab);
-    const next = e.key === "ArrowRight" ? (at + 1) % TABS.length
-      : e.key === "ArrowLeft" ? (at - 1 + TABS.length) % TABS.length
-        : e.key === "Home" ? 0 : e.key === "End" ? TABS.length - 1 : -1;
-    if (next < 0) return;
-    e.preventDefault();
-    setTab(TABS[next]!);
-    list.current?.querySelector<HTMLButtonElement>(`#nr-tab-${TABS[next]}`)?.focus();
-  };
-  const tabProps = (t: Tab) => ({
-    id: `nr-tab-${t}`, type: "button" as const, role: "tab", "aria-selected": tab === t,
-    "aria-controls": `nr-panel-${t}`, tabIndex: tab === t ? 0 : -1, onClick: () => setTab(t),
-  });
-  return (
-    <>
-      <div ref={list} className="seg tabs" role="tablist" aria-label="Research input" onKeyDown={onKey}>
-        <button {...tabProps("company")}>Company name</button>
-        <button {...tabProps("file")}>Upload a file</button>
-      </div>
-      {seen.company ? (
-        <section id="nr-panel-company" role="tabpanel" aria-labelledby="nr-tab-company" className="card pad-lg stack-14" hidden={tab !== "company"}>
-          <ResearchCompany estimate={estimate} idPrefix="nr" />
-        </section>
-      ) : null}
-      {seen.file ? (
-        <div id="nr-panel-file" role="tabpanel" aria-labelledby="nr-tab-file" hidden={tab !== "file"}>
-          <FileTab estimate={estimate} />
-        </div>
-      ) : null}
-    </>
   );
 }

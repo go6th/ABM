@@ -25,19 +25,16 @@ test("the account page shows its tabs and the research state", async ({ page }) 
   await noSeriousA11y(page);
 });
 
-test("ask answers from the workspace and keeps the thread in Recent", async ({ page }) => {
+test("ask (opened from an account's question box) answers from the workspace", async ({ page }) => {
   await signIn(page, await seededSlug(page, "a"), "sam", "seller");
+  // Ask left the sidebar (2026-11-08): the home address opens Accounts, and Ask opens with a question
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "What do you want to know?" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Search: off" })).toHaveAttribute("aria-pressed", "false");
-  await page.getByLabel("Ask a question").fill("Summarize our account notes");
-  await page.getByRole("button", { name: "Ask", exact: true }).click();
+  await expect(page).toHaveURL(/\/accounts$/);
+  await page.goto(`/?q=${encodeURIComponent("Summarize our account notes")}`);
   // the hermetic model gives the workspace answer (no provider is ever called)
   await expect(page.getByText(/^From your workspace\./)).toBeVisible({ timeout: 30_000 });
   await expect(page.locator(".bubble").getByText("Summarize our account notes", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "New chat" }).click();
-  await expect(page.getByRole("heading", { name: "What do you want to know?" })).toBeVisible();
-  await expect(page.getByRole("navigation", { name: "Recent chats" }).getByRole("link", { name: "Summarize our account notes" })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Recent chats" })).toHaveCount(0);
 });
 
 test("removed screens are gone", async ({ page }) => {
@@ -52,9 +49,10 @@ test("the sidebar lists the live screens a seller can open", async ({ page }) =>
   await signIn(page, await seededSlug(page, "a"), "sam", "seller");
   await page.goto("/accounts");
   const nav = page.getByRole("navigation", { name: "Main" });
-  for (const name of ["Ask", "Accounts", "Research", "Settings"]) {
+  for (const name of ["Accounts", "Research", "Settings"]) {
     await expect(nav.getByRole("link", { name, exact: true })).toBeVisible();
   }
+  await expect(nav.getByRole("link", { name: "Ask", exact: true })).toHaveCount(0);
   // admin-only settings are not offered to a seller
   await page.goto("/settings");
   const tabs = page.getByRole("navigation", { name: "Settings", exact: true });

@@ -62,7 +62,7 @@ export default async function AccountsPage({ searchParams }: { searchParams: Pro
           <div className="sub">{all.length} account{all.length === 1 ? "" : "s"} in your workspace. Open one to see its brief.</div>
         </div>
         <div className="row-12 wrap">
-          <Link className="btn" href="/research?tab=file" prefetch={false}>Import a file</Link>
+          <Link className="btn" href="/accounts/import" prefetch={false}>Import a file</Link>
           <Link className="btn primary" href="/accounts/add" prefetch={false}>Add account</Link>
         </div>
       </div>
@@ -72,7 +72,7 @@ export default async function AccountsPage({ searchParams }: { searchParams: Pro
         <StateCard
           title="No accounts yet"
           body="Your workspace is your own. Research a company, add ready-made research, or analyze your own files."
-          action={<span className="row-12 wrap"><Link className="btn primary" href="/accounts/add">Add your first account</Link><Link className="btn" href="/research?tab=file">Add files</Link></span>}
+          action={<span className="row-12 wrap"><Link className="btn primary" href="/accounts/add">Add your first account</Link><Link className="btn" href="/accounts/import">Add files</Link></span>}
         />
       ) : (
         <>

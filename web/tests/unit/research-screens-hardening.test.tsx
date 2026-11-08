@@ -45,7 +45,6 @@ import { ResearchCompany } from "@/components/accounts/ResearchCompany";
 import { DownloadEverything, partHref } from "@/components/accounts/DownloadEverything";
 import { FilesCard } from "@/components/accounts/FilesCard";
 import { RefreshForm } from "@/components/accounts/RefreshForm";
-import { NewResearch } from "@/components/accounts/NewResearch";
 import { ResearchBoard } from "@/components/research/ResearchBoard";
 import { ApiError } from "@/lib/api";
 import type { RefreshOptions, ResearchEstimate, ResearchLive, Sheet, SheetTab } from "@/lib/gen/api.gen";
@@ -248,21 +247,6 @@ test("refresh: a workspace offered no scopes opens on the topic instead of crash
   expect((screen.getByRole("button", { name: "Research this topic" }) as HTMLButtonElement).disabled).toBe(true);
 });
 
-test("new research: the two tabs are one tab stop and arrow keys move between them", () => {
-  render(<NewResearch estimate={estimate} initialTab="company" />);
-  const company = screen.getByRole("tab", { name: "Company name" });
-  const file = screen.getByRole("tab", { name: "Upload a file" });
-  expect(company.tabIndex).toBe(0);
-  expect(file.tabIndex).toBe(-1);
-  expect(screen.getByRole("tabpanel", { name: "Company name" })).toBeTruthy();
-  fireEvent.keyDown(company, { key: "ArrowRight" });
-  expect(file.getAttribute("aria-selected")).toBe("true");
-  expect(document.activeElement).toBe(file);
-  expect(screen.getByRole("tabpanel", { name: "Upload a file" })).toBeTruthy();
-  fireEvent.keyDown(file, { key: "Home" });
-  expect(company.getAttribute("aria-selected")).toBe("true");
-});
-
 // --- the Research board ----------------------------------------------------------------------
 
 const item = {
@@ -272,38 +256,48 @@ const item = {
 };
 const live = { as_of: "2026-10-27T00:00:00Z", detail: null, running: [item], recent: [] } as unknown as ResearchLive;
 
-test("the board: Show names its company, only the connection state is announced, Start controls its form", () => {
+test("the board: Show steps names its company, only the connection state is announced, Start opens the pop-up", () => {
   render(<ResearchBoard initial={live} estimate={estimate} />);
-  const show = screen.getByRole("button", { name: "Show Acme" });
+  const show = screen.getByRole("button", { name: "Show steps: Acme" });
   fireEvent.click(show);
   expect(replace).toHaveBeenCalledWith(`/research?r=${item.job_id}`, { scroll: false });
   const statuses = screen.getAllByRole("status");
   expect(statuses.map((s) => s.textContent)).toContain("Connecting");
-  const start = screen.getByRole("button", { name: "Start new research" });
-  expect(start.getAttribute("aria-controls")).toBeNull();
-  fireEvent.click(start);
-  expect(start.getAttribute("aria-controls")).toBe("research-start");
-  expect(document.getElementById("research-start")).toBeTruthy();
+  // the running card carries its progress, without tokens or findings counts
+  expect(screen.getByRole("progressbar", { name: "Acme: 1 of 8 steps done" })).toBeTruthy();
+  expect(document.body.textContent).not.toMatch(/tokens/i);
+  expect(screen.queryByRole("dialog")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Start new research" }));
+  const dialog = screen.getByRole("dialog", { name: "Start new research" });
+  expect(within(dialog).getByRole("textbox", { name: "Company name" })).toBeTruthy();
 });
 
 test("the board's load failure reloads the page instead of a client navigation that changes nothing", () => {
   render(<ResearchBoard initial={null} estimate={estimate} />);
   const reload = screen.getByRole("link", { name: "Refresh" });
   expect(reload.getAttribute("href")).toBe("/research");
+  // starting a research still works while the board cannot be read
+  expect(screen.getByRole("button", { name: "Start new research" })).toBeTruthy();
 });
 
-test("the board: Resume research is offered once, in the open detail, and an empty board is one quiet line", () => {
+test("the board: a finished research says how it ended, offers Resume once, and opens its steps under its row", () => {
   const ended = { ...item, open: false, can_stop: false, can_resume: true, status: "failed", run_status: "FAILED", finished_at: "2026-10-27T00:00:00Z" };
   const detail = {
-    job_id: ended.job_id, company: "Acme", domain: "acme.example", label: "Stopped", reason: null, steps: [], findings: 0, searches: 0,
+    job_id: ended.job_id, company: "Acme", domain: "acme.example", label: "Stopped", reason: "The source was unreachable.", steps: [], findings: 0, searches: 0,
     pages_read: 0, tokens: 0, findings_by_kind: [], latest_findings: [], withheld: 0,
   };
   const { unmount } = render(<ResearchBoard initial={{ ...live, running: [], recent: [ended], detail } as unknown as ResearchLive} estimate={estimate} />);
   expect(screen.getAllByRole("button", { name: "Resume research" })).toHaveLength(1);
-  expect(screen.getByRole("region", { name: "Acme" })).toBeTruthy();
-  expect(screen.getByText("Nothing is running right now.").tagName).toBe("P");
-  expect(document.querySelector(".empty-card")).toBeNull();
+  expect(screen.getByText("Did not finish")).toBeTruthy();
+  const opened = screen.getByRole("region", { name: "Acme" });
+  expect(within(opened).getByText("Reason: The source was unreachable.")).toBeTruthy();
+  expect(screen.getByText("Nothing is running")).toBeTruthy();
+  // Hide steps closes it without leaving the page
+  fireEvent.click(screen.getByRole("button", { name: "Hide steps: Acme" }));
+  expect(screen.queryByRole("region", { name: "Acme" })).toBeNull();
   unmount();
   render(<ResearchBoard initial={{ ...live, running: [], recent: [ended], detail: null } as unknown as ResearchLive} estimate={estimate} />);
-  expect(screen.queryByRole("button", { name: "Resume research" })).toBeNull(); // the row no longer carries one
+  // the row itself carries Resume, so it is there with no research opened
+  expect(screen.getAllByRole("button", { name: "Resume research" })).toHaveLength(1);
+  expect(screen.queryByRole("region", { name: "Acme" })).toBeNull();
 });
