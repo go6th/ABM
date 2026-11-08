@@ -103,6 +103,29 @@ variable "token_guard" {
     error_message = "token_guard must be on or off."
   }
 }
+# Switches that keep an environment on its current footing until a hardening step is tested there
+# (staging 2026-11-08: these were set by hand after the last apply, so an apply would have undone
+# them). The defaults are the target state.
+variable "api_public_invoker" {
+  type        = bool
+  description = "true keeps allUsers as an invoker of the api (the state before ADR-0127); false lets only the web service account invoke it."
+  default     = false
+}
+variable "db_iam_hardening" {
+  type        = bool
+  description = "ADR-0123/0125: the checkpointer signs in with IAM on the private IP and each migrate run moves the service IAM users to their own roles. false keeps the checkpoint password URL and the shared app_rw role."
+  default     = true
+}
+variable "redis_check_hostname" {
+  type        = bool
+  description = "Match the Memorystore certificate against its IP (VERIFY(V-REDIS-1) before true)."
+  default     = true
+}
+variable "worker_concurrency" {
+  type        = number
+  description = "Requests one worker instance holds (ADR-0130: 1, back to 4 once tests/system/test_event_loop.py has been green for two releases). The queues share max instances x this."
+  default     = 1
+}
 variable "moonshot_enabled" {
   type        = bool
   description = "Offer Kimi K3: set only after the moonshot-api-key secret has a version (the services read it at start)."
@@ -231,7 +254,7 @@ locals {
     # one slice, not four, and never starves its neighbours' heartbeats. Capacity now comes from
     # instances (scaling.worker.max): raise it to keep the old slot count (12 slots = max 12).
     # Back to 4 after tests/system/test_event_loop.py has been green for two releases.
-    worker = { cpu = "4", memory = "12Gi", concurrency = 1, timeout = "3600s" }
+    worker = { cpu = "4", memory = "12Gi", concurrency = var.worker_concurrency, timeout = "3600s" }
   }
   # concurrent requests the worker can hold at its maximum: the queues below share them
   worker_slots = var.scaling.worker.max * local.size.worker.concurrency
@@ -283,7 +306,7 @@ locals {
       # no reader any more: the worker's checkpointer signs in with IAM on the private IP
       # (ADR-0125). Kept one release so a rollback can re-grant it; delete it after the IAM
       # checkpointer has run a research on staging.
-      "checkpoint-database-url"       = []
+      "checkpoint-database-url"       = var.db_iam_hardening ? [] : ["api", "worker", "job"]
       "migrator-database-url"         = ["migrate"]
       "app-rw-password"               = ["migrate"]
       "anthropic-api-key"             = ["api", "worker"] # read through the Secret Manager API
@@ -328,7 +351,7 @@ locals {
       # TLS to Memorystore against its own CA (mounted file), the certificate matched against the
       # instance IP (ADR-0125; VERIFY(V-REDIS-1) before applying); the code refuses a REDIS_URL
       # whose host is not REDIS_PINNED_HOST, this same IP (platform/redis_url.py)
-      REDIS_URL         = "rediss://${module.cache.host}:${module.cache.port}/0?ssl_ca_certs=${local.redis_ca_dir}/ca.pem&ssl_check_hostname=true"
+      REDIS_URL         = "rediss://${module.cache.host}:${module.cache.port}/0?ssl_ca_certs=${local.redis_ca_dir}/ca.pem&ssl_check_hostname=${var.redis_check_hostname}"
       REDIS_PINNED_HOST = module.cache.host
       # the python-docx renderer until the Node library is ported (FIX_LOG D10)
       EXPORT_RENDERER       = "python-interim"
@@ -361,7 +384,9 @@ locals {
     } : {},
   )
   # the checkpointer's IAM sign-in target (ADR-0125): the processes that run slices only
-  checkpoint_env = { CLOUD_SQL_PRIVATE_IP = module.cloud_sql.private_ip }
+  checkpoint_env = var.db_iam_hardening ? { CLOUD_SQL_PRIVATE_IP = module.cloud_sql.private_ip } : {}
+  # without the IAM sign-in the checkpointer reads its password URL (the state before ADR-0125)
+  checkpoint_secret = var.db_iam_hardening ? {} : { CHECKPOINT_DATABASE_URL = "checkpoint-database-url" }
   # outbound email (notifications); the Mail and drive client secrets were removed 2026-11-08
   mail_secret = var.mail.host != "" ? { SMTP_PASSWORD = "smtp-password" } : {}
   providers_secret = {
@@ -600,7 +625,7 @@ module "cloud_run" {
         EVAL_EFFORT = "high"
       })
       # the search key: Ask's web lookups (replica.web_tools, owner decision 2026-11-02)
-      secret_env          = merge(local.mail_secret, { P_SEARCH_API_KEY = "p-search-api-key" })
+      secret_env          = merge(local.mail_secret, local.checkpoint_secret, { P_SEARCH_API_KEY = "p-search-api-key" })
       secret_files        = local.redis_ca_file
       min_instances       = var.scaling.api.min
       max_instances       = var.scaling.api.max
@@ -630,7 +655,7 @@ module "cloud_run" {
         CLAMD_PORT       = "3310"
         BLOB_MOUNT_DIR   = local.blob_mount # read once the handoff lands (no full-file temp copy)
       })
-      secret_env    = merge(local.providers_secret, local.mail_secret)
+      secret_env    = merge(local.providers_secret, local.mail_secret, local.checkpoint_secret)
       secret_files  = local.redis_ca_file
       gcs_mounts    = { (local.blob_mount) = module.gcs.bucket }
       min_instances = var.scaling.worker.min
@@ -686,7 +711,7 @@ module "cloud_run" {
   # its metadata-server ID token for the api URL in X-Serverless-Authorization on every call
   # (web/lib/serverless-auth.ts) and the api still authenticates every business request itself.
   # Cloud Run's own startup and liveness probes are not subject to IAM.
-  public_invoker = ["web"]
+  public_invoker = concat(["web"], var.api_public_invoker ? ["api"] : [])
   # worker: only the tasks identity (Cloud Tasks and Cloud Scheduler sign as it)
   invokers = {
     worker = { tasks = local.sa.tasks }
@@ -717,7 +742,7 @@ module "cloud_run_jobs" {
       command     = ["python", "-m", "account_intelligence.worker", "spend-invariants"]
       args        = []
       env         = merge(local.common_env, local.checkpoint_env, { SERVICE_ROLE = "job", DB_IAM_USER = module.cloud_sql.iam_users["job"] })
-      secret_env  = {}
+      secret_env  = local.checkpoint_secret
       timeout     = "1800s"
       max_retries = 1
       cpu         = "1"
@@ -728,18 +753,19 @@ module "cloud_run_jobs" {
       sa_email = local.sa.migrate
       command  = ["alembic", "upgrade", "head"]
       args     = []
-      env = {
+      env = merge({
         APP_ENV      = local.app_env
         SERVICE_ROLE = "migrate"
         # the IAM database users to be members of app_rw and nothing else (audit L16; read once
         # the migration handoff lands; until then the runbook grants it by hand)
         APP_RW_IAM_USERS = join(",", values(module.cloud_sql.iam_users))
+        }, var.db_iam_hardening ? {
         # every migrate run then moves each service's IAM user from app_rw to its own role
         # (migration 0101, ADR-0123): the api to app_api (no tool_calls writes, no leases, no
         # checkpoint internals), the worker and the job identity to app_worker
         APP_API_IAM_USERS    = module.cloud_sql.iam_users["api"]
         APP_WORKER_IAM_USERS = join(",", [module.cloud_sql.iam_users["worker"], module.cloud_sql.iam_users["job"]])
-      }
+      } : {})
       secret_env  = { MIGRATOR_DATABASE_URL = "migrator-database-url", APP_RW_PASSWORD = "app-rw-password" }
       timeout     = "1800s"
       max_retries = 0
@@ -758,7 +784,7 @@ module "cloud_run_jobs" {
       command     = ["python", "-m", "account_intelligence.worker", "reingest-tables"]
       args        = []
       env         = merge(local.common_env, local.checkpoint_env, { SERVICE_ROLE = "job", DB_IAM_USER = module.cloud_sql.iam_users["worker"] })
-      secret_env  = {}
+      secret_env  = local.checkpoint_secret
       timeout     = "1800s"
       max_retries = 0
       cpu         = "1"

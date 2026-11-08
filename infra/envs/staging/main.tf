@@ -80,6 +80,22 @@ variable "moonshot_enabled" {
   type    = bool
   default = false
 }
+variable "api_public_invoker" {
+  type    = bool
+  default = false
+}
+variable "db_iam_hardening" {
+  type    = bool
+  default = true
+}
+variable "redis_check_hostname" {
+  type    = bool
+  default = true
+}
+variable "worker_concurrency" {
+  type    = number
+  default = 1
+}
 variable "moonshot_api" {
   type = object({
     base_url = string
@@ -155,6 +171,10 @@ module "stack" {
   llm_access              = var.llm_access
   research_caps           = var.research_caps
   token_guard             = var.token_guard
+  api_public_invoker      = var.api_public_invoker
+  db_iam_hardening        = var.db_iam_hardening
+  redis_check_hostname    = var.redis_check_hostname
+  worker_concurrency      = var.worker_concurrency
   moonshot_enabled        = var.moonshot_enabled
   moonshot_api            = var.moonshot_api
   mail                    = var.mail
