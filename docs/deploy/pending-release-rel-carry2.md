@@ -1,4 +1,4 @@
-# Release rel-carry2-11071634 (built 2026-11-07, NOT deployed: staging DB stopped)
+# Release rel-carry2-11071634 (built 2026-11-07, DEPLOYED 2026-11-08 ~11:23 UTC as api 00138-kgw)
 
 api only. Snapshot = commit add14705 + src/exports/{carry.py,obs.py,readers/pg.py} + my hunks of
 src/account_intelligence/api/routes/admin_console.py (the uncommitted `account_of_domain` edit of

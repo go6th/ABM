@@ -492,3 +492,66 @@ async def test_categories_count_and_list_what_the_research_graph_found(
         page = await _call(plane, "GET", f"/v1/accounts/{domain}/sheets/{sheet}")
         assert page.json()["total"] == 1, sheet
         assert not any(noise in json.dumps(r["cells"]) for r in page.json()["rows"]), sheet
+
+
+async def test_a_part_refresh_does_not_replace_the_researchs_opening_or_findings(
+    world: dict[str, Any],
+) -> None:
+    """Staging 2026-11-07: after a topic refresh the page's one-minute version was the refresh's
+    5-row opening, a question ("Is the account Olympus America, Inc. ...?"), and Findings counted
+    its sections. A refresh of part of the checklist ranks after the research, as in the files
+    (``exports.carry``), and a question is never the opening."""
+    from tests.conftest import ADMIN_DSN
+
+    domain = f"part-refresh-{uuid4().hex[:8]}.example"
+    full, part = uuid4(), uuid4()
+    with psycopg.connect(ADMIN_DSN) as c, c.transaction():
+        account = c.execute(
+            "INSERT INTO accounts (tenant_id, owner_user_id, domain, name) VALUES (%s,"
+            " 'priya-test', %s, 'Part Refresh Co') RETURNING id",
+            (world["a"], domain),
+        ).fetchone()[0]
+        for run, minutes, run_input in (
+            (full, 60, {"mode": "full", "scope": "full"}),
+            (part, 1, {"mode": "full", "scope": "topic", "scope_rows": ["company_news"]}),
+        ):
+            c.execute(
+                "INSERT INTO runs (id, tenant_id, account_id, run_type, status, config_version,"
+                " credit_cap, started_at) VALUES (%s, %s, %s, 'full', 'running', 'cfg', 100,"
+                " now())",
+                (run, world["a"], account),
+            )
+            c.execute(
+                "INSERT INTO account_runs (id, tenant_id, account_id, status, graph_version,"
+                " budget_json, reserved_credits, idempotency_key, budget_usd, tool_call_cap,"
+                " run_input, created_at, finished_at) VALUES (%s, %s, %s, 'COMPLETED', 'test',"
+                " '{}', 1, %s, 5, 60, %s, now() - make_interval(mins => %s),"
+                " now() - make_interval(mins => %s))",
+                (
+                    run,
+                    world["a"],
+                    account,
+                    "k-" + uuid4().hex,
+                    json.dumps(run_input),
+                    minutes,
+                    minutes,
+                ),
+            )
+        for run, minutes, position, text_ in (
+            (full, 59, 0, "Part Refresh Co runs one synthetic platform."),
+            (full, 59, 1, "A second synthetic finding of the research."),
+            (part, 0, 0, "Is the account Part Refresh Co the one meant?"),
+        ):
+            c.execute(
+                "INSERT INTO report_sections (tenant_id, account_id, run_id, version, kind,"
+                " position, text, cited_source_codes, fact_ids, created_at) VALUES (%s, %s, %s,"
+                " 1, 'narrative', %s, %s, '{}', '{}', now() - make_interval(mins => %s))",
+                (world["a"], account, run, position, text_, minutes),
+            )
+    plane = _plane(world["a"], "priya-test", world["payloads"])
+    r = await _call(plane, "GET", f"/v1/accounts/{domain}/workspace")
+    assert r.status_code == 200, r.text
+    ws = r.json()
+    opening = " ".join(s["text"] for s in ws["narrative"]["sentences"])
+    assert opening == "Part Refresh Co runs one synthetic platform."
+    assert ws["counts"]["findings"] == 2

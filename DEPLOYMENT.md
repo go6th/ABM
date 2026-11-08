@@ -57,6 +57,10 @@ running image.
 
 ### 2.2 Cloud Build and gcloud by hand (the path in use until the branch reaches `main`)
 
+The steps below are automated, with the database and migration checks and an automatic
+traffic rollback, by `scripts/release/staging_release.py` (`docs/deploy/releases/README.md`).
+Use it instead of typing them.
+
 When the workflow cannot run (GitHub or Workload Identity Federation down, a hotfix that must
 ship before CI can finish), the owner may build and roll out by hand. This path skips CI, so it
 is gated locally with `make release-check`, which runs the same checks the `images` job and the

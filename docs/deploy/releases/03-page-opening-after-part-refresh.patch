@@ -1,0 +1,45 @@
+diff --git a/src/account_intelligence/replica/workspace.py b/src/account_intelligence/replica/workspace.py
+index aca0da38..f06896e4 100644
+--- a/src/account_intelligence/replica/workspace.py
++++ b/src/account_intelligence/replica/workspace.py
+@@ -226,7 +226,11 @@ async def workspace(session: Any, account_id: UUID, user_id: str, now: datetime)
+                 " AND (visibility = 'public' OR EXISTS (SELECT 1 FROM account_runs x"
+                 "   WHERE x.id = r.run_id AND (x.finished_reason = 'file_import'"
+                 "   OR x.run_input->>'input_mode' = 'file')))"
+-                " ORDER BY created_at DESC, version DESC, position LIMIT 1"
++                # a question is not an opening (the Summary file refuses it the same way:
++                # Olympus 2026-11-07 showed "Is the account Olympus America, Inc. ...?")
++                " AND btrim(text) !~ '[?]$'"
++                f" ORDER BY {part_refresh_last('r')}, created_at DESC, version DESC, position"
++                " LIMIT 1"
+             ),
+             {"a": account_id},
+         )
+@@ -405,7 +409,8 @@ async def workspace(session: Any, account_id: UUID, user_id: str, now: datetime)
+                 " :a"
+                 "   AND (r.run_id, r.version) = (SELECT x.run_id,"
+                 "   x.version FROM report_sections x WHERE x.tenant_id = :t AND x.account_id = :a"
+-                "   ORDER BY x.created_at DESC, x.version DESC LIMIT 1)) AS findings,"
++                f"   ORDER BY {part_refresh_last('x')}, x.created_at DESC, x.version DESC LIMIT 1))"
++                " AS findings,"
+                 " ((SELECT count(*) FROM tool_calls t JOIN account_runs r ON r.tenant_id ="
+                 " t.tenant_id AND r.id = t.run_id"
+                 "   WHERE r.tenant_id = :t AND r.account_id = :a)"
+@@ -622,6 +627,17 @@ GAP_TEXT = {
+ }
+ 
+ 
++def part_refresh_last(alias: str) -> str:
++    """SQL ranking a refresh of part of the checklist (its run input names ``scope_rows``) after
++    a run of the whole checklist: ``ORDER BY`` this first. Such a refresh writes its Summary from
++    its own few rows; the files keep the research's (``exports.carry``) and so does the page,
++    which showed a topic refresh's 5-row opening for Olympus (staging 2026-11-07)."""
++    return (
++        "COALESCE((SELECT p.run_input ? 'scope_rows' FROM account_runs p"  # nosec B608 -- fixed SQL fragment.
++        f" WHERE p.id = {alias}.run_id), false)"
++    )
++
++
+ def gap_text(code: str) -> str:
+     """One readable reason for a step that could not finish."""
+     return GAP_TEXT.get(code, code.replace("_", " "))

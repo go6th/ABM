@@ -22,6 +22,7 @@ and checked for drift). Run them with `uv run --frozen python scripts/<name>.py`
 | `canary_scan.py` | no log canary value reached a sink | security tests |
 | `check_rls_catalog.sql` | no tenant table without forced RLS (run by `make check` against a scratch database) | `make check` |
 | `preflight_deploy.py` | deployment inputs and Secret Manager wiring are present, without printing values | before a release |
+| `release/staging_release.py` | the staging release pipeline: refuses a stopped database or an unflagged new migration, builds a commit snapshot plus patches, migrates, rolls out worker, api, web, checks health and first-minute errors, rolls traffic back on failure (`docs/deploy/releases/README.md`) | the owner, each staging release |
 | `check.sh` | the full pre-PR gate against a scratch database | `make check` |
 
 ## Generators (the output is committed; CI fails when it drifts)
