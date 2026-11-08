@@ -29,7 +29,8 @@ test("ask answers from the workspace and keeps the thread in Recent", async ({ p
   await signIn(page, await seededSlug(page, "a"), "sam", "seller");
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "What do you want to know?" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Search: off" })).toHaveAttribute("aria-pressed", "false");
+  // the composer is the question, Accounts and the model (its effort inside); no "+" or Search
+  await expect(page.getByRole("button", { name: /^Search/ })).toHaveCount(0);
   await page.getByLabel("Ask a question").fill("Summarize our account notes");
   await page.getByRole("button", { name: "Ask", exact: true }).click();
   // the hermetic model gives the workspace answer (no provider is ever called)

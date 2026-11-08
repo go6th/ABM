@@ -4,7 +4,9 @@
 // lists each model's name and one plain line. Beside it, the effort chip ("Effort: Medium",
 // medium or high, owner decision 2026-10-20). A model that cannot be chosen is greyed out with
 // its reason ("Not set up", "Not enabled for your workspace"), so nothing fails at Send.
-import { useEffect, useId, useRef, useState } from "react";
+// Ask (owner request 2026-11-08) keeps the effort inside the model menu instead: the chip reads
+// "Fable 5.1  Medium" and the menu ends with an Effort switch; picking an effort keeps it open.
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import type { ModelChoices } from "@/lib/gen/api.gen";
 import { useSharedModelChoices } from "@/lib/model-choices";
@@ -32,13 +34,30 @@ export function useModelChoices(): ModelChoices | null {
   return state === "failed" ? null : state;
 }
 
-export function ModelMenu({ choices, value, onChange, role, menuDown = false, className = "chipa" }: {
+const EFFORT_NAMES: Record<string, string> = { low: "Low", medium: "Medium", high: "High", xhigh: "Extra high", max: "Max" };
+const EFFORT_LINES: Record<string, string> = {
+  low: "Quickest answers, for simple lookups",
+  medium: "Balanced, right for most questions",
+  high: "Thinks longer on hard questions. Slower, costs more",
+  xhigh: "Thinks much longer. Slower, costs more",
+  max: "The deepest thinking. Slowest, costs the most",
+};
+const effortName = (e: string) => EFFORT_NAMES[e] ?? e;
+
+function Check() {
+  return <svg className="tick" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" /></svg>;
+}
+
+export function ModelMenu({ choices, value, onChange, role, menuDown = false, className = "chipa", effort = null, onEffort }: {
   choices: ModelChoices;
   value: string;
   onChange: (id: string) => void;
   role?: "Research" | "Analysis";
   menuDown?: boolean;
   className?: string;
+  /** with ``onEffort``: the effort is chosen inside this menu (Ask) instead of its own chip */
+  effort?: string | null;
+  onEffort?: (effort: string) => void;
 }) {
   const menuId = useId();
   const [open, setOpen] = useState(false);
@@ -46,6 +65,7 @@ export function ModelMenu({ choices, value, onChange, role, menuDown = false, cl
   const button = useRef<HTMLButtonElement>(null);
   const current = choices.models.find((m) => m.id === value);
   const label = current?.label ?? value;
+  const withEffort = Boolean(effort && onEffort && choices.efforts.length > 1);
 
   useEffect(() => {
     if (!open) return;
@@ -67,6 +87,23 @@ export function ModelMenu({ choices, value, onChange, role, menuDown = false, cl
     return () => { document.removeEventListener("mousedown", onDown); document.removeEventListener("keydown", onKey); };
   }, [open]);
 
+  // a menu taller than the room below opens on the roomier side and is capped to it; the model
+  // list then scrolls while the effort switch stays in view (data-flip is read by the stylesheet;
+  // measured once it is drawn, before it is painted)
+  useLayoutEffect(() => {
+    if (!open) return;
+    const menu = wrap.current?.querySelector<HTMLElement>(".model-menu");
+    const chip = button.current?.getBoundingClientRect();
+    if (!menu || !chip) return;
+    const height = menu.getBoundingClientRect().height;
+    const below = window.innerHeight - chip.bottom - 14;
+    const above = chip.top - 14;
+    const down = menuDown ? !(height > below && above > below) : height > above && below > above;
+    if (down !== menuDown) menu.dataset.flip = down ? "down" : "up";
+    const room = down ? below : above;
+    if (height > room) menu.style.maxHeight = `${Math.max(room, 200)}px`;
+  }, [open, menuDown]);
+
   const pick = (id: string) => { onChange(id); setOpen(false); button.current?.focus(); };
 
   return (
@@ -78,34 +115,52 @@ export function ModelMenu({ choices, value, onChange, role, menuDown = false, cl
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
-        aria-label={`${role ? `${role} model` : "Model"}: ${current?.name ?? value}. Change model`}
+        aria-label={withEffort
+          ? `Model: ${current?.name ?? value}, effort ${effortName(effort!)}. Change model or effort`
+          : `${role ? `${role} model` : "Model"}: ${current?.name ?? value}. Change model`}
         onClick={() => setOpen((v) => !v)}
       >
         {role ? `${role}: ${label}` : label}
+        {withEffort ? <span className="chip-effort">{effortName(effort!)}</span> : null}
         <svg className="chev" viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><path d="M3 4.5l3 3 3-3" /></svg>
       </button>
       {open ? (
-        <div className={`menu model-menu ${menuDown ? "down" : ""}`} role="menu" id={menuId} aria-label={role ? `${role} model` : "Model"}>
-          {choices.models.map((m) => (
-            <button
-              key={m.id}
-              type="button"
-              role="menuitemradio"
-              aria-checked={m.id === value}
-              aria-disabled={!m.available || undefined}
-              onClick={() => { if (m.available) pick(m.id); }}
-            >
-              <span className="model-name">{m.name}</span>
-              <span className="model-line">{m.available ? m.line : m.reason}</span>
-            </button>
-          ))}
+        <div className={`menu model-menu ${withEffort ? "with-effort" : ""} ${menuDown ? "down" : ""}`} role="menu" id={menuId} aria-label={role ? `${role} model` : withEffort ? "Model and effort" : "Model"}>
+          <div role="group" aria-label="Model">
+            {withEffort ? <p className="mm-head" aria-hidden="true">Model</p> : null}
+            {choices.models.map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                role="menuitemradio"
+                aria-checked={m.id === value}
+                aria-disabled={!m.available || undefined}
+                onClick={() => { if (m.available) pick(m.id); }}
+              >
+                <span className="model-name">{m.name}</span>
+                <span className="model-line">{m.available ? m.line : m.reason}</span>
+                {withEffort && m.id === value ? <Check /> : null}
+              </button>
+            ))}
+          </div>
+          {withEffort ? (
+            <div className="mm-effort" role="group" aria-label="Effort">
+              <p className="mm-head" aria-hidden="true">Effort</p>
+              <div className="mm-seg">
+                {choices.efforts.map((e) => (
+                  <button key={e} type="button" role="menuitemradio" aria-checked={e === effort} onClick={() => onEffort!(e)}>
+                    {effortName(e)}
+                  </button>
+                ))}
+              </div>
+              <p className="mm-note" aria-live="polite">{EFFORT_LINES[effort!] ?? "How hard the model thinks"}</p>
+            </div>
+          ) : null}
         </div>
       ) : null}
     </div>
   );
 }
-
-const EFFORT_NAMES: Record<string, string> = { low: "Low", medium: "Medium", high: "High", xhigh: "Extra high", max: "Max" };
 
 /** "Effort: Medium" beside a model chip (owner decision 2026-10-20): a press moves to the next
  * effort the server offers (medium, high), like the Search on/off chip. */
@@ -117,7 +172,7 @@ export function EffortChip({ efforts, value, onChange, role, className = "chipa"
   className?: string;
 }) {
   if (efforts.length < 2) return null;
-  const name = (e: string) => EFFORT_NAMES[e] ?? e;
+  const name = effortName;
   const next = efforts[(efforts.indexOf(value) + 1) % efforts.length] ?? value;
   return (
     <button

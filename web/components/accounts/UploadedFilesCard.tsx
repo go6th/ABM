@@ -1,7 +1,8 @@
 // The files the client uploaded for this account (owner request 2026-10-15): they are stored and
 // bound to the account when the company is confirmed, but no screen listed them, so they looked
 // lost. Names, sizes and status; a file's name opens the page that shows what was read from it
-// (the account's domain is needed for that link; without it the name is plain text).
+// (the account's domain is needed for that link; without it the name is plain text). With the
+// account, "Add files" uploads into it in a pop-up (2026-11-08); without it, it opens Import a file.
 import Link from "next/link";
 import type { DocumentStatus } from "@/lib/gen/api.gen";
 import { STAGE_TEXT, fileSize, filesLine, progressLine, stageOf, stageTone } from "@/lib/documents";
@@ -9,11 +10,12 @@ import { cellText } from "@/lib/render";
 import { Status } from "@/ui/primitives";
 import { AccountPicker } from "@/components/ws/AccountPicker";
 import { WorkspaceCompanyPrompt, workspaceOf } from "@/components/ws/WorkspaceCompanyPrompt";
+import { AddFilesToAccount, type FilesAccount } from "./AddFilesToAccount";
 import { DeleteFileButton } from "./DeleteFileButton";
 import { WhatWasRead } from "./WhatWasRead";
 import { ZipMembers } from "./ZipMembers";
 
-export function UploadedFilesCard({ docs, domain = null }: { docs: DocumentStatus[]; domain?: string | null }) {
+export function UploadedFilesCard({ docs, domain = null, account = null }: { docs: DocumentStatus[]; domain?: string | null; account?: FilesAccount | null }) {
   const pageOf = (id: string) => (domain ? `/accounts/${encodeURIComponent(domain)}/documents/${encodeURIComponent(id)}` : null);
   return (
     <section className="card fc" aria-labelledby="uploaded-title">
@@ -56,7 +58,7 @@ export function UploadedFilesCard({ docs, domain = null }: { docs: DocumentStatu
         </ul>
       )}
       <div className="fc-actions">
-        <Link className="btn" href="/accounts/import" prefetch={false}>Add files</Link>
+        {account ? <AddFilesToAccount account={account} /> : <Link className="btn" href="/accounts/import" prefetch={false}>Add files</Link>}
       </div>
     </section>
   );

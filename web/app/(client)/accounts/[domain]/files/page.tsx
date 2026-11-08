@@ -46,7 +46,7 @@ async function Delivered({ domain, here }: { domain: string; here: string }) {
 /** Your uploads for this account, kept current while they are read. Viewers may not list
  *  documents (403): they see none, which is not an error. A list that could not be read is asked
  *  for again by itself. */
-async function Uploads({ accountId, domain, here }: { accountId: string; domain: string; here: string }) {
+async function Uploads({ accountId, domain, name, here }: { accountId: string; domain: string; name: string | null; here: string }) {
   let uploads: DocumentList["documents"] | null = null;
   try {
     uploads = (await serverGet<DocumentList>(`/v1/documents?account_id=${encodeURIComponent(accountId)}`, here, [403]))?.documents ?? null;
@@ -57,7 +57,7 @@ async function Uploads({ accountId, domain, here }: { accountId: string; domain:
   if (!uploads) return null;
   return (
     <>
-      <UploadedFilesCard docs={uploads} domain={domain} />
+      <UploadedFilesCard docs={uploads} domain={domain} account={{ id: accountId, domain, name }} />
       {uploads.length ? <Link className="link-strong sm-text" href={`/accounts/${encodeURIComponent(domain)}/file-analysis`} prefetch={false}>See the analysis of your files</Link> : null}
       {uploads.length ? <p className="mut sm-text">Uploaded files stay in your workspace. They answer your questions and are never included in research files you share with a prospect.</p> : null}
       <LiveSync accountId={accountId} docs={uploads} />
@@ -93,7 +93,7 @@ export default async function FilesPage({ params }: Params) {
       </div>
       <aside className="side-col stack-14" aria-label="Downloads and your files">
         <DownloadEverythingCard domain={ws.domain} />
-        {ws.id ? <Suspense fallback={null}><Uploads accountId={ws.id} domain={ws.domain} here={here} /></Suspense> : null}
+        {ws.id ? <Suspense fallback={null}><Uploads accountId={ws.id} domain={ws.domain} name={ws.name ?? null} here={here} /></Suspense> : null}
       </aside>
     </div>
   );

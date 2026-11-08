@@ -24,8 +24,10 @@ export interface DropItem { key: string; name: string; size: number; stage: Stag
 
 const POLL_MS = 2000;
 
-export function DocumentDrop({ accountId = null, onChange, disabled = false, refresh = 0, picker = true }: {
+export function DocumentDrop({ accountId = null, onChange, onSending, disabled = false, refresh = 0, picker = true }: {
   accountId?: string | null;
+  /** told whether any file is still being sent (a pop-up around the drop stays open meanwhile) */
+  onSending?: (sending: boolean) => void;
   // show the account picker under a file the server holds as "Needs account" (a new research
   // confirms the company in its own panel instead)
   picker?: boolean;
@@ -84,6 +86,8 @@ export function DocumentDrop({ accountId = null, onChange, disabled = false, ref
     }, POLL_MS);
     return () => clearInterval(timer);
   }, [hasWorking, update]);
+
+  useEffect(() => { onSending?.(sending); }, [sending, onSending]);
 
   // closing or reloading the tab while a file is still being sent would lose the place
   useEffect(() => {

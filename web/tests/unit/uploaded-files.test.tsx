@@ -1,11 +1,14 @@
 // @vitest-environment jsdom
 // The account page lists the files uploaded for it (they were stored but shown nowhere).
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { UploadedFilesCard } from "@/components/accounts/UploadedFilesCard";
 import type { DocumentStatus } from "@/lib/gen/api.gen";
 
-vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
+const refreshMock = vi.fn();
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: refreshMock }) }));
+const uploadMock = vi.fn();
+vi.mock("@/lib/upload", async (original) => ({ ...(await original<typeof import("@/lib/upload")>()), uploadDocument: (...args: unknown[]) => uploadMock(...args) }));
 const apiMock = vi.fn();
 vi.mock("@/lib/api", async (original) => ({ ...(await original<typeof import("@/lib/api")>()), api: (...args: unknown[]) => apiMock(...args) }));
 
@@ -69,4 +72,25 @@ test("with the account's domain each file's name opens its page, and the files i
   expect(screen.getByRole("link", { name: "BD_workspace.zip" }).getAttribute("href")).toBe("/accounts/acme.com/documents/d3");
   fireEvent.click(screen.getByRole("button", { name: "View the files inside" }));
   expect((await screen.findByRole("link", { name: "ws/notes/plan.md" })).getAttribute("href")).toBe("/accounts/acme.com/documents/d3#m-0");
+});
+
+test("on the account's page Add files uploads into that account in a pop-up, not Import a file", async () => {
+  uploadMock.mockResolvedValue("d9");
+  apiMock.mockResolvedValue(doc({ document_id: "d9", name: "notes.pdf", account_id: "a1", stage: "scanning", status: "scanning", passages: 0 }));
+  const { container } = render(
+    <div className="ui-pastel"><main><UploadedFilesCard docs={[]} domain="acme.com" account={{ id: "a1", domain: "acme.com", name: "Acme" }} /></main></div>,
+  );
+  expect(container.querySelector('a[href="/accounts/import"]')).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Add files" }));
+  const dialog = await screen.findByRole("dialog", { name: "Add files to Acme" });
+  expect(dialog.textContent).toContain("go into Acme only");
+  const input = within(dialog).getByLabelText("Add files", { selector: "input:not([webkitdirectory])" });
+  fireEvent.change(input, { target: { files: [new File(["x"], "notes.pdf", { type: "application/pdf" })] } });
+  // the upload carries this account's id, so the server binds the file to it from the start
+  await waitFor(() => expect(uploadMock).toHaveBeenCalled());
+  expect(uploadMock.mock.calls[0]![1]).toBe("a1");
+  expect(await within(dialog).findByText("1 file added. Reading carries on after you close this.")).toBeTruthy();
+  fireEvent.click(within(dialog).getByRole("button", { name: "Done" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(refreshMock).toHaveBeenCalled();
 });

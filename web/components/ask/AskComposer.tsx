@@ -1,52 +1,17 @@
 "use client";
-// The composer: the question field (Enter sends), then "+" (a menu with "Add files"), the Accounts chip
-// (all accounts or one), the Search toggle, the model chip (the conversation's analysis model)
-// and Ask. Answers come from the workspace. With Search
-// on, the question becomes a web research topic for the chosen account and opens its Refresh
-// screen, where it is confirmed (it uses one research); nothing is searched from here.
+// The composer: the question field (Enter sends), then the Accounts chip (all accounts or one),
+// the model chip (the conversation's analysis model, with its effort chosen inside the same menu)
+// and Ask. Answers come from the workspace. Owner request 2026-11-08: the "+" menu, the Search
+// toggle and the separate Effort chip were removed; files are added on an account's Files tab, and
+// checking the web goes through an account's Refresh screen (the answer's "Refresh from web"
+// offer opens the hint below, which links there once an account is picked).
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState } from "react";
 import { refreshHref } from "./AnswerView";
-import { EffortChip, ModelMenu } from "@/components/ModelMenu";
+import { ModelMenu } from "@/components/ModelMenu";
 import type { ModelChoices } from "@/lib/gen/api.gen";
 
 export interface ScopeAccount { id: string; domain: string; name: string }
-
-/** "+": the way to add files, as on New research's file tab. */
-function AddFilesMenu() {
-  const menuId = useId();
-  const [open, setOpen] = useState(false);
-  const wrap = useRef<HTMLDivElement>(null);
-  const button = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    wrap.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
-    const onDown = (event: MouseEvent) => { if (wrap.current && !wrap.current.contains(event.target as Node)) setOpen(false); };
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") { setOpen(false); button.current?.focus(); }
-      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-        const items = Array.from(wrap.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? []);
-        const i = items.indexOf(document.activeElement as HTMLElement);
-        items[(i + (event.key === "ArrowDown" ? 1 : items.length - 1)) % items.length]?.focus();
-        event.preventDefault();
-      }
-    };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => { document.removeEventListener("mousedown", onDown); document.removeEventListener("keydown", onKey); };
-  }, [open]);
-  return (
-    <div className="menu-wrap" ref={wrap}>
-      <button ref={button} type="button" className="chipa plus" aria-haspopup="menu" aria-expanded={open} aria-controls={open ? menuId : undefined} aria-label="Add files" title="Add files" onClick={() => setOpen((v) => !v)}>+</button>
-      {open ? (
-        <div className="menu" role="menu" id={menuId} aria-label="Add files">
-          <Link role="menuitem" href="/accounts/import" prefetch={false}>Add files</Link>
-        </div>
-      ) : null}
-    </div>
-  );
-}
 
 export function AskComposer({
   variant, draft, onDraft, onSend, onStop, busy, accounts, scope, onScope, placeholder, menuDown = false, webHintOpen, onWebHint,
@@ -74,7 +39,6 @@ export function AskComposer({
   /** the token meter, shown beside Ask once the conversation has an answer */
   meter?: React.ReactNode;
 }) {
-  const router = useRouter();
   const inputId = useId();
   const menuId = useId();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -104,30 +68,15 @@ export function AskComposer({
     return () => { document.removeEventListener("mousedown", onDown); document.removeEventListener("keydown", onKey); };
   }, [menuOpen]);
 
+  // picking an account keeps the web hint open: it then links to that account's Refresh screen
   const pick = (value: ScopeAccount | null) => {
     onScope?.(value);
     setMenuOpen(false);
-    onWebHint(false);
     scopeButton.current?.focus();
   };
 
-  // Search on: the question becomes a web research topic for one account, confirmed with its
-  // the Refresh screen. Nothing is searched from here.
-  const [searchOn, setSearchOn] = useState(false);
-  const toggleSearch = () => {
-    const next = !searchOn;
-    setSearchOn(next);
-    onWebHint(next && !scope);
-    if (next && !scope && onScope) setMenuOpen(true);
-  };
   const send = () => {
-    const question = draft.trim();
-    if (!question) { document.getElementById(inputId)?.focus(); return; }
-    if (searchOn) {
-      if (!scope) { onWebHint(true); if (onScope) setMenuOpen(true); return; }
-      router.push(`${refreshHref(scope.domain)}?topic=${encodeURIComponent(question.slice(0, 300))}`);
-      return;
-    }
+    if (!draft.trim()) { document.getElementById(inputId)?.focus(); return; }
     onSend();
   };
 
@@ -148,7 +97,6 @@ export function AskComposer({
         onKeyDown={(e) => { if (e.key === "Enter" && !e.nativeEvent.isComposing) { e.preventDefault(); send(); } }}
       />
       <div className="bar">
-        {variant !== "account" ? <AddFilesMenu /> : null}
         {onScope ? (
           <div className="menu-wrap" ref={wrap}>
             <button
@@ -175,20 +123,8 @@ export function AskComposer({
         ) : (
           <span className={chip}>{scopeLabel}</span>
         )}
-        <button
-          type="button"
-          className={chip}
-          aria-pressed={searchOn}
-          aria-describedby={searchOn || webHintOpen ? `${inputId}-web` : undefined}
-          onClick={toggleSearch}
-        >
-          Search: {searchOn ? "on" : "off"}
-        </button>
         {models && model && onModel ? (
-          <ModelMenu choices={models} value={model} onChange={onModel} menuDown={menuDown} className={chip} />
-        ) : null}
-        {models && effort && onEffort ? (
-          <EffortChip efforts={models.efforts} value={effort} onChange={onEffort} className={chip} />
+          <ModelMenu choices={models} value={model} onChange={onModel} menuDown={menuDown} className={chip} effort={effort} onEffort={onEffort} />
         ) : null}
         <span className="spacer" />
         {meter}
@@ -201,15 +137,18 @@ export function AskComposer({
             disabled={busy || !draft.trim()}
             onClick={send}
           >
-            {searchOn ? "Search" : "Ask"}
+            Ask
           </button>
         )}
       </div>
-      {searchOn || webHintOpen ? (
+      {webHintOpen ? (
         <p className="hint" id={`${inputId}-web`} role="status">
-          {searchOn && scope
-            ? `Search is on: your question is researched on the web for ${scope.name}. You confirm it first, and it uses one of your researches.`
-            : "Search the web for one account: pick it under Accounts. You confirm it first, and it uses one of your researches."}
+          {scope ? (
+            <>
+              <Link href={refreshHref(scope.domain)} prefetch={false}>Refresh {scope.name} from the web</Link>. You confirm it first, and it uses one of your researches.
+            </>
+          ) : "To check the web, pick one account under Accounts. You confirm it first, and it uses one of your researches."}
+          {" "}<button type="button" className="link-btn small" onClick={() => onWebHint(false)}>Hide</button>
         </p>
       ) : null}
     </div>

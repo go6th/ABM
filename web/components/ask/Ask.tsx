@@ -254,7 +254,7 @@ export function Ask({
             <h1>What do you want to know?</h1>
             <p className="lead">
               {accounts.length
-                ? `Ask across your ${accounts.length} account${accounts.length === 1 ? "" : "s"}. Answers come from your workspace unless you choose the web.`
+                ? `Ask across your ${accounts.length} account${accounts.length === 1 ? "" : "s"}. Answers come from your workspace.`
                 : "Your workspace is empty. Start with an account or your own files; answers then come from them."}
             </p>
           </div>

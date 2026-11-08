@@ -33,6 +33,8 @@
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-btn); box-shadow: var(--sh-pop); padding: 6px;
 }
 .menu.down { top: calc(100% + 6px); bottom: auto; }
+.menu.down[data-flip="up"] { top: auto; bottom: calc(100% + 6px); }
+.menu[data-flip="down"] { top: calc(100% + 6px); bottom: auto; }
 .menu button { display: flex; width: 100%; min-height: 40px; align-items: center; padding: 0 12px; border-radius: var(--r-seg); border: 0; background: none; font-size: 14px; color: var(--text-3); text-align: left; }
 .menu a { display: flex; width: 100%; min-height: 40px; align-items: center; padding: 0 12px; border-radius: var(--r-seg); font-size: 14px; color: var(--text-3); text-decoration: none; white-space: nowrap; }
 .menu button:hover, .menu button:focus-visible, .menu a:hover, .menu a:focus-visible { background: var(--hover-soft); }
@@ -198,3 +200,18 @@
 .usage-ask { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 2px 0 2px 12px; border-left: 2px solid var(--accent-line); }
 /* the send button keeps to the right edge, also when the chips wrap on a phone */
 .composer .bar > .btn:last-child { margin-left: auto; }
+
+/* the model menu with its effort inside (Ask, owner request 2026-11-08) */
+.model-chip .chip-effort { font-weight: 500; color: var(--muted); padding-left: 6px; margin-left: 2px; border-left: 1px solid var(--line); }
+.model-menu.with-effort { display: flex; flex-direction: column; min-width: 300px; max-height: min(520px, 80vh); overflow: hidden; padding: 6px 6px 10px; }
+.model-menu.with-effort > [role="group"]:first-child { flex: 1 1 auto; min-height: 0; overflow: auto; }
+.model-menu.with-effort .mm-effort { flex: none; }
+.model-menu .mm-head { margin: 4px 12px 2px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.model-menu.with-effort button[role="menuitemradio"] { position: relative; min-height: 44px; padding: 4px 36px 4px 12px; gap: 1px; }
+.model-menu .tick { position: absolute; right: 12px; top: 50%; margin-top: -8px; fill: none; stroke: var(--accent); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.model-menu .mm-effort { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line); }
+.model-menu .mm-seg { display: flex; gap: 2px; margin: 2px 8px 0; padding: 3px; border-radius: 10px; background: var(--bg); box-shadow: inset 0 0 0 1px var(--line); }
+.model-menu .mm-seg button[role="menuitemradio"] { flex: 1; flex-direction: row; justify-content: center; align-items: center; min-height: 34px; padding: 0 10px; border-radius: 8px; font-size: 13px; color: var(--text-3); }
+.model-menu .mm-seg button[aria-checked="true"] { background: var(--surface); color: var(--accent); font-weight: 600; box-shadow: 0 1px 2px rgba(25, 30, 80, 0.10), inset 0 0 0 1px var(--accent-line); }
+.model-menu .mm-note { margin: 8px 12px 0; font-size: 12px; color: var(--muted); line-height: 1.4; }
+@media (pointer: coarse) { .model-menu .mm-seg button[role="menuitemradio"] { min-height: 40px; } }
