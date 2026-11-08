@@ -1,0 +1,660 @@
+diff --git a/web/app/(client)/accounts/[domain]/files/page.tsx b/web/app/(client)/accounts/[domain]/files/page.tsx
+index 331ab07d..3e0acdbc 100644
+--- a/web/app/(client)/accounts/[domain]/files/page.tsx
++++ b/web/app/(client)/accounts/[domain]/files/page.tsx
+@@ -46,7 +46,7 @@ async function Delivered({ domain, here }: { domain: string; here: string }) {
+ /** Your uploads for this account, kept current while they are read. Viewers may not list
+  *  documents (403): they see none, which is not an error. A list that could not be read is asked
+  *  for again by itself. */
+-async function Uploads({ accountId, domain, here }: { accountId: string; domain: string; here: string }) {
++async function Uploads({ accountId, domain, name, here }: { accountId: string; domain: string; name: string | null; here: string }) {
+   let uploads: DocumentList["documents"] | null = null;
+   try {
+     uploads = (await serverGet<DocumentList>(`/v1/documents?account_id=${encodeURIComponent(accountId)}`, here, [403]))?.documents ?? null;
+@@ -57,7 +57,7 @@ async function Uploads({ accountId, domain, here }: { accountId: string; domain:
+   if (!uploads) return null;
+   return (
+     <>
+-      <UploadedFilesCard docs={uploads} domain={domain} />
++      <UploadedFilesCard docs={uploads} domain={domain} account={{ id: accountId, domain, name }} />
+       {uploads.length ? <Link className="link-strong sm-text" href={`/accounts/${encodeURIComponent(domain)}/file-analysis`} prefetch={false}>See the analysis of your files</Link> : null}
+       {uploads.length ? <p className="mut sm-text">Uploaded files stay in your workspace. They answer your questions and are never included in research files you share with a prospect.</p> : null}
+       <LiveSync accountId={accountId} docs={uploads} />
+@@ -93,7 +93,7 @@ export default async function FilesPage({ params }: Params) {
+       </div>
+       <aside className="side-col stack-14" aria-label="Downloads and your files">
+         <DownloadEverythingCard domain={ws.domain} />
+-        {ws.id ? <Suspense fallback={null}><Uploads accountId={ws.id} domain={ws.domain} here={here} /></Suspense> : null}
++        {ws.id ? <Suspense fallback={null}><Uploads accountId={ws.id} domain={ws.domain} name={ws.name ?? null} here={here} /></Suspense> : null}
+       </aside>
+     </div>
+   );
+diff --git a/web/components/ModelMenu.tsx b/web/components/ModelMenu.tsx
+index 1784757a..05febe4f 100644
+--- a/web/components/ModelMenu.tsx
++++ b/web/components/ModelMenu.tsx
+@@ -4,7 +4,9 @@
+ // lists each model's name and one plain line. Beside it, the effort chip ("Effort: Medium",
+ // medium or high, owner decision 2026-10-20). A model that cannot be chosen is greyed out with
+ // its reason ("Not set up", "Not enabled for your workspace"), so nothing fails at Send.
+-import { useEffect, useId, useRef, useState } from "react";
++// Ask (owner request 2026-11-08) keeps the effort inside the model menu instead: the chip reads
++// "Fable 5.1  Medium" and the menu ends with an Effort switch; picking an effort keeps it open.
++import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+ import { api } from "@/lib/api";
+ import type { ModelChoices } from "@/lib/gen/api.gen";
+ import { useSharedModelChoices } from "@/lib/model-choices";
+@@ -32,13 +34,30 @@ export function useModelChoices(): ModelChoices | null {
+   return state === "failed" ? null : state;
+ }
+ 
+-export function ModelMenu({ choices, value, onChange, role, menuDown = false, className = "chipa" }: {
++const EFFORT_NAMES: Record<string, string> = { low: "Low", medium: "Medium", high: "High", xhigh: "Extra high", max: "Max" };
++const EFFORT_LINES: Record<string, string> = {
++  low: "Quickest answers, for simple lookups",
++  medium: "Balanced, right for most questions",
++  high: "Thinks longer on hard questions. Slower, costs more",
++  xhigh: "Thinks much longer. Slower, costs more",
++  max: "The deepest thinking. Slowest, costs the most",
++};
++const effortName = (e: string) => EFFORT_NAMES[e] ?? e;
++
++function Check() {
++  return <svg className="tick" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" /></svg>;
++}
++
++export function ModelMenu({ choices, value, onChange, role, menuDown = false, className = "chipa", effort = null, onEffort }: {
+   choices: ModelChoices;
+   value: string;
+   onChange: (id: string) => void;
+   role?: "Research" | "Analysis";
+   menuDown?: boolean;
+   className?: string;
++  /** with ``onEffort``: the effort is chosen inside this menu (Ask) instead of its own chip */
++  effort?: string | null;
++  onEffort?: (effort: string) => void;
+ }) {
+   const menuId = useId();
+   const [open, setOpen] = useState(false);
+@@ -46,6 +65,7 @@ export function ModelMenu({ choices, value, onChange, role, menuDown = false, cl
+   const button = useRef<HTMLButtonElement>(null);
+   const current = choices.models.find((m) => m.id === value);
+   const label = current?.label ?? value;
++  const withEffort = Boolean(effort && onEffort && choices.efforts.length > 1);
+ 
+   useEffect(() => {
+     if (!open) return;
+@@ -67,6 +87,23 @@ export function ModelMenu({ choices, value, onChange, role, menuDown = false, cl
+     return () => { document.removeEventListener("mousedown", onDown); document.removeEventListener("keydown", onKey); };
+   }, [open]);
+ 
++  // a menu taller than the room below opens on the roomier side and is capped to it; the model
++  // list then scrolls while the effort switch stays in view (data-flip is read by the stylesheet;
++  // measured once it is drawn, before it is painted)
++  useLayoutEffect(() => {
++    if (!open) return;
++    const menu = wrap.current?.querySelector<HTMLElement>(".model-menu");
++    const chip = button.current?.getBoundingClientRect();
++    if (!menu || !chip) return;
++    const height = menu.getBoundingClientRect().height;
++    const below = window.innerHeight - chip.bottom - 14;
++    const above = chip.top - 14;
++    const down = menuDown ? !(height > below && above > below) : height > above && below > above;
++    if (down !== menuDown) menu.dataset.flip = down ? "down" : "up";
++    const room = down ? below : above;
++    if (height > room) menu.style.maxHeight = `${Math.max(room, 200)}px`;
++  }, [open, menuDown]);
++
+   const pick = (id: string) => { onChange(id); setOpen(false); button.current?.focus(); };
+ 
+   return (
+@@ -78,35 +115,53 @@ export function ModelMenu({ choices, value, onChange, role, menuDown = false, cl
+         aria-haspopup="menu"
+         aria-expanded={open}
+         aria-controls={open ? menuId : undefined}
+-        aria-label={`${role ? `${role} model` : "Model"}: ${current?.name ?? value}. Change model`}
++        aria-label={withEffort
++          ? `Model: ${current?.name ?? value}, effort ${effortName(effort!)}. Change model or effort`
++          : `${role ? `${role} model` : "Model"}: ${current?.name ?? value}. Change model`}
+         onClick={() => setOpen((v) => !v)}
+       >
+         {role ? `${role}: ${label}` : label}
++        {withEffort ? <span className="chip-effort">{effortName(effort!)}</span> : null}
+         <svg className="chev" viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><path d="M3 4.5l3 3 3-3" /></svg>
+       </button>
+       {open ? (
+-        <div className={`menu model-menu ${menuDown ? "down" : ""}`} role="menu" id={menuId} aria-label={role ? `${role} model` : "Model"}>
+-          {choices.models.map((m) => (
+-            <button
+-              key={m.id}
+-              type="button"
+-              role="menuitemradio"
+-              aria-checked={m.id === value}
+-              aria-disabled={!m.available || undefined}
+-              onClick={() => { if (m.available) pick(m.id); }}
+-            >
+-              <span className="model-name">{m.name}</span>
+-              <span className="model-line">{m.available ? m.line : m.reason}</span>
+-            </button>
+-          ))}
++        <div className={`menu model-menu ${withEffort ? "with-effort" : ""} ${menuDown ? "down" : ""}`} role="menu" id={menuId} aria-label={role ? `${role} model` : withEffort ? "Model and effort" : "Model"}>
++          <div role="group" aria-label="Model">
++            {withEffort ? <p className="mm-head" aria-hidden="true">Model</p> : null}
++            {choices.models.map((m) => (
++              <button
++                key={m.id}
++                type="button"
++                role="menuitemradio"
++                aria-checked={m.id === value}
++                aria-disabled={!m.available || undefined}
++                onClick={() => { if (m.available) pick(m.id); }}
++              >
++                <span className="model-name">{m.name}</span>
++                <span className="model-line">{m.available ? m.line : m.reason}</span>
++                {withEffort && m.id === value ? <Check /> : null}
++              </button>
++            ))}
++          </div>
++          {withEffort ? (
++            <div className="mm-effort" role="group" aria-label="Effort">
++              <p className="mm-head" aria-hidden="true">Effort</p>
++              <div className="mm-seg">
++                {choices.efforts.map((e) => (
++                  <button key={e} type="button" role="menuitemradio" aria-checked={e === effort} onClick={() => onEffort!(e)}>
++                    {effortName(e)}
++                  </button>
++                ))}
++              </div>
++              <p className="mm-note" aria-live="polite">{EFFORT_LINES[effort!] ?? "How hard the model thinks"}</p>
++            </div>
++          ) : null}
+         </div>
+       ) : null}
+     </div>
+   );
+ }
+ 
+-const EFFORT_NAMES: Record<string, string> = { low: "Low", medium: "Medium", high: "High", xhigh: "Extra high", max: "Max" };
+-
+ /** "Effort: Medium" beside a model chip (owner decision 2026-10-20): a press moves to the next
+  * effort the server offers (medium, high), like the Search on/off chip. */
+ export function EffortChip({ efforts, value, onChange, role, className = "chipa" }: {
+@@ -117,7 +172,7 @@ export function EffortChip({ efforts, value, onChange, role, className = "chipa"
+   className?: string;
+ }) {
+   if (efforts.length < 2) return null;
+-  const name = (e: string) => EFFORT_NAMES[e] ?? e;
++  const name = effortName;
+   const next = efforts[(efforts.indexOf(value) + 1) % efforts.length] ?? value;
+   return (
+     <button
+diff --git a/web/components/accounts/UploadedFilesCard.tsx b/web/components/accounts/UploadedFilesCard.tsx
+index 6cd71526..e85efd3b 100644
+--- a/web/components/accounts/UploadedFilesCard.tsx
++++ b/web/components/accounts/UploadedFilesCard.tsx
+@@ -1,7 +1,8 @@
+ // The files the client uploaded for this account (owner request 2026-10-15): they are stored and
+ // bound to the account when the company is confirmed, but no screen listed them, so they looked
+ // lost. Names, sizes and status; a file's name opens the page that shows what was read from it
+-// (the account's domain is needed for that link; without it the name is plain text).
++// (the account's domain is needed for that link; without it the name is plain text). With the
++// account, "Add files" uploads into it in a pop-up (2026-11-08); without it, it opens Import a file.
+ import Link from "next/link";
+ import type { DocumentStatus } from "@/lib/gen/api.gen";
+ import { STAGE_TEXT, fileSize, filesLine, progressLine, stageOf, stageTone } from "@/lib/documents";
+@@ -9,11 +10,12 @@ import { cellText } from "@/lib/render";
+ import { Status } from "@/ui/primitives";
+ import { AccountPicker } from "@/components/ws/AccountPicker";
+ import { WorkspaceCompanyPrompt, workspaceOf } from "@/components/ws/WorkspaceCompanyPrompt";
++import { AddFilesToAccount, type FilesAccount } from "./AddFilesToAccount";
+ import { DeleteFileButton } from "./DeleteFileButton";
+ import { WhatWasRead } from "./WhatWasRead";
+ import { ZipMembers } from "./ZipMembers";
+ 
+-export function UploadedFilesCard({ docs, domain = null }: { docs: DocumentStatus[]; domain?: string | null }) {
++export function UploadedFilesCard({ docs, domain = null, account = null }: { docs: DocumentStatus[]; domain?: string | null; account?: FilesAccount | null }) {
+   const pageOf = (id: string) => (domain ? `/accounts/${encodeURIComponent(domain)}/documents/${encodeURIComponent(id)}` : null);
+   return (
+     <section className="card fc" aria-labelledby="uploaded-title">
+@@ -56,7 +58,7 @@ export function UploadedFilesCard({ docs, domain = null }: { docs: DocumentStatu
+         </ul>
+       )}
+       <div className="fc-actions">
+-        <Link className="btn" href="/accounts/import" prefetch={false}>Add files</Link>
++        {account ? <AddFilesToAccount account={account} /> : <Link className="btn" href="/accounts/import" prefetch={false}>Add files</Link>}
+       </div>
+     </section>
+   );
+diff --git a/web/components/ask/Ask.tsx b/web/components/ask/Ask.tsx
+index a5378e84..4cb6c284 100644
+--- a/web/components/ask/Ask.tsx
++++ b/web/components/ask/Ask.tsx
+@@ -254,7 +254,7 @@ export function Ask({
+             <h1>What do you want to know?</h1>
+             <p className="lead">
+               {accounts.length
+-                ? `Ask across your ${accounts.length} account${accounts.length === 1 ? "" : "s"}. Answers come from your workspace unless you choose the web.`
++                ? `Ask across your ${accounts.length} account${accounts.length === 1 ? "" : "s"}. Answers come from your workspace.`
+                 : "Your workspace is empty. Start with an account or your own files; answers then come from them."}
+             </p>
+           </div>
+diff --git a/web/components/ask/AskComposer.tsx b/web/components/ask/AskComposer.tsx
+index 47bb2a59..76911fd1 100644
+--- a/web/components/ask/AskComposer.tsx
++++ b/web/components/ask/AskComposer.tsx
+@@ -1,53 +1,18 @@
+ "use client";
+-// The composer: the question field (Enter sends), then "+" (a menu with "Add files"), the Accounts chip
+-// (all accounts or one), the Search toggle, the model chip (the conversation's analysis model)
+-// and Ask. Answers come from the workspace. With Search
+-// on, the question becomes a web research topic for the chosen account and opens its Refresh
+-// screen, where it is confirmed (it uses one research); nothing is searched from here.
++// The composer: the question field (Enter sends), then the Accounts chip (all accounts or one),
++// the model chip (the conversation's analysis model, with its effort chosen inside the same menu)
++// and Ask. Answers come from the workspace. Owner request 2026-11-08: the "+" menu, the Search
++// toggle and the separate Effort chip were removed; files are added on an account's Files tab, and
++// checking the web goes through an account's Refresh screen (the answer's "Refresh from web"
++// offer opens the hint below, which links there once an account is picked).
+ import Link from "next/link";
+-import { useRouter } from "next/navigation";
+ import { useEffect, useId, useRef, useState } from "react";
+ import { refreshHref } from "./AnswerView";
+-import { EffortChip, ModelMenu } from "@/components/ModelMenu";
++import { ModelMenu } from "@/components/ModelMenu";
+ import type { ModelChoices } from "@/lib/gen/api.gen";
+ 
+ export interface ScopeAccount { id: string; domain: string; name: string }
+ 
+-/** "+": the way to add files, as on New research's file tab. */
+-function AddFilesMenu() {
+-  const menuId = useId();
+-  const [open, setOpen] = useState(false);
+-  const wrap = useRef<HTMLDivElement>(null);
+-  const button = useRef<HTMLButtonElement>(null);
+-  useEffect(() => {
+-    if (!open) return;
+-    wrap.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+-    const onDown = (event: MouseEvent) => { if (wrap.current && !wrap.current.contains(event.target as Node)) setOpen(false); };
+-    const onKey = (event: KeyboardEvent) => {
+-      if (event.key === "Escape") { setOpen(false); button.current?.focus(); }
+-      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+-        const items = Array.from(wrap.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? []);
+-        const i = items.indexOf(document.activeElement as HTMLElement);
+-        items[(i + (event.key === "ArrowDown" ? 1 : items.length - 1)) % items.length]?.focus();
+-        event.preventDefault();
+-      }
+-    };
+-    document.addEventListener("mousedown", onDown);
+-    document.addEventListener("keydown", onKey);
+-    return () => { document.removeEventListener("mousedown", onDown); document.removeEventListener("keydown", onKey); };
+-  }, [open]);
+-  return (
+-    <div className="menu-wrap" ref={wrap}>
+-      <button ref={button} type="button" className="chipa plus" aria-haspopup="menu" aria-expanded={open} aria-controls={open ? menuId : undefined} aria-label="Add files" title="Add files" onClick={() => setOpen((v) => !v)}>+</button>
+-      {open ? (
+-        <div className="menu" role="menu" id={menuId} aria-label="Add files">
+-          <Link role="menuitem" href="/accounts/import" prefetch={false}>Add files</Link>
+-        </div>
+-      ) : null}
+-    </div>
+-  );
+-}
+-
+ export function AskComposer({
+   variant, draft, onDraft, onSend, onStop, busy, accounts, scope, onScope, placeholder, menuDown = false, webHintOpen, onWebHint,
+   models = null, model = null, onModel, effort = null, onEffort, meter = null,
+@@ -74,7 +39,6 @@ export function AskComposer({
+   /** the token meter, shown beside Ask once the conversation has an answer */
+   meter?: React.ReactNode;
+ }) {
+-  const router = useRouter();
+   const inputId = useId();
+   const menuId = useId();
+   const [menuOpen, setMenuOpen] = useState(false);
+@@ -104,30 +68,15 @@ export function AskComposer({
+     return () => { document.removeEventListener("mousedown", onDown); document.removeEventListener("keydown", onKey); };
+   }, [menuOpen]);
+ 
++  // picking an account keeps the web hint open: it then links to that account's Refresh screen
+   const pick = (value: ScopeAccount | null) => {
+     onScope?.(value);
+     setMenuOpen(false);
+-    onWebHint(false);
+     scopeButton.current?.focus();
+   };
+ 
+-  // Search on: the question becomes a web research topic for one account, confirmed with its
+-  // the Refresh screen. Nothing is searched from here.
+-  const [searchOn, setSearchOn] = useState(false);
+-  const toggleSearch = () => {
+-    const next = !searchOn;
+-    setSearchOn(next);
+-    onWebHint(next && !scope);
+-    if (next && !scope && onScope) setMenuOpen(true);
+-  };
+   const send = () => {
+-    const question = draft.trim();
+-    if (!question) { document.getElementById(inputId)?.focus(); return; }
+-    if (searchOn) {
+-      if (!scope) { onWebHint(true); if (onScope) setMenuOpen(true); return; }
+-      router.push(`${refreshHref(scope.domain)}?topic=${encodeURIComponent(question.slice(0, 300))}`);
+-      return;
+-    }
++    if (!draft.trim()) { document.getElementById(inputId)?.focus(); return; }
+     onSend();
+   };
+ 
+@@ -148,7 +97,6 @@ export function AskComposer({
+         onKeyDown={(e) => { if (e.key === "Enter" && !e.nativeEvent.isComposing) { e.preventDefault(); send(); } }}
+       />
+       <div className="bar">
+-        {variant !== "account" ? <AddFilesMenu /> : null}
+         {onScope ? (
+           <div className="menu-wrap" ref={wrap}>
+             <button
+@@ -175,20 +123,8 @@ export function AskComposer({
+         ) : (
+           <span className={chip}>{scopeLabel}</span>
+         )}
+-        <button
+-          type="button"
+-          className={chip}
+-          aria-pressed={searchOn}
+-          aria-describedby={searchOn || webHintOpen ? `${inputId}-web` : undefined}
+-          onClick={toggleSearch}
+-        >
+-          Search: {searchOn ? "on" : "off"}
+-        </button>
+         {models && model && onModel ? (
+-          <ModelMenu choices={models} value={model} onChange={onModel} menuDown={menuDown} className={chip} />
+-        ) : null}
+-        {models && effort && onEffort ? (
+-          <EffortChip efforts={models.efforts} value={effort} onChange={onEffort} className={chip} />
++          <ModelMenu choices={models} value={model} onChange={onModel} menuDown={menuDown} className={chip} effort={effort} onEffort={onEffort} />
+         ) : null}
+         <span className="spacer" />
+         {meter}
+@@ -201,15 +137,18 @@ export function AskComposer({
+             disabled={busy || !draft.trim()}
+             onClick={send}
+           >
+-            {searchOn ? "Search" : "Ask"}
++            Ask
+           </button>
+         )}
+       </div>
+-      {searchOn || webHintOpen ? (
++      {webHintOpen ? (
+         <p className="hint" id={`${inputId}-web`} role="status">
+-          {searchOn && scope
+-            ? `Search is on: your question is researched on the web for ${scope.name}. You confirm it first, and it uses one of your researches.`
+-            : "Search the web for one account: pick it under Accounts. You confirm it first, and it uses one of your researches."}
++          {scope ? (
++            <>
++              <Link href={refreshHref(scope.domain)} prefetch={false}>Refresh {scope.name} from the web</Link>. You confirm it first, and it uses one of your researches.
++            </>
++          ) : "To check the web, pick one account under Accounts. You confirm it first, and it uses one of your researches."}
++          {" "}<button type="button" className="link-btn small" onClick={() => onWebHint(false)}>Hide</button>
+         </p>
+       ) : null}
+     </div>
+diff --git a/web/components/ws/DocumentDrop.tsx b/web/components/ws/DocumentDrop.tsx
+index 53252ce7..d2ade886 100644
+--- a/web/components/ws/DocumentDrop.tsx
++++ b/web/components/ws/DocumentDrop.tsx
+@@ -24,8 +24,10 @@ export interface DropItem { key: string; name: string; size: number; stage: Stag
+ 
+ const POLL_MS = 2000;
+ 
+-export function DocumentDrop({ accountId = null, onChange, disabled = false, refresh = 0, picker = true }: {
++export function DocumentDrop({ accountId = null, onChange, onSending, disabled = false, refresh = 0, picker = true }: {
+   accountId?: string | null;
++  /** told whether any file is still being sent (a pop-up around the drop stays open meanwhile) */
++  onSending?: (sending: boolean) => void;
+   // show the account picker under a file the server holds as "Needs account" (a new research
+   // confirms the company in its own panel instead)
+   picker?: boolean;
+@@ -85,6 +87,8 @@ export function DocumentDrop({ accountId = null, onChange, disabled = false, ref
+     return () => clearInterval(timer);
+   }, [hasWorking, update]);
+ 
++  useEffect(() => { onSending?.(sending); }, [sending, onSending]);
++
+   // closing or reloading the tab while a file is still being sent would lose the place
+   useEffect(() => {
+     if (!sending) return;
+diff --git a/web/e2e/tenant.spec.ts b/web/e2e/tenant.spec.ts
+index 22e9c4b7..8e6039e2 100644
+--- a/web/e2e/tenant.spec.ts
++++ b/web/e2e/tenant.spec.ts
+@@ -29,7 +29,8 @@ test("ask answers from the workspace and keeps the thread in Recent", async ({ p
+   await signIn(page, await seededSlug(page, "a"), "sam", "seller");
+   await page.goto("/");
+   await expect(page.getByRole("heading", { name: "What do you want to know?" })).toBeVisible();
+-  await expect(page.getByRole("button", { name: "Search: off" })).toHaveAttribute("aria-pressed", "false");
++  // the composer is the question, Accounts and the model (its effort inside); no "+" or Search
++  await expect(page.getByRole("button", { name: /^Search/ })).toHaveCount(0);
+   await page.getByLabel("Ask a question").fill("Summarize our account notes");
+   await page.getByRole("button", { name: "Ask", exact: true }).click();
+   // the hermetic model gives the workspace answer (no provider is ever called)
+diff --git a/web/tests/unit/uploaded-files.test.tsx b/web/tests/unit/uploaded-files.test.tsx
+index 589e89d1..1db64bd0 100644
+--- a/web/tests/unit/uploaded-files.test.tsx
++++ b/web/tests/unit/uploaded-files.test.tsx
+@@ -1,11 +1,14 @@
+ // @vitest-environment jsdom
+ // The account page lists the files uploaded for it (they were stored but shown nowhere).
+-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
++import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+ import { afterEach, expect, test, vi } from "vitest";
+ import { UploadedFilesCard } from "@/components/accounts/UploadedFilesCard";
+ import type { DocumentStatus } from "@/lib/gen/api.gen";
+ 
+-vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
++const refreshMock = vi.fn();
++vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: refreshMock }) }));
++const uploadMock = vi.fn();
++vi.mock("@/lib/upload", async (original) => ({ ...(await original<typeof import("@/lib/upload")>()), uploadDocument: (...args: unknown[]) => uploadMock(...args) }));
+ const apiMock = vi.fn();
+ vi.mock("@/lib/api", async (original) => ({ ...(await original<typeof import("@/lib/api")>()), api: (...args: unknown[]) => apiMock(...args) }));
+ 
+@@ -70,3 +73,24 @@ test("with the account's domain each file's name opens its page, and the files i
+   fireEvent.click(screen.getByRole("button", { name: "View the files inside" }));
+   expect((await screen.findByRole("link", { name: "ws/notes/plan.md" })).getAttribute("href")).toBe("/accounts/acme.com/documents/d3#m-0");
+ });
++
++test("on the account's page Add files uploads into that account in a pop-up, not Import a file", async () => {
++  uploadMock.mockResolvedValue("d9");
++  apiMock.mockResolvedValue(doc({ document_id: "d9", name: "notes.pdf", account_id: "a1", stage: "scanning", status: "scanning", passages: 0 }));
++  const { container } = render(
++    <div className="ui-pastel"><main><UploadedFilesCard docs={[]} domain="acme.com" account={{ id: "a1", domain: "acme.com", name: "Acme" }} /></main></div>,
++  );
++  expect(container.querySelector('a[href="/accounts/import"]')).toBeNull();
++  fireEvent.click(screen.getByRole("button", { name: "Add files" }));
++  const dialog = await screen.findByRole("dialog", { name: "Add files to Acme" });
++  expect(dialog.textContent).toContain("go into Acme only");
++  const input = within(dialog).getByLabelText("Add files", { selector: "input:not([webkitdirectory])" });
++  fireEvent.change(input, { target: { files: [new File(["x"], "notes.pdf", { type: "application/pdf" })] } });
++  // the upload carries this account's id, so the server binds the file to it from the start
++  await waitFor(() => expect(uploadMock).toHaveBeenCalled());
++  expect(uploadMock.mock.calls[0]![1]).toBe("a1");
++  expect(await within(dialog).findByText("1 file added. Reading carries on after you close this.")).toBeTruthy();
++  fireEvent.click(within(dialog).getByRole("button", { name: "Done" }));
++  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
++  expect(refreshMock).toHaveBeenCalled();
++});
+diff --git a/web/ui/ask.css b/web/ui/ask.css
+index 26e5d33b..b591e796 100644
+--- a/web/ui/ask.css
++++ b/web/ui/ask.css
+@@ -33,6 +33,8 @@
+   background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-btn); box-shadow: var(--sh-pop); padding: 6px;
+ }
+ .menu.down { top: calc(100% + 6px); bottom: auto; }
++.menu.down[data-flip="up"] { top: auto; bottom: calc(100% + 6px); }
++.menu[data-flip="down"] { top: calc(100% + 6px); bottom: auto; }
+ .menu button { display: flex; width: 100%; min-height: 40px; align-items: center; padding: 0 12px; border-radius: var(--r-seg); border: 0; background: none; font-size: 14px; color: var(--text-3); text-align: left; }
+ .menu a { display: flex; width: 100%; min-height: 40px; align-items: center; padding: 0 12px; border-radius: var(--r-seg); font-size: 14px; color: var(--text-3); text-decoration: none; white-space: nowrap; }
+ .menu button:hover, .menu button:focus-visible, .menu a:hover, .menu a:focus-visible { background: var(--hover-soft); }
+@@ -198,3 +200,18 @@
+ .usage-ask { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 2px 0 2px 12px; border-left: 2px solid var(--accent-line); }
+ /* the send button keeps to the right edge, also when the chips wrap on a phone */
+ .composer .bar > .btn:last-child { margin-left: auto; }
++
++/* the model menu with its effort inside (Ask, owner request 2026-11-08) */
++.model-chip .chip-effort { font-weight: 500; color: var(--muted); padding-left: 6px; margin-left: 2px; border-left: 1px solid var(--line); }
++.model-menu.with-effort { display: flex; flex-direction: column; min-width: 300px; max-height: min(520px, 80vh); overflow: hidden; padding: 6px 6px 10px; }
++.model-menu.with-effort > [role="group"]:first-child { flex: 1 1 auto; min-height: 0; overflow: auto; }
++.model-menu.with-effort .mm-effort { flex: none; }
++.model-menu .mm-head { margin: 4px 12px 2px; font-size: 12px; font-weight: 600; color: var(--muted); }
++.model-menu.with-effort button[role="menuitemradio"] { position: relative; min-height: 44px; padding: 4px 36px 4px 12px; gap: 1px; }
++.model-menu .tick { position: absolute; right: 12px; top: 50%; margin-top: -8px; fill: none; stroke: var(--accent); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
++.model-menu .mm-effort { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line); }
++.model-menu .mm-seg { display: flex; gap: 2px; margin: 2px 8px 0; padding: 3px; border-radius: 10px; background: var(--bg); box-shadow: inset 0 0 0 1px var(--line); }
++.model-menu .mm-seg button[role="menuitemradio"] { flex: 1; flex-direction: row; justify-content: center; align-items: center; min-height: 34px; padding: 0 10px; border-radius: 8px; font-size: 13px; color: var(--text-3); }
++.model-menu .mm-seg button[aria-checked="true"] { background: var(--surface); color: var(--accent); font-weight: 600; box-shadow: 0 1px 2px rgba(25, 30, 80, 0.10), inset 0 0 0 1px var(--accent-line); }
++.model-menu .mm-note { margin: 8px 12px 0; font-size: 12px; color: var(--muted); line-height: 1.4; }
++@media (pointer: coarse) { .model-menu .mm-seg button[role="menuitemradio"] { min-height: 40px; } }
+diff --git a/web/ui/depth.css b/web/ui/depth.css
+index 1deaecd0..23e8f736 100644
+--- a/web/ui/depth.css
++++ b/web/ui/depth.css
+@@ -336,3 +336,5 @@ html.modal-open { overflow: hidden; }
+ .ui-pastel .mps-row { box-shadow: var(--sh-1); }
+ .ui-pastel .rs-detail { animation: rise 220ms ease-out both; }
+ .ui-pastel .fc, .ui-pastel .dl-all { box-shadow: var(--sh-2), var(--hl); }
++.ui-pastel .menu.down[data-flip="up"] { transform-origin: bottom left; }
++.ui-pastel .menu[data-flip="down"] { transform-origin: top left; }
+diff --git a/web/components/accounts/AddFilesToAccount.tsx b/web/components/accounts/AddFilesToAccount.tsx
+new file mode 100644
+index 00000000..70210e03
+--- /dev/null
++++ b/web/components/accounts/AddFilesToAccount.tsx
+@@ -0,0 +1,51 @@
++"use client";
++// "Add files" on an account's Files tab (owner request 2026-11-08): the files go into THIS account
++// only. It used to open Import a file (/accounts/import), which asks which company the file is
++// about and can create a new account. Here the pop-up uploads with the account's id, so the server
++// binds each file to it from the start (``documents.service``: an upload sent to an account is
++// read, imported and indexed there). The one exception the server keeps: a file that clearly names
++// another company waits as "Needs account", and the picker under it is preselected with this
++// account, so one press keeps it here. Nothing is analysed or researched by itself (automatic
++// starts are off), so adding files spends nothing.
++import { useRouter } from "next/navigation";
++import { useCallback, useState } from "react";
++import type { DocumentStatus } from "@/lib/gen/api.gen";
++import { Modal } from "@/ui/Modal";
++import { DocumentDrop } from "@/components/ws/DocumentDrop";
++
++export interface FilesAccount { id: string; domain: string; name: string | null }
++
++export function AddFilesToAccount({ account }: { account: FilesAccount }) {
++  const router = useRouter();
++  const [open, setOpen] = useState(false);
++  const [added, setAdded] = useState(0);
++  const [sending, setSending] = useState(false);
++  const name = account.name || account.domain;
++  const onChange = useCallback((docs: DocumentStatus[]) => setAdded(docs.length), []);
++  const close = () => {
++    setOpen(false);
++    // the card behind lists the new files and keeps itself current while they are read
++    if (added) router.refresh();
++    setAdded(0);
++  };
++  return (
++    <>
++      <button type="button" className="btn" onClick={() => setOpen(true)}>Add files</button>
++      {open ? (
++        <Modal title={`Add files to ${name}`} onClose={close} busy={sending} wide>
++          <p className="mut sm-text">
++            Files you add here go into <b>{name}</b> only, and stay private to your workspace. They are read and added to this
++            account&rsquo;s people, jobs and technology; nothing is researched or charged.
++          </p>
++          <DocumentDrop accountId={account.id} onChange={onChange} onSending={setSending} />
++          <div className="row-12 wrap">
++            <span className="mut sm-text grow-220" aria-live="polite">
++              {sending ? "Sending your files. Keep this open until they are sent." : added ? `${added} file${added === 1 ? "" : "s"} added. Reading carries on after you close this.` : ""}
++            </span>
++            <button type="button" className="btn primary" disabled={sending} onClick={close}>Done</button>
++          </div>
++        </Modal>
++      ) : null}
++    </>
++  );
++}
+diff --git a/web/tests/unit/ask-composer.test.tsx b/web/tests/unit/ask-composer.test.tsx
+new file mode 100644
+index 00000000..667c4ca1
+--- /dev/null
++++ b/web/tests/unit/ask-composer.test.tsx
+@@ -0,0 +1,70 @@
++// @vitest-environment jsdom
++// The Ask composer (owner request 2026-11-08): the question, Accounts and the model; the "+" menu,
++// the Search toggle and the separate Effort chip are gone, and the effort is chosen inside the
++// model menu.
++import { cleanup, fireEvent, render, screen } from "@testing-library/react";
++import { useState } from "react";
++import { afterEach, expect, test, vi } from "vitest";
++import { AskComposer } from "@/components/ask/AskComposer";
++import type { ModelChoices } from "@/lib/gen/api.gen";
++
++afterEach(cleanup);
++
++const CHOICES: ModelChoices = {
++  analysis: "fable", analysis_effort: "medium", default_analysis: "fable", default_research: "opus",
++  research: "opus", research_effort: "medium", efforts: ["low", "medium", "high"],
++  models: [
++    { id: "fable", name: "Fable 5.1", label: "Fable 5.1", line: "Most capable", available: true, reason: null },
++    { id: "sonnet", name: "Sonnet 5.5", label: "Sonnet 5.5", line: "Fast and capable", available: true, reason: null },
++    { id: "kimi", name: "Kimi K3", label: "Kimi K3", line: "Open model", available: false, reason: "Not set up" },
++  ],
++};
++
++function Harness({ onSend = vi.fn() }: { onSend?: () => void }) {
++  const [model, setModel] = useState("fable");
++  const [effort, setEffort] = useState("medium");
++  const [draft, setDraft] = useState("");
++  return (
++    <AskComposer
++      variant="hero" placeholder="Ask about your accounts" draft={draft} onDraft={setDraft} onSend={onSend} busy={false}
++      accounts={[{ id: "a1", domain: "acme.com", name: "Acme" }]} scope={null} onScope={vi.fn()}
++      webHintOpen={false} onWebHint={vi.fn()} models={CHOICES} model={model} onModel={setModel} effort={effort} onEffort={setEffort} menuDown
++    />
++  );
++}
++
++test("the composer keeps Accounts and the model only: no +, no Search, no Effort chip", () => {
++  render(<Harness />);
++  expect(screen.getByRole("button", { name: /Answer from all accounts/ })).toBeTruthy();
++  expect(screen.getByRole("button", { name: "Model: Fable 5.1, effort Medium. Change model or effort" })).toBeTruthy();
++  expect(screen.queryByRole("button", { name: "Add files" })).toBeNull();
++  expect(screen.queryByRole("button", { name: /^Search/ })).toBeNull();
++  expect(screen.queryByRole("button", { name: /^Effort/ })).toBeNull();
++});
++
++test("the effort is chosen inside the model menu, which stays open; picking a model closes it", () => {
++  render(<Harness />);
++  fireEvent.click(screen.getByRole("button", { name: /^Model: Fable 5.1/ }));
++  const menu = screen.getByRole("menu", { name: "Model and effort" });
++  expect(menu).toBeTruthy();
++  expect(screen.getByRole("group", { name: "Effort" })).toBeTruthy();
++  expect(screen.getByRole("menuitemradio", { name: "Medium" }).getAttribute("aria-checked")).toBe("true");
++  expect(screen.getByText("Balanced, right for most questions")).toBeTruthy();
++  fireEvent.click(screen.getByRole("menuitemradio", { name: "High" }));
++  expect(screen.getByRole("menuitemradio", { name: "High" }).getAttribute("aria-checked")).toBe("true");
++  expect(screen.getByRole("menu", { name: "Model and effort" })).toBeTruthy(); // still open
++  // a model that cannot be chosen says why and does nothing
++  fireEvent.click(screen.getByRole("menuitemradio", { name: /Kimi K3/ }));
++  expect(screen.getByText("Not set up")).toBeTruthy();
++  fireEvent.click(screen.getByRole("menuitemradio", { name: /Sonnet 5.5/ }));
++  expect(screen.queryByRole("menu", { name: "Model and effort" })).toBeNull();
++  expect(screen.getByRole("button", { name: "Model: Sonnet 5.5, effort High. Change model or effort" })).toBeTruthy();
++});
++
++test("Enter and Ask send the question to the workspace", () => {
++  const onSend = vi.fn();
++  render(<Harness onSend={onSend} />);
++  fireEvent.change(screen.getByLabelText("Ask a question"), { target: { value: "Who is hiring?" } });
++  fireEvent.click(screen.getByRole("button", { name: "Ask" }));
++  expect(onSend).toHaveBeenCalledTimes(1);
++});

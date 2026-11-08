@@ -1,7 +1,9 @@
 {
-  "tag": "rel-1f40f97a-11081316",
-  "commit": "1f40f97a2c3d8d0249358118c1461a0344e85db7",
-  "patches": [],
+  "tag": "rel-f06c5361-11081352",
+  "commit": "f06c5361a1d2245144fbd5d0c3bb3935eda5ff10",
+  "patches": [
+    "ask-files-ui.patch"
+  ],
   "migrations": [
     "0001_core.sql",
     "0002_rls.sql",
@@ -231,9 +233,9 @@
   "digests": {
     "worker": "sha256:32cad5eb3bce96a91f922b7217b4c39c81d67021ced791ccd3e7b5b2a6aabf8a",
     "api": "sha256:816cd7bdadf70917627bb61f74085d47460b846ffd2aef21759906462727f7c7",
-    "web": "sha256:1fa9a56df7e6bc6ad1b69ed4ea766262d98f82dec6bb8f2bbd00c8cfb29c57c7"
+    "web": "sha256:76a415eba14ef0961388d6600c6dd62b804b0661d2b8e148444c26cc785e57d1"
   },
   "adopted_at": "2026-11-08T12:58:20+00:00",
-  "build": "b0e4e080-b2b5-4f86-b64e-fbb09f56547a",
-  "built_at": "2026-11-08T13:23:18+00:00"
+  "build": "f27345d4-3599-4c19-bbaa-4582e0ddbae7",
+  "built_at": "2026-11-08T13:55:37+00:00"
 }
