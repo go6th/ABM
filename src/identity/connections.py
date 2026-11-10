@@ -35,6 +35,11 @@ def as_json(row: Any) -> dict[str, Any]:
     return out
 
 
+async def claimed_elsewhere(s: AsyncSession, domain: str) -> bool:
+    """Another tenant's active connection already holds ``domain`` as a proven domain (SD-10)."""
+    return bool(await s.scalar(text("SELECT idp_domain_claimed_elsewhere(:d)"), {"d": domain}))
+
+
 async def listing(s: AsyncSession) -> list[dict[str, Any]]:
     """The context tenant's connections."""
     sql = text(f"SELECT {COLUMNS} FROM idp_connections ORDER BY slug")  # nosec B608 -- fixed return columns.

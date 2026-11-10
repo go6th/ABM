@@ -69,7 +69,7 @@ from account_intelligence.replica import library as L
 from account_intelligence.replica import limits as LIM
 from account_intelligence.replica import models as M
 from account_intelligence.replica import settings as S
-from admin import tenants
+from admin import support, tenants
 from audit.events import AuditEvent, record
 from identity import local_password, membership, sessions
 from llm.choice import catalogue
@@ -399,13 +399,7 @@ async def _require_write_grant(request: Request, tenant_id: UUID, who: StaffIden
     """403 unless the client gave this staff member a write support grant that is active now."""
     now = plane_of(request).clock.now()
     async with tenant_txn(tenant_id) as s:
-        granted = await s.scalar(
-            text(
-                "SELECT 1 FROM support_grants WHERE grantee = :g AND scope = 'write'"
-                " AND revoked_at IS NULL AND granted_at <= :now AND expires_at > :now LIMIT 1"
-            ),
-            {"g": who.staff_id, "now": now},
-        )
+        granted = await support.holds_write_grant(s, who.staff_id, now)
     if not granted:
         raise APIProblem(
             403,

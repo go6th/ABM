@@ -126,7 +126,7 @@ unannotated (the generator's check fails otherwise).
 | orphan sweep | `src/account_intelligence/runs/sweeper.py:107` | max_pages * batch_size runs per pass | rows exhausted |
 | orphan sweep loop | `src/account_intelligence/api/main.py:391` | none, one pass per interval for the life of the worker | task cancelled at shutdown |
 | outbox relay | `src/alerts/outbox.py:87` | limit | end |
-| pacing | `src/account_intelligence/connectors/ratelimit.py:235` | max_iterations and max_wait_s | token granted, RateLimited (the node RetryPolicy owns the retry) |
+| pacing | `src/account_intelligence/connectors/ratelimit.py:229` | max_iterations and max_wait_s | token granted, RateLimited (the node RetryPolicy owns the retry) |
 | package part elements | `src/research_files/parsers/tabular.py:415` | `cap` bytes of the part | end of the part |
 | pagination | `src/account_intelligence/connectors/paginate.py:83` | max_pages, max_items, max_bytes, slice deadline | exhausted, max_pages, max_items, max_bytes, deadline, loop_detected |
 | part download | `src/account_intelligence/api/routes/downloads.py:165` | the range's bytes / 1 MiB | range sent |
@@ -150,7 +150,7 @@ unannotated (the generator's check fails otherwise).
 | ranking rows | `src/parity/gate/workbook.py:272` | rows of the sheet | first blank Platform cell |
 | re-export after a refused check | `src/exports/repair/package.py:502` | 4 attempts | file passes or attempts spent |
 | read siblings | `src/exports/verify.py:107` | the children of the parent (each pass deletes one) | no earlier sibling is left |
-| rebuild keepalive | `src/account_intelligence/api/routes/admin_console.py:671` | one space per KEEPALIVE_S of the build | it ends |
+| rebuild keepalive | `src/account_intelligence/api/routes/admin_console.py:689` | one space per KEEPALIVE_S of the build | it ends |
 | reindex clients | `src/documents/reindex.py:49` | the workspaces in scope once per run, `limit` documents each | last client |
 | reindex documents | `src/documents/reindex.py:53` | `limit` per client per run | rows exhausted |
 | reingest clients | `src/documents/tables_reingest.py:55` | every client once per run, `limit` documents each | last client |

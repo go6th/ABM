@@ -15,12 +15,9 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Protocol
 
+from account_intelligence.connectors import obs
 from account_intelligence.connectors.base import Clock, ProviderCode, Sleep
 from account_intelligence.connectors.errors import RateLimited
-
-# the connectors' own logger (connectors/obs.py): jobs and people import the connectors and may
-# not import obs, so this module cannot use obs.logging
-_log = logging.getLogger("account_intelligence.connectors")
 
 
 @dataclass(frozen=True)
@@ -156,15 +153,12 @@ class FallbackRateStore:
     def _lost(self, error: Exception) -> None:
         if not self._degraded:
             self._degraded = True
-            _log.warning(
-                "rate_limit_degraded",
-                extra={"kind": "provider", "error_class": type(error).__name__},
-            )
+            obs.log_event("rate_limit_degraded", logging.WARNING, error_class=type(error).__name__)
 
     def _back(self) -> None:
         if self._degraded:
             self._degraded = False
-            _log.info("rate_limit_restored", extra={"kind": "provider"})
+            obs.log_event("rate_limit_restored")
 
     async def take(self, key: str, limit: BucketLimit, now: float) -> float:
         """Take from Redis; on an error, from the local bucket at the fallback share."""

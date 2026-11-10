@@ -99,6 +99,18 @@ async def revoke(s: Any, grant_id: UUID, *, by: str, now: datetime) -> bool:
     return row is not None
 
 
+async def holds_write_grant(s: Any, grantee: str, now: datetime) -> bool:
+    """The context tenant gave ``grantee`` a write grant that is active at ``now`` (SD-11)."""
+    row = await s.scalar(
+        text(
+            "SELECT 1 FROM support_grants WHERE grantee = :g AND scope = 'write'"
+            " AND revoked_at IS NULL AND granted_at <= :now AND expires_at > :now LIMIT 1"
+        ),
+        {"g": grantee, "now": now},
+    )
+    return row is not None
+
+
 async def listing(s: Any) -> list[dict[str, Any]]:
     """The tenant's grants (newest first)."""
     rows = (

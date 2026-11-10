@@ -361,6 +361,14 @@ async def _call(world: World, route: str, app: Any, *, absent: bool = False) -> 
     headers = {"Idempotency-Key": f"matrix-{uuid4().hex[:16]}"} if entry.get("idempotent") else {}
     if entry["probe"] == "staff":  # a real 6th staff principal, no tenant principal at all
         headers["Authorization"] = "Bearer operator:matrix-op"
+    if entry.get("write_grant"):  # the route runs only inside A's write grant to the staff probe
+        with psycopg.connect(ADMIN_DSN, autocommit=True) as admin:
+            admin.execute(
+                "INSERT INTO support_grants (tenant_id, grantee, scope, reason_code, granted_by,"
+                " granted_at, expires_at) VALUES (%s, 'matrix-op', 'write', 'synthetic',"
+                " 'matrix', '2000-01-01T00:00:00+00:00', '2099-01-01T00:00:00+00:00')",
+                (str(world.tenants["A"]),),
+            )
     query = {
         k: _value(world, v) if "." in str(v) else v for k, v in (entry.get("query") or {}).items()
     }

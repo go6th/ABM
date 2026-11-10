@@ -351,7 +351,7 @@ async def _prove_domains(tenant: UUID, domains: list[str]) -> None:
 async def _refuse_claimed(s: Any, domains: list[str]) -> None:
     """409 when another tenant's active connection already holds a proven listed domain."""
     for domain in domains:
-        if await s.scalar(text("SELECT idp_domain_claimed_elsewhere(:d)"), {"d": domain}):
+        if await connections.claimed_elsewhere(s, domain):
             raise APIProblem(
                 409,
                 "domain_claimed",

@@ -733,6 +733,7 @@ routes:
   POST /operator/v1/console/clients/{tenant_id}/users:
     probe: staff
     params: {tenant_id: owner}
+    write_grant: true  # SD-11: refused (403) without the client's write support grant
     body: {email: "matrix-op-probe@example.com", role: viewer}
     allow_service_unavailable: true
   GET /operator/v1/console/users:
