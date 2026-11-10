@@ -8,6 +8,10 @@ paid call, in the transaction that starts it:
   ``platform_defaults.run_dollar_cap_usd`` (the admin's setting, default $25, above the per-run
   budget that pauses for approval). The check raises
   ``DollarCapReached``.
+* **Hard ceiling** (SD-02, 2026-11-10). The same real spend may never pass
+  ``HARD_RUN_CEILING_USD`` ($75), a constant no switch lifts (not ``RESEARCH_CAPS=off``, not
+  ``TOKEN_GUARD=off``, not ``DEV_UNCAPPED``); the check raises ``HardCeilingReached`` (a
+  ``DollarCapReached``, so the run ends PARTIAL the same way).
 * **Repeated calls.** The same provider, operation and normalised query (``query_key``: values
   lower-cased and whitespace collapsed, paging fields left out; first pages only, since a later
   page is bounded by the page limits) may be paid at most ``repeat_call_limit`` times in a run
@@ -69,6 +73,11 @@ class DollarCapReached(Exception):
         self.spent = spent
 
 
+class HardCeilingReached(DollarCapReached):
+    """The run reached the platform's hard ceiling (``HARD_RUN_CEILING_USD``), which no switch
+    lifts (SD-02); it stops PARTIAL like the dollar cap."""
+
+
 class RepeatedCallStopped(Exception):
     """The run paid for the same normalised query too often; it stops PARTIAL."""
 
@@ -95,6 +104,13 @@ class Limits:
 STALL_AFTER_S_DEFAULT = 1800
 
 DEFAULTS = Limits(Decimal("25.00"), 3, STALL_AFTER_S_DEFAULT)
+
+# SD-02 (system design review 2026-11-10; owner decision the same day): the most one research run
+# may spend, provider calls and model replies together. Unlike the dollar cap above it is a
+# constant, not a setting, and neither RESEARCH_CAPS=off, TOKEN_GUARD=off nor DEV_UNCAPPED lifts
+# it. $75 is the largest legitimate run on record ($60.70, Olympus 2026-11-05) with headroom, six
+# times the $12.50 new-research reservation.
+HARD_RUN_CEILING_USD = Decimal("75.00")
 
 
 async def limits(s: Any) -> Limits:
@@ -131,13 +147,18 @@ async def run_spend(s: Any, run_id: UUID) -> Decimal:
 
 async def check_cap(s: Any, run_id: UUID, estimate_usd: float | Decimal = 0) -> None:
     """``DollarCapReached`` when this call would take the run past the cap; moves the heartbeat.
-    With the research caps off (dev_limits) only the heartbeat moves."""
+    ``HardCeilingReached`` first, whatever the switches say, when it would take the run past
+    ``HARD_RUN_CEILING_USD`` (SD-02). With the research caps off (dev_limits) only the ceiling
+    and the heartbeat remain."""
+    spent = await run_spend(s, run_id)
+    estimate = Decimal(str(estimate_usd))
+    if spent + estimate > HARD_RUN_CEILING_USD or spent >= HARD_RUN_CEILING_USD:
+        raise HardCeilingReached(HARD_RUN_CEILING_USD, spent)
     if research_uncapped():
         await touch(s, run_id)
         return
     cap = (await limits(s)).dollar_cap
-    spent = await run_spend(s, run_id)
-    if spent + Decimal(str(estimate_usd)) > cap or spent >= cap:
+    if spent + estimate > cap or spent >= cap:
         raise DollarCapReached(cap, spent)
     await touch(s, run_id)
 

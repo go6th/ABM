@@ -14,6 +14,24 @@ from obs.logging import logger
 _log = logger(__name__)
 
 
+# SD-02 (system design review 2026-11-10; owner decision the same day): the most one Ask
+# conversation may spend, every answered turn's priced cost together. A constant, not a setting:
+# config/chat_models.yaml ``max_spend_usd_per_thread`` can only lower it, and no switch
+# (RESEARCH_CAPS, TOKEN_GUARD, DEV_UNCAPPED) lifts it. $25 is about ten of the most expensive Ask
+# turns on record ($1.94 to $2.43, 2026-11-02). It is checked before each turn, so a conversation
+# passes it by at most the turn that crossed it.
+HARD_THREAD_CEILING_USD = Decimal("25.00")
+
+
+async def thread_spend(session: Any, thread_id: UUID) -> Decimal:
+    """What the conversation's answered turns cost so far (``chat_turns.cost_usd``)."""
+    value = await session.scalar(
+        text("SELECT coalesce(sum(cost_usd), 0) FROM chat_turns WHERE thread_id = :t"),
+        {"t": thread_id},
+    )
+    return Decimal(value or 0)
+
+
 class ThreadNotFound(LookupError):
     """Thread is absent, belongs to another member, or is hidden by tenant RLS."""
 

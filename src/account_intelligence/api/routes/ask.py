@@ -61,7 +61,12 @@ from account_intelligence.chat.service import (
     provider_for,
     sse,
 )
-from account_intelligence.chat.store import ask_history, record_ask_turn
+from account_intelligence.chat.store import (
+    HARD_THREAD_CEILING_USD,
+    ask_history,
+    record_ask_turn,
+    thread_spend,
+)
 from account_intelligence.config import get_settings
 from account_intelligence.db.session import tenant_txn
 from account_intelligence.platform.llm import (
@@ -200,6 +205,8 @@ async def ask(
     )
     if replay is None:  # a question is one of the user's chats: refused before it starts
         async with tenant_txn(ident.tenant_id) as session:
+            if body.thread_id is not None:
+                await _check_thread_ceiling(session, request, body.thread_id)
             try:
                 await LIM.check(session, ident.user_id, "chats", now)
             except LIM.LimitReached as reached:
@@ -651,6 +658,30 @@ async def ask(
 # (ignored by every SSE reader, web/lib/sse.ts included) keeps the stream alive
 KEEPALIVE_S = 15.0
 KEEPALIVE = b": keepalive\n\n"
+
+
+async def _check_thread_ceiling(session: Any, request: Request, thread_id: UUID) -> None:
+    """SD-02: refuse a question on a conversation whose answered turns already cost its ceiling,
+    before any model is called. The ceiling is ``HARD_THREAD_CEILING_USD`` (no switch lifts it),
+    or the chat config's ``max_spend_usd_per_thread`` when that is lower."""
+    ceiling = HARD_THREAD_CEILING_USD
+    service = getattr(request.app.state, "chat_service", None)
+    if isinstance(service, ChatService):
+        ceiling = min(ceiling, service.registry.limits.max_spend_usd_per_thread)
+    spent = await thread_spend(session, thread_id)
+    if spent >= ceiling:
+        log.warning(
+            "ask.thread_ceiling_reached",
+            extra={"thread_id": str(thread_id), "spent_usd": str(spent), "cap": str(ceiling)},
+        )
+        raise APIProblem(
+            409,
+            "thread_spend_ceiling",
+            "Conversation limit reached",
+            "This conversation reached the most one conversation may spend. Start a new"
+            " conversation to keep asking.",
+            extra={"limit": "thread_spend", "allowed": str(ceiling)},
+        )
 
 
 async def _with_keepalive(

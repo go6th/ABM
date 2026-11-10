@@ -665,6 +665,7 @@ async def coverage_gaps(session: Any, account_id: UUID) -> list[dict[str, Any]]:
 
 STOP_TEXT = {
     "DollarCapReached": "It reached the spending cap for one research.",
+    "HardCeilingReached": "It reached the most one research may spend.",
     "RepeatedCallStopped": "It kept paying for the same search, so it was stopped.",
     "worker_lost": "It was interrupted.",
     "stalled": "It stopped making progress.",

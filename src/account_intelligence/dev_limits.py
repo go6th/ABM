@@ -11,7 +11,9 @@ itself) stay: they never limit what is researched.
 spend and count limit a research meets: the run's credit budget and call cap, the platform dollar
 cap and repeat-call limit, the monthly credit pool, the researches per user, the plan's runs and
 accounts and the account cap per user (owner decision 2026-10-21, for the time being; the user
-sees the expected tokens and cost before confirming instead). Unset or ``on``, every cap applies;
+sees the expected tokens and cost before confirming instead). It never lifts the hard ceilings
+(SD-02, 2026-11-10): ``spend_guard.HARD_RUN_CEILING_USD`` per research run and
+``chat.store.HARD_THREAD_CEILING_USD`` per Ask conversation. Unset or ``on``, every cap applies;
 the cloud profiles deploy ``on`` (fix prompt A, 2026-11-03, test_caps_default_on_in_cloud_profiles)
 and a staging or production process started with the caps off logs ``research.caps_off`` naming
 every cap it lifted (``app.container.warn_if_uncapped``; this module stays pure, O1).

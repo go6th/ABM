@@ -17,7 +17,7 @@ unannotated (the generator's check fails otherwise).
 | archive index pages | `src/account_intelligence/archive_backfill.py:123` | pages of 200 to the account total | empty page or total |
 | archive part upload | `src/account_intelligence/replica/downloads.py:695` | part size / 1 MiB | end of part |
 | archive table rows | `src/account_intelligence/replica/downloads.py:618` | the table's rows | end of the table |
-| ask keepalive | `src/account_intelligence/api/routes/ask.py:677` | the source stream's frames plus one keepalive per silent interval | the source ends or fails, or the client goes away |
+| ask keepalive | `src/account_intelligence/api/routes/ask.py:708` | the source stream's frames plus one keepalive per silent interval | the source ends or fails, or the client goes away |
 | audit chain verification | `src/audit/chain.py:75` | max_batches batches of `batch` rows per pass | complete, first bad row found, batch_cap (the head is checked next pass) |
 | audit verify tenants | `src/account_intelligence/api/routes/tasks.py:347` | every client once per pass | last client |
 | auto resume clients | `src/account_intelligence/replica/auto_resume.py:362` | every client once per pass, `limit` runs each | last one |

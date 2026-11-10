@@ -42,6 +42,8 @@ function failureText(cause: unknown): string {
     if (cause.status === 404) return "That account or chat is no longer in your workspace.";
     if (cause.status === 401) return "Your session ended. Sign in again to ask.";
     if (cause.status === 429) return "Too many questions at once. Wait a moment and try again.";
+    // SD-02: the conversation reached its spending ceiling (the server's own words)
+    if (cause.type === "thread_spend_ceiling" && cause.detail) return cause.detail;
   }
   return "The answer could not be completed. Try again.";
 }
