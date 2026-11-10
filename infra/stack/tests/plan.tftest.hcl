@@ -140,3 +140,35 @@ run "prod_plan" {
     error_message = "prod naming"
   }
 }
+
+# SD-03 (system design review 2026-11-10): every alert reaches a person. Each on-call address
+# becomes a Cloud Monitoring email channel, and the page, ticket and budget alerts all carry it
+# next to any channel id passed in alert_channels. Error Reporting is enabled for the project.
+run "alerts_reach_the_on_call_email" {
+  command = plan
+
+  variables {
+    alert_emails   = ["oncall@synthetic.test"]
+    alert_channels = ["projects/synthetic-staging/notificationChannels/111"]
+  }
+
+  assert {
+    condition     = length(google_monitoring_notification_channel.alert_email) == 1
+    error_message = "one email channel per on-call address"
+  }
+  assert {
+    condition = (
+      google_monitoring_notification_channel.alert_email["oncall@synthetic.test"].type == "email" &&
+      google_monitoring_notification_channel.alert_email["oncall@synthetic.test"].labels["email_address"] == "oncall@synthetic.test"
+    )
+    error_message = "the channel mails the on-call address"
+  }
+  assert {
+    condition     = length(output.alert_channel_ids) == 2
+    error_message = "alerts go to the email channel and to the passed-in channel"
+  }
+  assert {
+    condition     = contains(module.project.services, "clouderrorreporting.googleapis.com")
+    error_message = "Error Reporting is enabled"
+  }
+}

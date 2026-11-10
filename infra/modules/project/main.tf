@@ -20,6 +20,8 @@ locals {
     "iamcredentials.googleapis.com",
     "sts.googleapis.com",
     "cloudtrace.googleapis.com",
+    # SD-03: exceptions in the structured logs become grouped, notifiable errors
+    "clouderrorreporting.googleapis.com",
     "logging.googleapis.com",
     "monitoring.googleapis.com",
     "redis.googleapis.com",

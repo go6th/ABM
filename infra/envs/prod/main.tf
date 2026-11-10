@@ -91,6 +91,10 @@ variable "monthly_budget_usd" {
 variable "alert_channels" {
   type = list(string)
 }
+variable "alert_emails" {
+  type    = list(string)
+  default = []
+}
 variable "raw_retention_days" {
   type = number
 }
@@ -140,6 +144,7 @@ module "stack" {
   secret_versions         = var.secret_versions
   monthly_budget_usd      = var.monthly_budget_usd
   alert_channels          = var.alert_channels
+  alert_emails            = var.alert_emails
   raw_retention_days      = var.raw_retention_days
   staff                   = var.staff
 }

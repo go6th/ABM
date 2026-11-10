@@ -17,6 +17,7 @@ db_tier            = "db-custom-1-3840"
 llm_access         = "anthropic_api"
 monthly_budget_usd = 300 # the owner's amount; alerts at 50, 90 and 100 percent
 alert_channels     = []   # notification channel ids (projects/PROJECT/notificationChannels/ID)
+# alert_emails     = ["oncall@example.com"] # SD-03: each becomes an email channel every alert notifies
 raw_retention_days = 30
 staff = {
   workspace_domain = "example.com"

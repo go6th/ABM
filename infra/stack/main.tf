@@ -162,6 +162,11 @@ variable "alert_channels" {
   type        = list(string)
   description = "Monitoring notification channel ids for budget, page and ticket alerts."
 }
+variable "alert_emails" {
+  type        = list(string)
+  description = "On-call addresses (SD-03): each becomes an email notification channel that every page, ticket and budget alert notifies, next to the ids in alert_channels."
+  default     = []
+}
 variable "raw_retention_days" {
   type = number
 }
@@ -841,13 +846,37 @@ module "edge" {
   rate_limit_per_minute = var.rate_limit_per_minute
 }
 
+# SD-03 (system design review 2026-11-10): an alert nobody receives is no alert. One email channel
+# per on-call address; every alert policy and the budget notify these and any ids in
+# alert_channels.
+resource "google_monitoring_notification_channel" "alert_email" {
+  for_each     = toset(var.alert_emails)
+  project      = var.project_id
+  display_name = "${local.name} on-call ${each.value}"
+  type         = "email"
+  labels       = { email_address = each.value }
+  depends_on   = [module.project]
+}
+
+locals {
+  alert_channel_ids = concat(
+    var.alert_channels,
+    [for c in google_monitoring_notification_channel.alert_email : c.id],
+  )
+}
+
+output "alert_channel_ids" {
+  value       = local.alert_channel_ids
+  description = "Notification channels every alert notifies (SD-03)."
+}
+
 module "observability" {
   source                  = "../modules/observability"
   project_id              = var.project_id
   name                    = local.name
   domain                  = var.domain
-  page_channels           = var.alert_channels
-  ticket_channels         = var.alert_channels
+  page_channels           = local.alert_channel_ids
+  ticket_channels         = local.alert_channel_ids
   workload_alerts_enabled = var.workload_alerts_enabled
   services = {
     web    = module.cloud_run.names["web"]
@@ -868,7 +897,7 @@ module "budget" {
   project_number        = data.google_project.this.number
   name                  = local.name
   monthly_budget_usd    = var.monthly_budget_usd
-  notification_channels = var.alert_channels
+  notification_channels = local.alert_channel_ids
 }
 
 output "web_ip" {
