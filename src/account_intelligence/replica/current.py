@@ -48,8 +48,13 @@ NEWEST_FACT = newest_by_probe(
     "n.fingerprint = f.fingerprint AND n.status = 'current' AND n.superseded_at IS NULL"
     " AND n.visibility = f.visibility",
 )
-NEWEST_POSTING = newest_only("job_postings", "j", "n.posting_key = j.posting_key")
-NEWEST_PERSON = newest_only(
+# SD-19 (system design review 2026-11-10): the other three are index probes too, each on its
+# (account_id, key, created_at DESC) index (ix_job_postings_account_key,
+# ix_people_account_person_key, ix_tech_detections_account_technology); NOT EXISTS is what kept
+# the database at full CPU on 2026-11-01. tests/replica/test_newest_probe_db.py proves the rows
+# kept are the same.
+NEWEST_POSTING = newest_by_probe("job_postings", "j", "n.posting_key = j.posting_key")
+NEWEST_PERSON = newest_by_probe(
     "people", "p", "p.person_key IS NOT NULL AND n.person_key = p.person_key"
 )
-NEWEST_DETECTION = newest_only("tech_detections", "t", "n.technology = t.technology")
+NEWEST_DETECTION = newest_by_probe("tech_detections", "t", "n.technology = t.technology")

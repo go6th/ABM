@@ -347,7 +347,12 @@ def test_the_newest_row_clause_keeps_a_row_only_when_no_later_row_is_the_same_th
         " AND n.account_id = t.account_id"
         " AND n.k = t.k AND (n.created_at, n.id) > (t.created_at, t.id))"
     )
-    assert C.newest_only("job_postings", "j", "n.posting_key = j.posting_key") == C.NEWEST_POSTING
+    # SD-19: every newest-row filter is an index probe; NOT EXISTS saturated the database
+    assert C.newest_by_probe("job_postings", "j", "n.posting_key = j.posting_key") == (
+        C.NEWEST_POSTING
+    )
+    for clause in (C.NEWEST_FACT, C.NEWEST_POSTING, C.NEWEST_PERSON, C.NEWEST_DETECTION):
+        assert "NOT EXISTS" not in clause and "ORDER BY n.created_at DESC" in clause
     assert "n.status = 'current' AND n.superseded_at IS NULL" in C.NEWEST_FACT
     assert "n.visibility = f.visibility" in C.NEWEST_FACT and " facts n " in C.NEWEST_FACT
     assert "p.person_key IS NOT NULL AND n.person_key = p.person_key" in C.NEWEST_PERSON

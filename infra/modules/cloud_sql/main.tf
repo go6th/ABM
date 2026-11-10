@@ -141,8 +141,10 @@ resource "google_sql_database_instance" "main" {
       value = "0"
     }
     database_flags {
+      # SD-19: log every statement that runs 500 ms or longer (was -1, off), so a slow query is
+      # seen before it saturates the database as on 2026-11-01
       name  = "log_min_duration_statement"
-      value = "-1"
+      value = "500"
     }
     database_flags {
       name  = "log_statement"
