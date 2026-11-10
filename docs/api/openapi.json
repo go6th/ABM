@@ -16572,7 +16572,7 @@
     },
     "/operator/v1/console/clients/{tenant_id}/users": {
       "post": {
-        "description": "A3 Invite user: add one more person to a client (the rules: api.team_invites; an existing\naccount is added without a link).",
+        "description": "A3 Invite user: add one more person to a client (the rules: api.team_invites; an existing\naccount is added without a link). Only inside an active WRITE support grant the client's\nadmin gave this staff member (SD-11): a member staff create can sign in to the client's data,\nso it needs the same customer approval as acting in the workspace.",
         "operationId": "invite_client_user_operator_v1_console_clients__tenant_id__users_post",
         "parameters": [
           {

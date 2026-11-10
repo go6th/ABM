@@ -51,7 +51,10 @@ function InviteUser({ tenantId, onDone }: { tenantId: string; onDone: () => void
     } catch (cause) {
       setError(cause instanceof ApiError && cause.status === 409
         ? (cause.type.endsWith("invite_pending_elsewhere") ? "This person has an invitation waiting. Once they accept it, invite them again." : cause.detail === "already_member" ? "This person is already a user of this client." : "This address cannot be invited.")
-        : cause instanceof ApiError && cause.status === 402 ? "This client has no free seats." : "The user could not be invited. Try again.");
+        : cause instanceof ApiError && cause.status === 402 ? "This client has no free seats."
+        // SD-11: staff add a person only inside the client's write support grant
+        : cause instanceof ApiError && cause.type.endsWith("support_grant_required") && cause.detail ? cause.detail
+        : "The user could not be invited. Try again.");
     } finally {
       setBusy(false);
     }

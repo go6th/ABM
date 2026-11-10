@@ -395,6 +395,27 @@ class NewClientUser(BaseModel):
     role: Literal["admin", "analyst", "seller", "viewer"] = "analyst"
 
 
+async def _require_write_grant(request: Request, tenant_id: UUID, who: StaffIdentity) -> None:
+    """403 unless the client gave this staff member a write support grant that is active now."""
+    now = plane_of(request).clock.now()
+    async with tenant_txn(tenant_id) as s:
+        granted = await s.scalar(
+            text(
+                "SELECT 1 FROM support_grants WHERE grantee = :g AND scope = 'write'"
+                " AND revoked_at IS NULL AND granted_at <= :now AND expires_at > :now LIMIT 1"
+            ),
+            {"g": who.staff_id, "now": now},
+        )
+    if not granted:
+        raise APIProblem(
+            403,
+            "support_grant_required",
+            "Support grant required",
+            "Adding a person to a client needs the client's write support grant. Ask the"
+            " client's admin to grant write access on their Support access page, then try again.",
+        )
+
+
 @router.post("/clients/{tenant_id}/users", response_model=C.TeamInvite, status_code=201)
 async def invite_client_user(
     tenant_id: UUID,
@@ -403,8 +424,11 @@ async def invite_client_user(
     who: StaffIdentity = Depends(require_staff),
 ) -> dict[str, Any]:
     """A3 Invite user: add one more person to a client (the rules: api.team_invites; an existing
-    account is added without a link)."""
+    account is added without a link). Only inside an active WRITE support grant the client's
+    admin gave this staff member (SD-11): a member staff create can sign in to the client's data,
+    so it needs the same customer approval as acting in the workspace."""
     await _known(tenant_id)
+    await _require_write_grant(request, tenant_id, who)
 
     async def audit(s: Any, member: str) -> None:
         """The client's own audit entry for the invite (customer-visible)."""

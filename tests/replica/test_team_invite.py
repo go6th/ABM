@@ -39,6 +39,22 @@ def _admin_plane(tenant: UUID) -> Any:
     return plane
 
 
+def _grant(tenant: UUID, grantee: str, scope: str, now: Any, *, expired: bool = False) -> None:
+    """A support grant the client's admin gave an hour before ``now`` (as the migrator)."""
+    import psycopg
+
+    from tests.conftest import ADMIN_DSN
+
+    with psycopg.connect(ADMIN_DSN, autocommit=True) as c:
+        c.execute(
+            "INSERT INTO support_grants (tenant_id, grantee, scope, reason_code, granted_by,"
+            " granted_at, expires_at) VALUES (%s, %s, %s, 'customer_request', 'client-admin',"
+            " %s - interval '2 hours', %s + (CASE WHEN %s THEN interval '-1 hour'"
+            " ELSE interval '1 hour' END))",
+            (tenant, grantee, scope, now, now, expired),
+        )
+
+
 async def _invite(plane: Any, email: str, role: str = "analyst") -> httpx.Response:
     return await _call(plane, "POST", "/v1/users/invite", json={"email": email, "role": role})
 
@@ -155,12 +171,26 @@ async def test_an_operator_invites_one_more_user_for_a_client(
     )
     email = f"op-{uuid4().hex[:8]}@harbor.example"
     transport = httpx.ASGITransport(app=plane.app, raise_app_exceptions=False)
-    async with httpx.AsyncClient(transport=transport, base_url=APP_BASE) as c:
-        made = await c.post(
-            f"/operator/v1/console/clients/{tenant}/users",
-            json={"email": email, "role": "viewer"},
-            headers={"Authorization": "Bearer operator:op-console"},
-        )
+
+    async def invite() -> httpx.Response:
+        async with httpx.AsyncClient(transport=transport, base_url=APP_BASE) as c:
+            return await c.post(
+                f"/operator/v1/console/clients/{tenant}/users",
+                json={"email": email, "role": "viewer"},
+                headers={"Authorization": "Bearer operator:op-console"},
+            )
+
+    # SD-11: staff add a person to a client only inside the client's own write support grant
+    refused = await invite()
+    assert refused.status_code == 403, refused.text
+    assert "support grant" in refused.json()["detail"]
+    now = plane.app.state.container.clock.now()
+    _grant(tenant, "op-console", "read", now)  # a read grant is not enough to add a person
+    assert (await invite()).status_code == 403
+    _grant(tenant, "op-console", "write", now, expired=True)  # nor an expired write grant
+    assert (await invite()).status_code == 403
+    _grant(tenant, "op-console", "write", now)
+    made = await invite()
     assert made.status_code == 201, made.text
     body = made.json()
     assert body["role"] == "viewer" and body["existing_account"] is False
