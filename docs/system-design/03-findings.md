@@ -49,6 +49,9 @@ What was looked for and **not** found, which matters as much as the findings bel
 | SD-36 | P2 | H | Model ids are aliases, not pinned snapshots; routing.yaml contradicts providers.yaml | S |
 | SD-37 | P2 | M | Docs and docstrings disagree with code in 17 places | S |
 | SD-38 | P2 | K | LibreOffice runs without the seccomp sandbox; seccomp under Cloud Run is unverified | S |
+| SD-39 | P1 | M | Terraform state and the live project disagree; an untargeted apply would start the database and resume every scheduler tick | S |
+| SD-40 | P2 | L | Log-event alerts watch the worker only; api events never alert | S |
+| SD-41 | P2 | M | `docs/WIRING.md` is stale, so `make contract` fails on the baseline | S |
 
 ---
 
@@ -59,6 +62,7 @@ What was looked for and **not** found, which matters as much as the findings bel
 - **Evidence.** V `config/deletion.yaml:108` (research_jobs in erase list), `config/deletion.yaml:171` (credit_entries never), `migrations/0053_replica.sql:130` (`fk_credit_entries_job … ON DELETE CASCADE`), `migrations/0106_import_runs.sql:117` (`erase_rows` allow-list includes research_jobs), `src/tenancy/lifecycle.py:93-100`. The account purge avoids this by scrubbing instead of deleting jobs (V `deletion.yaml:355,368`). The tenant plan is `status: proposal` but is exposed in the operator admin (V `operator_admin.py:291-319`).
 - **Risk.** The first tenant offboarding destroys the record of what that customer was charged. Disputes and audits cannot be answered.
 - **Fix.** Change the FK to `ON DELETE RESTRICT` and scrub `research_jobs` (as the account purge does) instead of deleting it; extend `check_plan` to walk FK cascades from erased tables into "never" tables and refuse the plan. Add a test. *Skipped:* billing history loss on every offboarding.
+- **Status (phase 1, 2026-11-10).** Fixed in `1ff33563`, `cab76224`, `5667821e` (migration 0116; deletion scrubs `research_jobs`; foreign-key-aware plan check). Live: pending approval of the deploy (fix log A1).
 
 ### SD-02 · Spend is uncapped on the live environment; spend above the reservation is absorbed · J/H · S
 - **Finding.** `RESEARCH_CAPS=off` and `TOKEN_GUARD=off` on api and worker. With caps off a run gets a $1,000,000 budget, a 1,000,000 call cap and a 1,000,000 slice ceiling; retries rise to about ten and page limits lift. Only "three slices with no progress" stops a run. Settlement charges `min(spend, reserved)`, so a new research is charged at most 250 credits ($12.50) whatever it cost. The monthly credit pool is not enforced on new research. The $200 GCP budget only alerts and does not see Anthropic, Ollama or data-provider bills. Ask passes each model's full output limit and `max_spend_usd_per_thread` is parsed but never enforced.
@@ -67,12 +71,14 @@ What was looked for and **not** found, which matters as much as the findings bel
 - **Fix.** (1) Turn `RESEARCH_CAPS` and `TOKEN_GUARD` on in the live environment now. (2) Add a hard platform ceiling per run and per Ask thread that no switch can lift (for example 4× the estimate), enforced in the ledger claim and in the Ask loop. (3) Set spend limits in the Anthropic and provider consoles. (4) Alert on spend per hour from the ledger. *Skipped:* unbounded loss per run.
 
 ## P1
+- **Status (phase 1, 2026-11-10).** Fixed in `32c5784c`: hard ceilings $75 per research run and $25 per Ask conversation that no switch lifts. Turning `RESEARCH_CAPS`/`TOKEN_GUARD` on: Blocked on decision. Provider console limits: owner checklist in the fix log.
 
 ### SD-03 · Alerts exist but notify nobody · L · S
 - **Finding.** 17 alert policies are enabled (api down, web down, 5xx, runs stalled, worker lost, DB CPU/memory/disk, isolation check failed, migration failed, …) and every one has zero notification channels. The project has no notification channels at all. Workload and SLO-burn alerts are disabled. Mail is removed. There is no error tracker (Error Reporting API not enabled; no Sentry or similar). The only message that reaches a person is the billing budget email.
 - **Evidence.** V `gcloud monitoring policies list` (17 policies, `notificationChannels` empty), `gcloud beta monitoring channels list` → `[]`; `infra/envs/staging/terraform.tfvars` (`alert_channels = []`, comment "notify nobody"); `infra/modules/observability/main.tf:41-45`; `gcloud services list --enabled` (no `clouderrorreporting`); NF Sentry/Bugsnag/Rollbar in `src/`, `web/`, `pyproject.toml`.
 - **Risk.** Customers find outages before the team does. A stuck queue or a stopped database can last days.
 - **Fix.** Create two channels (email to an on-call alias, plus Slack or SMS), put them in `alert_channels`, enable workload alerts, enable Error Reporting (structured logs already carry exceptions). Name an owner per alert in the runbook. *Skipped:* outages are discovered by customers.
+- **Status (phase 1, 2026-11-10).** Fixed pending approval in `1306a001` (email channels from `alert_emails`, every alert and the budget notify them, Error Reporting on). The address is Blocked on decision; apply and test notification are approvals A3/A3b.
 
 ### SD-04 · Personal data cannot be deleted on request; retention is not enforced · F/K · L
 - **Finding.** No data-subject request flow exists (`dsar_requests` table has no code users). Person erasure exists but is deliberately not exposed. Retention windows are written down but nothing enforces them; the scheduler entry was removed because the route was never built. Tenant deletion keeps `people`, `person_*`, `llm_calls.output_json`, `tool_calls.response`, `account_runs` (holds the run goal), `users`, and misses objects under `prepulled/<tenant>/`. LangGraph checkpoints are never pruned. Erased objects remain recoverable 7–14 days (versioning + soft delete) and in backups for 7 days. A named person's data is copied into at least 14 places with no person-keyed index.
@@ -97,6 +103,7 @@ What was looked for and **not** found, which matters as much as the findings bel
 - **Evidence.** V `gcloud redis instances list`; `src/account_intelligence/connectors/ratelimit.py:163-184`; `src/identity/rate_limit.py:121-194`; `src/account_intelligence/connectors/cache.py:15-16,258-276`; `src/account_intelligence/api/routes/health.py:102` (health does not ping Redis).
 - **Risk.** Memorystore maintenance or a node failure halts research and file actions platform-wide.
 - **Fix.** STANDARD_HA tier with AUTH on (the client already pins host and CA); let the provider limiter fall back to a conservative in-process bucket on Redis errors (as sign-in already does); store only references in the index; add a Redis ping to `/readyz`. *Skipped:* a cheap component becomes a platform-wide outage.
+- **Status (phase 1, 2026-11-10).** Fixed in `b441e854`, `c4f23b68`, `ee13dab1` (in-process fallback bucket; Redis reported in `/readyz` as information, not as a failing check, because `/readyz` is the startup probe). Tier change stays in phase 2.
 
 ### SD-08 · Runs can be ended or lose their next slice · E · M
 - **Finding.** Between slices a run holds no lease and no heartbeat. If its next slice waits in the runs queue more than 600 s (only 6 concurrent dispatches), the sweeper ends it PARTIAL `worker_lost`. Nothing recovers a RUNNING run whose next-slice task was never created (enqueue after approve, cap approve, pause resume, timeout expiry). A slice that outlives the 1800 s dispatch deadline is retried while still running and can be resumed twice; if the next slice's attempts are exhausted, re-creating its name hits the Cloud Tasks name tombstone and `AlreadyExists` is treated as success. One approval-timeout task name per run means a second pause's timeout is dropped. Auto-resume is off.
@@ -115,12 +122,14 @@ What was looked for and **not** found, which matters as much as the findings bel
 - **Evidence.** V `src/account_intelligence/api/routes/sso.py:297,309-315`; `migrations/0062_sso_discover.sql:8-14`; NF ownership proof in `src/identity/connections.py`.
 - **Risk.** Cross-tenant phishing of corporate credentials and confusion of identities; fails an enterprise SSO review. Not a direct data read (tenant comes from the connection).
 - **Fix.** Require DNS TXT verification before a domain is "verified", make `(domain)` unique across active connections, and show the claiming tenant to staff. *Skipped:* one malicious customer can target another's staff.
+- **Status (phase 1, 2026-11-10).** Fixed in `4497be5b`, `ee13dab1` (DNS TXT proof bound to the tenant; one tenant per proven domain; migration 0117). Connections saved before 0117 stop routing until re-saved with the records.
 
 ### SD-11 · Staff can enter a tenant without a support grant · D · S
 - **Finding.** The operator console's invite-user route creates a member with any non-admin role and returns the invite link to the operator, who can accept it and sign in as that member. Support grants (time-boxed, customer-approved) are meant to be the only path.
 - **Evidence.** V `src/account_intelligence/api/routes/admin_console.py:400-425`; `src/account_intelligence/api/team_invites.py:8-9`; contradicts `src/admin/support.py:7`. Mitigation: a customer-visible audit entry `client.user_invite` (V `admin_console.py:412-414`).
 - **Risk.** Staff access to customer data outside the customer's control; fails the "how does your staff access our data" question.
 - **Fix.** Send invite links only to the invitee (once mail exists) or show them only to tenant admins; require a support grant for staff-created invites; alert the tenant admin on any staff-created member. *Skipped:* the support-grant control is bypassable.
+- **Status (phase 1, 2026-11-10).** Fixed in `4f441eae`, `ee13dab1` (staff invites need the client's active write support grant). The tenant-admin alert on staff-created members is not built.
 
 ### SD-12 · Audit log is not tamper-evident; verification stops at 50,000 rows · D · M
 - **Finding.** The chain is an unkeyed SHA-256, so anyone who can write the table can rewrite and re-hash it. Nothing writes to the audit-archive bucket, and its retention policy is not locked. The nightly verifier restarts at row 0 each night and stops after 50 × 1,000 rows, so rows above 50,000 per tenant are never checked and the truncation check never runs for large tenants.
@@ -133,6 +142,7 @@ What was looked for and **not** found, which matters as much as the findings bel
 - **Evidence.** V `src/account_intelligence/api/operator.py:136-151,257,285`; `gcloud run services list` (`STAFF_EXTERNAL_EMAILS`, `STAFF_OPERATOR_EMAILS`); `gcloud projects get-iam-policy` (owners).
 - **Risk.** A phished personal Google account without 2-step verification gets full staff and cloud owner access.
 - **Fix.** Use Workspace accounts only, enforce 2-step verification in Workspace admin, remove personal accounts from Owner and the staff allow-list, use group-based IAM with least privilege, and fix the session length to match the doc (re-check step-up only for sensitive actions). *Skipped:* one personal account compromise is a full breach.
+- **Status (phase 1, 2026-11-10).** Blocked on decision: which Workspace group replaces the personal Owner and operator account. Commands in the fix log (A6); 2-step enforcement is an owner console step.
 
 ### SD-14 · No owned domain · A · S
 - **Finding.** The product is served at `136-81-60-29.sslip.io`, a third-party wildcard DNS service that encodes the IP. The managed certificate, OAuth redirect URIs, `PUBLIC_BASE_URL`, cookie scope and HSTS all hang off that name.
@@ -163,12 +173,14 @@ What was looked for and **not** found, which matters as much as the findings bel
 - **Evidence.** V `migrations/0002_rls.sql:38,52`; `migrations/0115_remove_owner_only.sql:6-22` (header records the 2026-11-08 failure); grep of up-migrations 0017, 0018, 0043, 0047, 0048, 0060, 0063, 0079, 0092, 0093, 0096, 0102, 0103, 0105, 0106, 0112; `migrations/env.py:69-83`.
 - **Risk.** Backfills that "succeeded" may not have happened, leaving data inconsistent; long locks during multi-revision deploys.
 - **Fix.** Add a migration lint rule: any DML on a FORCE-RLS table must sit between `NO FORCE`/`FORCE`; re-run a data check for the 16 listed migrations against the live DB; use `CREATE INDEX CONCURRENTLY` in separate non-transactional revisions. *Skipped:* silent data drift.
+- **Status (phase 1, 2026-11-10).** Fixed in `f4f2774d` (migration lint). Correction: 4 migrations offend (0043, 0063, 0079, 0112), not 16; the other 12 change rows only inside function bodies. Live data check: Blocked on decision (start the database).
 
 ### SD-19 · Database guardrails missing · F/I · S
 - **Finding.** No `statement_timeout` or `idle_in_transaction_session_timeout` anywhere, slow-query logging off (`log_min_duration_statement=-1`), and three filters (`NEWEST_POSTING`, `NEWEST_PERSON`, `NEWEST_DETECTION`) still use the `NOT EXISTS` self-join that saturated the database on 2026-11-01. A hung request holding `client_settings FOR UPDATE` blocks every reservation for that tenant.
 - **Evidence.** V `gcloud sql instances list` (flags); NF timeouts in `src/`, `migrations/`, `infra/`; `src/account_intelligence/replica/current.py:28-56`.
 - **Risk.** A repeat of the 2026-11-01 saturation; invisible slow queries.
 - **Fix.** Role-level `statement_timeout` (30 s api, longer for worker roles) and `idle_in_transaction_session_timeout` (60 s); `log_min_duration_statement=500`; rewrite the three filters as index probes like `NEWEST_FACT`. *Skipped:* recurring outages.
+- **Status (phase 1, 2026-11-10).** Partly fixed in `0d67ebc2`: the three filters are index probes; `log_min_duration_statement=500` pending approval (A4, which starts the database). Session timeouts: Blocked on decision (proposal in the fix log).
 
 ### SD-20 · Billing is not productised · G/J · M
 - **Finding.** No payment or invoicing provider. Credits are a manual monthly pool set by staff, and the pool does not block new research. Credit placeholders are labelled as placeholders.
@@ -192,6 +204,7 @@ V `src/account_intelligence/api/problem.py:30-40` replaces `HTTPException.detail
 
 ### SD-25 · Shutdown and concurrency · E · S
 V `infra/stack/main.tf:645-646` (`--timeout-graceful-shutdown 8`); `infra/modules/cloud_run/main.tf:198-216` (no readiness probe, so the drain flag does nothing); live worker concurrency 4 vs ADR-0130's 1 (`gcloud run services list`; `infra/stack/main.tf:124-127`). **Risk:** every deploy or liveness kill cuts up to 4 slices. **Fix:** worker concurrency 1; graceful shutdown ≥ 30 s with a cooperative checkpoint on SIGTERM; correct the docstring. *Skipped:* avoidable resumes and lost model calls.
+**Status (phase 1, 2026-11-10).** Graceful shutdown >= 30 s: Could not reproduce (Cloud Run kills 10 s after SIGTERM; 8 s already fits). Worker concurrency 1: Blocked on decision (it drops the runs queue from 6 slots to 1 unless worker max instances rises to 12).
 
 ### SD-26 · Breaker state per instance; no breaker on model calls · G · S
 V `src/account_intelligence/connectors/factory.py:172-173`; `connectors/breaker.py:42`; NF breaker in `platform/llm.py`, `src/llm/`. **Risk:** each instance relearns an outage; model outages burn retries. **Fix:** keep breaker state in Redis (already present); add a breaker on model calls. *Skipped:* slower failure handling.
@@ -207,6 +220,7 @@ V nothing deletes `checkpoints*`, `tool_calls`, `tool_call_events`, `llm_calls` 
 
 ### SD-30 · Cloud project hygiene · K · S
 V `my-service` (ingress `all`, default compute SA with `roles/editor`, no invokers) (`gcloud run services list`, `get-iam-policy`); `default` VPC with SSH/RDP open to 0.0.0.0/0 (`gcloud compute firewall-rules list`); default compute and Cloud Services SAs hold `roles/editor` (`gcloud projects get-iam-policy`); `smtp-password` secret after mail removal (`gcloud secrets list`); ops jobs with a client domain in args (`gcloud run jobs list`); `staging.plan` and tfvars with personal data on a laptop (V local files, git-ignored). **Fix:** delete `my-service` and the default VPC, remove Editor from default SAs (org policy `iam.automaticIamGrantsForDefaultServiceAccounts`), delete the orphan secret, parameterise ops jobs. *Skipped:* findings in every security review.
+**Status (phase 1, 2026-11-10).** Blocked on decision (`my-service`); network, firewall and default-account steps are approval A5. `smtp-password`: Could not reproduce (Terraform-managed and used by the invite mailer).
 
 ### SD-31 · Object erase is fire-and-forget · F · S
 V account delete starts `_erase_stored` as an in-process task after responding on the CPU-throttled api (`api/routes/accounts.py:191-235,286-290`; `gcloud run services list` cpu-throttling true); failures are only logged. **Fix:** enqueue erase as a Cloud Task with retries and record completion. *Skipped:* orphaned personal data in GCS.
@@ -231,3 +245,21 @@ V 17 disagreements listed in `01-as-built.md` section 11. **Fix:** correct each;
 
 ### SD-38 · Rendering and sandbox gaps · K · S
 V LibreOffice recalc runs with a cleared env and timeout but no seccomp or network isolation (`src/parity/recalc.py:58-63`; `src/exports/verify.py:209-220`); the seccomp TSYNC path under Cloud Run is marked unverified (`src/documents/sandbox_child.py:28`). **Fix:** run `soffice` inside the same sandbox child; add a startup self-test that proves the seccomp filter installed and fail closed if not. *Skipped:* a crafted workbook in the exact-copy import path could reach an unsandboxed parser (I).
+
+## Found while fixing phase 1 (2026-11-10)
+
+### SD-39 · Terraform drift makes every untargeted apply dangerous · M · S
+- **Finding.** `terraform plan` on staging (no code change) shows 21 changes nobody wrote: the Cloud SQL `activation_policy` NEVER→ALWAYS and seven scheduler ticks `paused` true→false, plus provider noise. The default compute service account is enabled although Terraform declares `DISABLE`, which `plan` does not show.
+- **Evidence.** V `terraform plan -lock=false` in `infra/envs/staging` (2026-11-10); `gcloud iam service-accounts describe 979669242383-compute@…` (`disabled` absent); `infra/modules/project/main.tf:47-52`.
+- **Risk.** A routine apply restarts a database and schedules the owner switched off on purpose.
+- **Fix.** Record the switched-off state in Terraform (variables for activation policy and paused ticks) so plan is clean; until then every apply uses `-target`. *Skipped:* an apply turns the environment back on by accident.
+
+### SD-40 · Log-event alerts watch the worker only · L · S
+- **Finding.** `google_logging_metric.event` filters on `resource.labels.service_name = <worker>`, so events the api logs (for example sign-in's `rate_limit_degraded`) never reach their alert.
+- **Evidence.** V `infra/modules/observability/platform.tf:292-296`; `src/identity/rate_limit.py:130-135` (runs on the api).
+- **Fix.** Filter on both services (or per event on the service that logs it). *Skipped:* sign-in running without the shared rate limit pages nobody.
+
+### SD-41 · `docs/WIRING.md` is stale · M · S
+- **Finding.** `scripts/wiring_audit.py --check` reports drift on the baseline commit (web call sites moved in earlier UI work), so `make contract` fails before any change of this run.
+- **Evidence.** V `python scripts/wiring_audit.py --check` on `e3b94c51`.
+- **Fix.** Regenerate it (`python scripts/wiring_audit.py`) in its own commit and run `make contract` in CI. *Skipped:* the contract gate stays red and stops meaning anything.
