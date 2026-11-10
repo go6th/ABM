@@ -1,6 +1,8 @@
 """Tenant IdP connections: the one writer of ``idp_connections`` (W1).
 
-Create, update (conditional on ``version``) and list the context tenant's connections. A client
+Create, update (conditional on ``version``) and list the context tenant's connections. The
+caller proves the listed domains first (``identity.domain_proof``, SD-10); a save with domains
+stamps ``domains_proven_at``, without any clears it. A client
 secret is never stored here, only the ``SecretStore`` reference to it, and never read back out:
 listings say only whether one is set.
 """
@@ -41,7 +43,12 @@ async def listing(s: AsyncSession) -> list[dict[str, Any]]:
 
 async def create(s: AsyncSession, values: dict[str, Any], secret_ref: str | None) -> dict[str, Any]:
     """Insert a connection; ConnectionConflict on a duplicate slug."""
-    params = {**values, "ref": secret_ref, "group_role_map": json.dumps(values["group_role_map"])}
+    params = {
+        **values,
+        "ref": secret_ref,
+        "group_role_map": json.dumps(values["group_role_map"]),
+        "proven": bool(values.get("verified_domains")),
+    }
     try:
         async with s.begin_nested():
             row = (
@@ -50,11 +57,12 @@ async def create(s: AsyncSession, values: dict[str, Any], secret_ref: str | None
                         "INSERT INTO idp_connections (slug, protocol, issuer, client_id,"  # nosec B608 -- fixed statement and return columns.
                         " client_secret_ref, authorization_endpoint, token_endpoint, jwks_uri,"
                         " saml_sso_url, saml_idp_cert_pem, sp_entity_id, verified_domains,"
-                        " group_role_map, jit_enabled, require_admin_mfa) VALUES (:slug,"
-                        " :protocol, :issuer, :client_id, :ref, :authorization_endpoint,"
-                        " :token_endpoint, :jwks_uri, :saml_sso_url, :saml_idp_cert_pem,"
-                        " :sp_entity_id, :verified_domains, CAST(:group_role_map AS jsonb),"
-                        f" :jit_enabled, :require_admin_mfa) RETURNING {COLUMNS}"
+                        " group_role_map, jit_enabled, require_admin_mfa, domains_proven_at)"
+                        " VALUES (:slug, :protocol, :issuer, :client_id, :ref,"
+                        " :authorization_endpoint, :token_endpoint, :jwks_uri, :saml_sso_url,"
+                        " :saml_idp_cert_pem, :sp_entity_id, :verified_domains,"
+                        " CAST(:group_role_map AS jsonb), :jit_enabled, :require_admin_mfa,"
+                        f" CASE WHEN :proven THEN now() END) RETURNING {COLUMNS}"
                     ),
                     params,
                 )
@@ -79,6 +87,7 @@ async def update(
         "id": connection_id,
         "v": expected_version,
         "group_role_map": json.dumps(values["group_role_map"]),
+        "proven": bool(values.get("verified_domains")),
     }
     try:
         async with s.begin_nested():
@@ -94,6 +103,7 @@ async def update(
                         " sp_entity_id = :sp_entity_id, verified_domains = :verified_domains,"
                         " group_role_map = CAST(:group_role_map AS jsonb),"
                         " jit_enabled = :jit_enabled, require_admin_mfa = :require_admin_mfa,"
+                        " domains_proven_at = CASE WHEN :proven THEN now() END,"
                         " status = :status, version = version + 1, updated_at = now()"
                         f" WHERE id = :id AND version = :v RETURNING {COLUMNS}"
                     ),

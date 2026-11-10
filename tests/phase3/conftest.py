@@ -92,16 +92,18 @@ def add_oidc_connection(tenant: UUID, plane: Plane, slug: str, **over: Any) -> U
         "group_role_map": json.dumps(GROUPS),
         "jit_enabled": False,
         "require_admin_mfa": True,
+        # SD-10: a connection's domains count only once proven (None: listed but never proven)
+        "domains_proven_at": dt.datetime.now(dt.UTC),
         **over,
     }
     with psycopg.connect(ADMIN_DSN, autocommit=True) as c:
         cid: UUID = c.execute(
             "INSERT INTO idp_connections (tenant_id, slug, protocol, issuer, client_id,"
             " authorization_endpoint, token_endpoint, jwks_uri, verified_domains,"
-            " group_role_map, jit_enabled, require_admin_mfa) VALUES (%(t)s, %(slug)s, 'oidc',"
-            " %(issuer)s, %(client_id)s, %(authorization_endpoint)s, %(token_endpoint)s,"
-            " %(jwks_uri)s, %(verified_domains)s, %(group_role_map)s, %(jit_enabled)s,"
-            " %(require_admin_mfa)s) RETURNING id",
+            " group_role_map, jit_enabled, require_admin_mfa, domains_proven_at) VALUES (%(t)s,"
+            " %(slug)s, 'oidc', %(issuer)s, %(client_id)s, %(authorization_endpoint)s,"
+            " %(token_endpoint)s, %(jwks_uri)s, %(verified_domains)s, %(group_role_map)s,"
+            " %(jit_enabled)s, %(require_admin_mfa)s, %(domains_proven_at)s) RETURNING id",
             {**values, "t": tenant},
         ).fetchone()[0]
     return cid
@@ -114,9 +116,10 @@ def add_saml_connection(tenant: UUID, plane: Plane, slug: str) -> UUID:
     with psycopg.connect(ADMIN_DSN, autocommit=True) as c:
         cid: UUID = c.execute(
             "INSERT INTO idp_connections (tenant_id, slug, protocol, issuer, saml_sso_url,"
-            " saml_idp_cert_pem, sp_entity_id, verified_domains, group_role_map)"
-            " VALUES (%s, %s, 'saml', %s, 'https://saml-idp.synthetic.test/sso', %s,"
-            " 'https://app.test/saml/sp', %s, %s) RETURNING id",
+            " saml_idp_cert_pem, sp_entity_id, verified_domains, group_role_map,"
+            " domains_proven_at) VALUES (%s, %s, 'saml', %s,"
+            " 'https://saml-idp.synthetic.test/sso', %s, 'https://app.test/saml/sp', %s, %s,"
+            " now()) RETURNING id",
             (
                 tenant,
                 slug,

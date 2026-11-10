@@ -34,13 +34,14 @@ from sqlalchemy import text
 from account_intelligence.api import contract as C
 from account_intelligence.api.audit_log import audit_action
 from account_intelligence.api.auth import Identity
+from account_intelligence.api.errors import APIProblem
 from account_intelligence.api.guard import authorize
 from account_intelligence.api.policy import ANONYMOUS, register, tenant_route
 from account_intelligence.api.routes.auth import EmailBody, _require_same_origin
 from account_intelligence.api.tenant_plane import CSRF_KEY_REF, plane_of
 from account_intelligence.db.session import tenant_txn
 from account_intelligence.db.system_scope import untenanted_session
-from identity import connections, rate_limit, sessions
+from identity import connections, domain_proof, rate_limit, sessions
 from identity.broker import SignedIn, SignInRefused
 from identity.csrf import csrf_token
 from identity.roles import ROLES
@@ -331,14 +332,45 @@ async def _secret_ref(request: Request, body: ConnectionBody, tenant: UUID) -> s
     return await plane.secrets.put(f"tenants/{tenant}/idp/{body.slug}", body.client_secret.encode())
 
 
+async def _prove_domains(tenant: UUID, domains: list[str]) -> None:
+    """422 naming the TXT records to publish when a listed domain is not proven (SD-10)."""
+    try:
+        await domain_proof.prove(tenant, domains)
+    except domain_proof.DomainUnproven as unproven:
+        records = "; ".join(f"TXT {r.name} = {r.value}" for r in unproven.missing)
+        raise APIProblem(
+            422,
+            "domain_unproven",
+            "Email domain not proven",
+            f"Prove each email domain before it routes sign-in: publish {records}, then save"
+            " again.",
+            extra={"records": [{"name": r.name, "value": r.value} for r in unproven.missing]},
+        ) from None
+
+
+async def _refuse_claimed(s: Any, domains: list[str]) -> None:
+    """409 when another tenant's active connection already holds a proven listed domain."""
+    for domain in domains:
+        if await s.scalar(text("SELECT idp_domain_claimed_elsewhere(:d)"), {"d": domain}):
+            raise APIProblem(
+                409,
+                "domain_claimed",
+                "Email domain in use",
+                "An email domain on this connection is already used by another workspace.",
+            )
+
+
 @router.post("/connections", response_model=C.IdpConnection, status_code=201)
 async def create_connection(
     body: ConnectionBody, request: Request, ident: Identity = Depends(authorize)
 ) -> dict[str, Any]:
-    """Create an IdP connection (admin with a fresh step-up)."""
+    """Create an IdP connection (admin with a fresh step-up). Every listed domain must be proven
+    by its DNS record and not held by another tenant (SD-10)."""
+    await _prove_domains(ident.tenant_id, body.verified_domains)
     ref = await _secret_ref(request, body, ident.tenant_id)
     try:
         async with tenant_txn(ident.tenant_id) as s:
+            await _refuse_claimed(s, body.verified_domains)
             created = await connections.create(s, body.model_dump(exclude={"client_secret"}), ref)
             await audit_action(
                 s,
@@ -367,11 +399,14 @@ async def update_connection(
     request: Request,
     ident: Identity = Depends(authorize),
 ) -> dict[str, Any]:
-    """Update a connection (conditional on its version); a new secret replaces the reference."""
+    """Update a connection (conditional on its version); a new secret replaces the reference.
+    The listed domains are proven again, as on create (SD-10)."""
+    await _prove_domains(ident.tenant_id, body.verified_domains)
     ref = await _secret_ref(request, body, ident.tenant_id)
     values = body.model_dump(exclude={"client_secret", "expected_version"})
     try:
         async with tenant_txn(ident.tenant_id) as s:
+            await _refuse_claimed(s, body.verified_domains)
             updated = await connections.update(s, connection_id, values, ref, body.expected_version)
             await audit_action(
                 s,

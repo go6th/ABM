@@ -28476,7 +28476,7 @@
         ]
       },
       "post": {
-        "description": "Create an IdP connection (admin with a fresh step-up).",
+        "description": "Create an IdP connection (admin with a fresh step-up). Every listed domain must be proven\nby its DNS record and not held by another tenant (SD-10).",
         "operationId": "create_connection_v1_sso_connections_post",
         "parameters": [
           {
@@ -28536,7 +28536,7 @@
     },
     "/v1/sso/connections/{connection_id}": {
       "put": {
-        "description": "Update a connection (conditional on its version); a new secret replaces the reference.",
+        "description": "Update a connection (conditional on its version); a new secret replaces the reference.\nThe listed domains are proven again, as on create (SD-10).",
         "operationId": "update_connection_v1_sso_connections__connection_id__put",
         "parameters": [
           {

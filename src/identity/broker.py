@@ -368,7 +368,8 @@ class Broker:
             jit_enabled=bool(conn.jit_enabled),
             email=email,
             email_verified=email_verified,
-            verified_domains=list(conn.verified_domains or ()),
+            # SD-10: only domains proven by their DNS record admit a new user
+            verified_domains=list(conn.verified_domains or ()) if conn.domains_proven_at else [],
         )
         if not decision.admit or decision.role is None:
             raise SignInRefused(decision.reason or "refused")
@@ -422,7 +423,8 @@ async def _connection(s: AsyncSession, connection_id: UUID) -> Any:
                 "SELECT id, slug, protocol, issuer, client_id, client_secret_ref,"
                 " authorization_endpoint, token_endpoint, jwks_uri, saml_sso_url,"
                 " saml_idp_cert_pem, sp_entity_id, verified_domains, group_role_map,"
-                " jit_enabled, require_admin_mfa, status FROM idp_connections WHERE id = :c"
+                " jit_enabled, require_admin_mfa, status, domains_proven_at"
+                " FROM idp_connections WHERE id = :c"
             ),
             {"c": connection_id},
         )
