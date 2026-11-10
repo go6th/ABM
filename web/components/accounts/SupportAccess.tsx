@@ -6,6 +6,8 @@ import { useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import type { GrantCreated, SupportEvent, SupportGrant } from "@/lib/gen/api.gen";
 import { Pill } from "@/ui/design";
+import { ConfirmDialog } from "@/ui/Modal";
+import { announce } from "@/ui/Toaster";
 import { lastActive, started } from "@/lib/console";
 
 const REASONS = [
@@ -22,6 +24,7 @@ export function SupportAccess({ grants, events }: { grants: SupportGrant[]; even
   const [reason, setReason] = useState<string>(REASONS[0][0]);
   const [minutes, setMinutes] = useState<number>(60);
   const [busy, setBusy] = useState(false);
+  const [revoking, setRevoking] = useState<SupportGrant | null>(null);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const now = new Date();
   const live = (g: SupportGrant) => !g.revoked_at && new Date(g.expires_at) > now;
@@ -45,17 +48,15 @@ export function SupportAccess({ grants, events }: { grants: SupportGrant[]; even
       setBusy(false);
     }
   };
-  const revoke = async (id: string) => {
-    if (busy || !window.confirm("Revoke this support access? Support staff lose access to your workspace straight away.")) return;
-    setBusy(true);
+  const revoke = async () => {
+    if (!revoking) return;
     try {
-      await api("POST", `/v1/support/grants/${id}/revoke`);
-      router.refresh();
+      await api("POST", `/v1/support/grants/${encodeURIComponent(revoking.id)}/revoke`);
     } catch {
-      setMessage({ ok: false, text: "It could not be revoked. Try again." });
-    } finally {
-      setBusy(false);
+      throw new Error("It could not be revoked. Try again.");
     }
+    announce("Support access revoked");
+    router.refresh();
   };
 
   return (
@@ -76,7 +77,7 @@ export function SupportAccess({ grants, events }: { grants: SupportGrant[]; even
           <div key={g.id} className="lrow">
             <span className="grow">{g.grantee}<span className="sub mut xs-text">Reference {g.id}</span></span>
             {live(g) ? <Pill tone="ok" small>Until {started(g.expires_at).replace("Today ", "")}</Pill> : <Pill small>{g.revoked_at ? "Revoked" : "Ended"}</Pill>}
-            {live(g) ? <button type="button" className="link-danger sm-text" disabled={busy} aria-busy={busy || undefined} onClick={() => void revoke(g.id)}>Revoke</button> : null}
+            {live(g) ? <button type="button" className="link-danger sm-text" disabled={busy || Boolean(revoking)} onClick={() => setRevoking(g)}>Revoke</button> : null}
           </div>
         )) : <div className="lrow mut">No one has been given access.</div>}
       </section>
@@ -90,6 +91,15 @@ export function SupportAccess({ grants, events }: { grants: SupportGrant[]; even
           </div>
         )) : <div className="lrow mut">Nothing yet.</div>}
       </section>
+      {revoking ? (
+        <ConfirmDialog
+          title={`Revoke support access for ${revoking.grantee}?`}
+          body="Support staff lose access to your workspace straight away."
+          confirm="Revoke access"
+          onConfirm={revoke}
+          onClose={() => setRevoking(null)}
+        />
+      ) : null}
     </>
   );
 }

@@ -338,3 +338,128 @@ html.modal-open { overflow: hidden; }
 .ui-pastel .fc, .ui-pastel .dl-all { box-shadow: var(--sh-2), var(--hl); }
 .ui-pastel .menu.down[data-flip="up"] { transform-origin: bottom left; }
 .ui-pastel .menu[data-flip="down"] { transform-origin: top left; }
+
+/* ---------- Operator console: pastel 3D depth and tactile controls ---------- */
+.ui-pastel .pg.admin, .ui-pastel .split.admin {
+  animation: fadeIn 180ms ease-out both;
+}
+.ui-pastel .aside-admin .logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 12px;
+  transition: background var(--ease);
+}
+.ui-pastel .aside-admin .logo:hover {
+  background: rgba(255, 255, 255, 0.6);
+}
+.ui-pastel .aside-admin .viewas {
+  box-shadow: var(--sh-1), var(--hl);
+  transition: background var(--ease), box-shadow var(--ease), transform var(--ease);
+}
+.ui-pastel .aside-admin .viewas:hover {
+  background: var(--surface);
+  box-shadow: var(--sh-2), var(--hl);
+  transform: translateY(-1px);
+}
+.ui-pastel .aside-admin .viewas:active {
+  transform: translateY(1px);
+}
+.ui-pastel .aside-admin .who {
+  background: rgba(255, 255, 255, 0.72);
+  border-radius: 12px;
+  padding: 10px 12px;
+  box-shadow: var(--sh-1), var(--hl);
+  border: 1px solid var(--side-line);
+}
+.ui-pastel .kpis .kpi {
+  transition: box-shadow var(--ease), transform var(--ease), border-color var(--ease);
+}
+.ui-pastel .kpis .kpi:hover {
+  box-shadow: var(--sh-lift), var(--hl);
+  transform: translateY(-2px);
+  border-color: var(--accent-line);
+}
+.ui-pastel .card.tscroll {
+  border-radius: var(--r-card);
+  background: var(--surface);
+  border: 1px solid rgba(222, 226, 244, 0.95);
+  box-shadow: var(--sh-2), var(--hl);
+  scrollbar-width: thin;
+  scrollbar-color: #CDD2EE transparent;
+}
+.ui-pastel .trow.th {
+  background: var(--hover-soft);
+  border-bottom: 1px solid var(--line);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.ui-pastel a.trow {
+  transition: background var(--ease), transform var(--ease);
+}
+.ui-pastel a.trow:hover {
+  background: var(--hover);
+}
+.ui-pastel a.trow:active {
+  transform: scale(0.998);
+}
+.ui-pastel .trow .chev {
+  transition: transform var(--ease), color var(--ease);
+}
+.ui-pastel a.trow:hover .chev {
+  transform: translateX(3px);
+  color: var(--accent);
+}
+.ui-pastel .chart .col {
+  transition: fill var(--ease), opacity var(--ease);
+}
+.ui-pastel .chart .col:hover {
+  fill: var(--accent-hover);
+  opacity: 0.9;
+}
+.ui-pastel .stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface);
+  border: 1px solid var(--line-input);
+  border-radius: var(--r-btn);
+  padding: 2px 6px;
+  box-shadow: var(--sh-1);
+}
+.ui-pastel .st {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 0;
+  background: var(--hover-soft);
+  color: var(--ink);
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background var(--ease), transform var(--ease);
+}
+.ui-pastel .st:hover:not(:disabled) {
+  background: var(--hover);
+  transform: scale(1.05);
+}
+.ui-pastel .st:active:not(:disabled) {
+  transform: scale(0.95);
+}
+.ui-pastel .invite-link {
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--accent-wash);
+  border: 1px solid var(--accent-line);
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 13px;
+  color: var(--accent);
+  word-break: break-all;
+  box-shadow: inset 0 1px 2px rgba(25, 30, 80, 0.04);
+}
+.ui-pastel .viewas-banner {
+  border-bottom: 1px solid #F0D590;
+  background: linear-gradient(135deg, #FFF9EB 0%, #FFF4D6 100%);
+  box-shadow: var(--sh-1);
+}

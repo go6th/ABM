@@ -1,6 +1,6 @@
 """Member roles of a workspace zip from its paths alone (``documents.workspace``): the package
-layout decides what is a deliverable, a note, a captured page, a raw pull, a build file or an
-owner-only file; a zip without a root marker is a loose upload with no roles. No database."""
+layout decides what is a deliverable, a note, a captured page, a raw pull or a build file; a zip
+without a root marker is a loose upload with no roles. No database."""
 
 from __future__ import annotations
 
@@ -38,13 +38,13 @@ PACKAGE = [
 
 def test_workspace_member_roles_follow_the_package_layout() -> None:
     """Every member of a package gets the role its folder and name say; the root is the folder
-    holding RESTORE.md; the build and owner-only members are the ones the read skips; only the
+    holding RESTORE.md; the build members are the ones the read skips; only the
     deliverable workbooks feed the import."""
     assert workspace_root(PACKAGE) == "ws/"
     roles = member_roles(PACKAGE)
     assert "ws/" not in roles  # folders are not members
     assert roles["ws/RESTORE.md"] is MemberRole.RESTORE
-    assert roles["ws/BD_Owner_Only.docx"] is MemberRole.OWNER_ONLY
+    assert roles["ws/BD_Owner_Only.docx"] is MemberRole.OTHER  # read like any file
     assert roles["ws/deliverables/BD_Account_Summary.docx"] is MemberRole.DELIVERABLE_SUMMARY
     assert roles["ws/deliverables/BD_Sources_and_Evidence.docx"] is MemberRole.DELIVERABLE_EVIDENCE
     assert roles["ws/deliverables/BD_People_List.xlsx"] is MemberRole.DELIVERABLE_PEOPLE
@@ -60,7 +60,7 @@ def test_workspace_member_roles_follow_the_package_layout() -> None:
     assert roles["ws/README.txt"] is MemberRole.OTHER
     # what the read skips, and what the import may read
     assert skip_check(roles, "ws/build/jobs_all.json") == "build_skipped"
-    assert skip_check(roles, "ws/BD_Owner_Only.docx") == "owner_only_skipped"
+    assert skip_check(roles, "ws/BD_Owner_Only.docx") is None
     assert skip_check(roles, "ws/data/jobs_12mo.json") is None
     assert skip_check(roles, None) is None
     importable = {m for m in roles if may_import(roles, m)}
@@ -83,10 +83,12 @@ def test_a_zip_without_a_root_marker_has_no_roles_and_imports_everything() -> No
     assert roles["build/y.py"] is MemberRole.BUILD
     assert roles["a/build/x.py"] is MemberRole.OTHER  # not under the root's build folder
     assert roles["MANIFEST.json"] is MemberRole.RESTORE
-    # an internal folder and the product's own Internal Only file are owner-only too
+    # an internal folder and an Internal Only file are read like any other file (the owner-only
+    # role was removed 2026-11-08)
     inner = member_roles(["ws/RESTORE.md", "ws/internal/notes.docx", "ws/Acme_Internal_Only.docx"])
-    assert inner["ws/internal/notes.docx"] is MemberRole.OWNER_ONLY
-    assert inner["ws/Acme_Internal_Only.docx"] is MemberRole.OWNER_ONLY
+    assert inner["ws/internal/notes.docx"] is MemberRole.OTHER
+    assert inner["ws/Acme_Internal_Only.docx"] is MemberRole.OTHER
+    assert skip_check(inner, "ws/internal/notes.docx") is None
 
 
 FALLBACK_ROOT = [

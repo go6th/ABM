@@ -1,0 +1,1151 @@
+diff --git a/docs/api/openapi.json b/docs/api/openapi.json
+index dd263d7f..c358ab13 100644
+--- a/docs/api/openapi.json
++++ b/docs/api/openapi.json
+@@ -5980,7 +5980,6 @@
+           "audience": {
+             "enum": [
+               "client",
+-              "owner_only",
+               "internal"
+             ],
+             "title": "Audience",
+@@ -6274,7 +6273,6 @@
+           "audience": {
+             "enum": [
+               "client",
+-              "owner_only",
+               "internal"
+             ],
+             "title": "Audience",
+@@ -15193,15 +15191,6 @@
+             ],
+             "title": "Account Id"
+           },
+-          "audience": {
+-            "default": "client",
+-            "enum": [
+-              "client",
+-              "owner_only"
+-            ],
+-            "title": "Audience",
+-            "type": "string"
+-          },
+           "mime": {
+             "anyOf": [
+               {
+diff --git a/src/account_intelligence/api/contract.py b/src/account_intelligence/api/contract.py
+index 4636d3e9..907bfd40 100644
+--- a/src/account_intelligence/api/contract.py
++++ b/src/account_intelligence/api/contract.py
+@@ -2512,7 +2512,7 @@ class DocumentStatus(Out):
+     indexed_passages: int
+     members_read: int
+     members_skipped: list[SkippedMember]
+-    audience: Literal["client", "owner_only", "internal"]
++    audience: Literal["client", "internal"]
+ 
+ 
+ class DocumentMember(Out):
+@@ -2533,7 +2533,7 @@ class DocumentMember(Out):
+     rows_imported: int = 0
+     rows_merged: int = 0
+     rows_skipped: int = 0
+-    audience: Literal["client", "owner_only", "internal"]
++    audience: Literal["client", "internal"]
+ 
+ 
+ class DocumentMembers(Out):
+diff --git a/src/account_intelligence/api/routes/documents.py b/src/account_intelligence/api/routes/documents.py
+index d2eb9eae..d3efea1b 100644
+--- a/src/account_intelligence/api/routes/documents.py
++++ b/src/account_intelligence/api/routes/documents.py
+@@ -63,8 +63,6 @@ class UploadStart(BaseModel):
+     size_bytes: int = Field(ge=0)
+     mime: str | None = Field(default=None, max_length=200)
+     account_id: UUID | None = None
+-    # who may see it: everyone on the account (the default), or the uploader and admins only
+-    audience: Literal["client", "owner_only"] = "client"
+ 
+ 
+ class DocumentCompleteBody(BaseModel):
+@@ -156,7 +154,6 @@ async def start_upload(
+             body.mime,
+             body.account_id,
+             origin=_origin(),
+-            audience=body.audience,
+         )
+     except DocumentError as error:
+         raise _problem(error) from None
+diff --git a/src/account_intelligence/api/routes/health.py b/src/account_intelligence/api/routes/health.py
+index bc7f1bc0..557b131e 100644
+--- a/src/account_intelligence/api/routes/health.py
++++ b/src/account_intelligence/api/routes/health.py
+@@ -36,7 +36,7 @@ async def healthz() -> dict[str, str]:
+ # The schema revision this code needs (the newest migration it was written with). Readiness
+ # fails while the database is older: a revision rolled out before its migration job finished
+ # never takes traffic. GUARANTEE(test_readiness_needs_the_schema_revision_of_the_code)
+-EXPECTED_REVISION = "0114"
++EXPECTED_REVISION = "0115"
+ 
+ 
+ async def _database() -> None:
+diff --git a/src/account_intelligence/app/auto_analysis.py b/src/account_intelligence/app/auto_analysis.py
+index 8d6cace5..a4e0905b 100644
+--- a/src/account_intelligence/app/auto_analysis.py
++++ b/src/account_intelligence/app/auto_analysis.py
+@@ -7,9 +7,8 @@ every passage, the tracker, the written summary, the Internal Only file) and enq
+ slice, exactly as ``POST /v1/runs`` in input mode "file" would, minus the request: the same
+ lifecycle, settings pin, run-mode columns, document link and usage event. The run is keyed
+ ``auto-file:<document id>``, so indexing the same document again replays it instead of paying
+-twice. An owner-only file starts nothing (it feeds no fact); a tenant whose run limit is reached
+-gets a log line, not an error. The document service never fails over this: a start that cannot
+-happen is logged and the document stays indexed.
++twice. A tenant whose run limit is reached gets a log line, not an error. The document service
++never fails over this: a start that cannot happen is logged and the document stays indexed.
+ 
+ Off since 2026-11-05 (``runs.start_guard``): an upload cost the owner about 100 USD by starting
+ this run unasked. The upload is indexed and imported as before; the model reads it only when a
+@@ -106,8 +105,6 @@ async def _start(container: Any, tenant_id: UUID, document_id: UUID) -> UUID | N
+         doc = await repo.get(s, document_id)
+     if doc is None or doc.status != "indexed" or doc.account_id is None:
+         return None
+-    if getattr(doc, "audience", "client") == "owner_only":
+-        return None
+     actor = str(getattr(doc, "uploaded_by", None) or "system")
+     account_id = UUID(str(doc.account_id))
+     with acting_as(actor):
+diff --git a/src/account_intelligence/replica/sheets.py b/src/account_intelligence/replica/sheets.py
+index d40cc35b..9dcfbc4a 100644
+--- a/src/account_intelligence/replica/sheets.py
++++ b/src/account_intelligence/replica/sheets.py
+@@ -552,8 +552,7 @@ SHEETS: dict[str, Sheet] = {
+         file="Uploaded files.xlsx",
+         scope=(
+             "Every file inside the zips you uploaded for this account: which package file it is,"
+-            " whether it was read, skipped or failed and why, and what it produced. An owner-only"
+-            " file is listed but never read."
++            " whether it was read, skipped or failed and why, and what it produced."
+         ),
+         base=(
+             "SELECT m.id AS _id, d.name AS document, m.member_path AS member,"  # nosec B608 -- labels from fixed mappings, no input.
+@@ -600,8 +599,7 @@ SHEETS: dict[str, Sheet] = {
+         ),
+         default_sort="member",
+         footnote=(
+-            "Files inside the zips you uploaded. A build script or an owner-only file is listed"
+-            " and not read; upload an owner-only file on its own to keep it private. For a"
++            "Files inside the zips you uploaded. A build script is listed and not read. For a"
+             " workbook, rows imported plus rows merged (duplicates folded into one) plus rows"
+             " not imported (no title or name) is the sheet's row count."
+         ),
+@@ -784,7 +782,6 @@ SHEETS: dict[str, Sheet] = {
+         base=(
+             "SELECT n.id AS _id, n.title, replace(initcap(replace(n.kind, '_', ' ')), 'Ai ',"
+             " 'AI ') AS kind, n.text, coalesce(n.member_path, '') AS member,"
+-            " CASE n.audience WHEN 'owner_only' THEN 'Owner only' ELSE 'Client' END AS audience,"
+             " n.created_at AS added FROM research_notes n WHERE n.tenant_id = :t AND n.account_id ="
+             " :a"
+         ),
+@@ -793,21 +790,13 @@ SHEETS: dict[str, Sheet] = {
+             Col("kind", "Kind", "s.kind"),
+             Col("text", "Text", "s.text", "long"),
+             Col("member", "File", "s.member", "code"),
+-            Col("audience", "Who sees it", "s.audience"),
+             Col("added", "Added", "s.added", "date"),
+         ),
+-        filters=(
+-            Filter("all", "All", "true"),
+-            Filter("owner", "Owner only", "s.audience = 'Owner only'"),
+-        ),
++        filters=(Filter("all", "All", "true"),),
+         default_sort="added",
+         default_dir="desc",
+         private=True,
+-        export_where="s.audience <> 'Owner only'",
+-        footnote=(
+-            "Notes are internal: they are never part of a client file. An owner-only note leaves"
+-            " no workbook."
+-        ),
++        footnote="Notes are internal: they are never part of a client file.",
+     ),
+     "coverage": Sheet(
+         key="coverage",
+diff --git a/src/documents/repo.py b/src/documents/repo.py
+index 57630243..90c08e16 100644
+--- a/src/documents/repo.py
++++ b/src/documents/repo.py
+@@ -1100,15 +1100,6 @@ async def import_pull_calls(
+     return written
+ 
+ 
+-async def set_audience(s: AsyncSession, document_id: UUID, audience: str) -> bool:
+-    """Who may see a document: client, owner_only or internal (0102)."""
+-    res = await s.execute(
+-        text("UPDATE documents SET audience = :v, updated_at = now() WHERE id = :d"),
+-        {"d": document_id, "v": audience},
+-    )
+-    return bool(res.rowcount)  # type: ignore[attr-defined]
+-
+-
+ async def parts(s: AsyncSession, document_id: UUID) -> list[Any]:
+     """A document's parts in order."""
+     rows = await s.execute(
+diff --git a/src/documents/service.py b/src/documents/service.py
+index f7244a90..7d71fb76 100644
+--- a/src/documents/service.py
++++ b/src/documents/service.py
+@@ -164,6 +164,8 @@ SKIP_CHECKS = {
+     "archive_too_many_members": "past the member limit",
+     "archive_too_deep": "an archive nested too deep",
+     "archive_too_large": "past the uncompressed size limit",
++    # members skipped by the owner-only rule removed in 0115: they are read on a new upload
++    "not_read_upload_again": "not read; upload the zip again to read it",
+     **ws.SKIP_LABELS,
+ }
+ PART_MESSAGES = {
+@@ -257,7 +259,6 @@ def _member_rows(
+                 "failure": skip_of.get(name),
+                 "passages": int(per_member.get(name, 0)),
+                 "tables": int(tables_of.get(name, 0)),
+-                "audience": "owner_only" if role is ws.MemberRole.OWNER_ONLY else "client",
+             }
+         )
+     return rows
+@@ -354,14 +355,9 @@ class DocumentService:
+         mime: str | None,
+         account_id: UUID | None,
+         origin: str | None = None,
+-        audience: str = "client",
+     ) -> dict[str, Any]:
+         """A document row and where to send its bytes (checked before any byte arrives): a
+-        resumable session straight to object storage, in ``chunk_bytes`` chunks. ``audience``
+-        says who may see the document: ``client`` (everyone on the account) or ``owner_only``
+-        (the uploader and admins; the deliverables import never reads it)."""
+-        if audience not in ("client", "owner_only"):
+-            raise DocumentError("bad_audience", "The audience is client or owner_only.")
++        resumable session straight to object storage, in ``chunk_bytes`` chunks."""
+         display = clean_name(name)
+         kind = self.declared_type(display)
+         if size <= 0:
+@@ -396,8 +392,6 @@ class DocumentService:
+                 uploaded_by=user,
+                 expires_at=expires,
+             )
+-            if audience != "client":
+-                await repo.set_audience(s, doc_id, audience)
+         content_type = mime or "application/octet-stream"
+         session = await self._incoming.resumable_upload(qkey, size, content_type, origin)
+         url = session or f"/v1/documents/{doc_id}/content?token={token}"
+@@ -917,7 +911,7 @@ class DocumentService:
+                         raise SandboxFailed("page_limit")
+                     member = unit.location.get("member")
+                     if member and (role_skip := ws.skip_check(roles, str(member))):
+-                        # a build script or an owner-only file of a workspace package: listed,
++                        # a build script or intermediate of a workspace package: listed,
+                         # counted once, never parsed into passages (documents.workspace)
+                         if member not in unread:
+                             unread.add(str(member))
+@@ -1332,11 +1326,9 @@ class DocumentService:
+     @_doc_logged
+     async def _analyse(self, tenant_id: UUID, row: Any) -> None:
+         """Start the model analysis of an indexed document bound to an account (owner's rule
+-        2026-11-03); never fails the document, an owner-only file starts nothing."""
++        2026-11-03); never fails the document."""
+         if self.analysis is None or row.account_id is None:
+             return
+-        if getattr(row, "audience", "client") == "owner_only":
+-            return
+         try:
+             await self.analysis(tenant_id, row.id)
+         except Exception as error:  # noqa: BLE001 - the analysis never fails the document
+@@ -1357,10 +1349,6 @@ class DocumentService:
+         from documents.deliverables import import_document
+ 
+         now = self.clock.now()
+-        if str(getattr(row, "audience", None) or "client") == "owner_only":
+-            async with self.txn(tenant_id) as s:
+-                await repo.mark_imported(s, row.id, now)  # an owner-only file feeds no fact
+-            return
+         try:
+             counts = await import_document(
+                 self.txn, tenant_id, row, now=now, payloads=self.payloads, blobs=self.blobs
+@@ -1633,7 +1621,6 @@ class DocumentService:
+                         "bytes": size,
+                         "status": "failed",
+                         "failure": str(p.failure or "parse:failed"),
+-                        "audience": "owner_only" if role is ws.MemberRole.OWNER_ONLY else "client",
+                     }
+                 )
+         if rows:
+diff --git a/src/documents/workspace.py b/src/documents/workspace.py
+index bd53db53..58dedb9f 100644
+--- a/src/documents/workspace.py
++++ b/src/documents/workspace.py
+@@ -6,13 +6,11 @@ files, ``notes/``, ``data/`` (the raw pulls, ``data/releases/`` the captured pag
+ ``build/`` (the scripts and intermediates that turned data into deliverables). Until now every
+ member was read the same way and the deliverables import matched every table by its column
+ names, so a ``build/jobs_all.json`` intermediate imported the same postings a second and third
+-time, the build scripts became searchable prose, and an owner-only note shipped by mistake was
+-indexed like a client file.
++time and the build scripts became searchable prose.
+ 
+ This module decides, from the member paths alone, what each member is (``MemberRole``) and
+ what the read does with it: a build script or intermediate is listed but not read
+-(``build_skipped``); an owner-only file is listed but not read (``owner_only_skipped``: upload it
+-on its own); a raw pull is read into the table store and the passages but never into the
++(``build_skipped``); a raw pull is read into the table store and the passages but never into the
+ deliverables import; only the deliverable workbooks feed that import. A zip without a workspace
+ root (a loose bundle of files) keeps the old behaviour: every member is read and every table
+ may import. Only names are inspected; no member is opened here.
+@@ -25,7 +23,7 @@ of two kinds sit side by side (a package zipped without its folders). A workbook
+ known way is registered by what its sheets hold (``workspace_import.sniff_kind``).
+ 
+ GUARANTEE(test_workspace_member_roles_follow_the_package_layout)
+-GUARANTEE(test_a_workspace_zip_imports_each_deliverable_row_once_and_skips_build_and_owner_files)
++GUARANTEE(test_a_workspace_zip_imports_each_deliverable_row_once_and_skips_build_files)
+ """
+ 
+ from __future__ import annotations
+@@ -47,7 +45,6 @@ class MemberRole(StrEnum):
+     DELIVERABLE_JOBS = "deliverable_jobs"
+     DELIVERABLE_TECH = "deliverable_tech"
+     DELIVERABLE_OTHER = "deliverable_other"
+-    OWNER_ONLY = "owner_only"
+     NOTE = "note"
+     RESTORE = "restore"
+     CAPTURED_PAGE = "captured_page"
+@@ -69,7 +66,6 @@ DELIVERABLE_ROLES = frozenset(
+ # roles the read lists but never parses, with the skip check the coverage report names
+ SKIPPED_ROLES: Mapping[MemberRole, str] = {
+     MemberRole.BUILD: "build_skipped",
+-    MemberRole.OWNER_ONLY: "owner_only_skipped",
+ }
+ # what each role is called where members are listed (the file map, the uploads card)
+ ROLE_LABELS: Mapping[str, str] = {
+@@ -79,7 +75,6 @@ ROLE_LABELS: Mapping[str, str] = {
+     MemberRole.DELIVERABLE_JOBS: "job postings",
+     MemberRole.DELIVERABLE_TECH: "tech stack and teams",
+     MemberRole.DELIVERABLE_OTHER: "other deliverable",
+-    MemberRole.OWNER_ONLY: "owner-only file",
+     MemberRole.NOTE: "note",
+     MemberRole.RESTORE: "package manifest",
+     MemberRole.CAPTURED_PAGE: "captured page",
+@@ -89,7 +84,6 @@ ROLE_LABELS: Mapping[str, str] = {
+ }
+ SKIP_LABELS = {
+     "build_skipped": "a build script or intermediate, not research data",
+-    "owner_only_skipped": "an owner-only file; upload it on its own",
+ }
+ 
+ _DELIVERABLE_SUFFIXES = (
+@@ -99,7 +93,6 @@ _DELIVERABLE_SUFFIXES = (
+     ("_job_postings.xlsx", MemberRole.DELIVERABLE_JOBS),
+     ("_tech_stack_and_teams.xlsx", MemberRole.DELIVERABLE_TECH),
+ )
+-_OWNER_ONLY = re.compile(r"(_only|_internal_only)\.docx$", re.IGNORECASE)
+ 
+ # The words that name each deliverable when a package names its files in its own way (owner
+ # 2026-11-05: later packages are "90 to 95 percent the same": "UCB People List.xlsx",
+@@ -132,8 +125,6 @@ def deliverable_role(name: str) -> MemberRole | None:
+     for suffix, role in _DELIVERABLE_SUFFIXES:
+         if lower.endswith(suffix):
+             return role
+-    if _OWNER_ONLY.search(lower):
+-        return None
+     words = _words(posixpath.splitext(lower)[0])
+     for ext, phrases, role in _DELIVERABLE_WORDS:
+         if lower.endswith(ext) and any(f" {p} " in words for p in phrases):
+@@ -214,10 +205,7 @@ def classify_member(path: str, root: str) -> MemberRole:
+     if not rel:
+         return MemberRole.OTHER
+     name = rel[-1]
+-    lower = name.lower()
+     folder = rel[0].lower() if len(rel) > 1 else ""
+-    if _OWNER_ONLY.search(lower) or folder in ("internal", "owner"):
+-        return MemberRole.OWNER_ONLY
+     if len(rel) == 1:
+         if name in ROOT_MARKERS:
+             return MemberRole.RESTORE
+diff --git a/src/documents/workspace_docx.py b/src/documents/workspace_docx.py
+index 92ff8c19..ade41017 100644
+--- a/src/documents/workspace_docx.py
++++ b/src/documents/workspace_docx.py
+@@ -28,7 +28,7 @@ The planning is pure (``plan``); ``write`` stores the plan in the caller's trans
+ model is called. Private unless the file is authoritative (an admin's mark, or the product's
+ own package with ``MANIFEST.json``), when the grades may be stated.
+ 
+-GUARANTEE(test_a_workspace_zip_imports_each_deliverable_row_once_and_skips_build_and_owner_files)
++GUARANTEE(test_a_workspace_zip_imports_each_deliverable_row_once_and_skips_build_files)
+ """
+ 
+ from __future__ import annotations
+diff --git a/src/documents/workspace_import.py b/src/documents/workspace_import.py
+index b685b105..95f410bb 100644
+--- a/src/documents/workspace_import.py
++++ b/src/documents/workspace_import.py
+@@ -63,7 +63,7 @@ Retry (PR3): each part runs in its own transaction with its status in ``import_r
+ failed part is tried again by the sweep at most three times with a growing wait, and only the
+ failed part (``documents.import_status``, ``documents.deliverables.retry_import_parts``).
+ 
+-GUARANTEE(test_a_workspace_zip_imports_each_deliverable_row_once_and_skips_build_and_owner_files)
++GUARANTEE(test_a_workspace_zip_imports_each_deliverable_row_once_and_skips_build_files)
+ GUARANTEE(test_workspace_rows_map_to_native_records_and_merge_duplicates)
+ """
+ 
+diff --git a/src/documents/workspace_raw.py b/src/documents/workspace_raw.py
+index e05ba818..8f90b6ba 100644
+--- a/src/documents/workspace_raw.py
++++ b/src/documents/workspace_raw.py
+@@ -22,7 +22,7 @@ Each member's row on the Uploaded files sheet shows records in the file = import
+ skipped. No model is called. The search files, the live board listing and the people grid are
+ left as tables for Ask (their rows are not records of the account).
+ 
+-GUARANTEE(test_a_workspace_zip_imports_each_deliverable_row_once_and_skips_build_and_owner_files)
++GUARANTEE(test_a_workspace_zip_imports_each_deliverable_row_once_and_skips_build_files)
+ """
+ 
+ from __future__ import annotations
+diff --git a/tests/db/test_posting_migrations.py b/tests/db/test_posting_migrations.py
+index 32f3b1e4..b4c6428a 100644
+--- a/tests/db/test_posting_migrations.py
++++ b/tests/db/test_posting_migrations.py
+@@ -117,4 +117,4 @@ def test_the_chain_is_linear_and_the_two_live_migrations_keep_their_numbers() ->
+     # every revision has exactly one child but the head: no branch
+     children = [d for d in chain.values() if d is not None]
+     assert len(children) == len(set(children))
+-    assert set(chain) - set(children) == {"0114"}
++    assert set(chain) - set(children) == {"0115"}
+diff --git a/tests/documents/test_file_runs.py b/tests/documents/test_file_runs.py
+index 3ce8e566..71f038f6 100644
+--- a/tests/documents/test_file_runs.py
++++ b/tests/documents/test_file_runs.py
+@@ -29,14 +29,10 @@ def build(harness: Harness, scenario: str = "happy") -> Stack:
+     return stack
+ 
+ 
+-async def put_document(
+-    who: Client, name: str, data: bytes, account: str | None = None, audience: str | None = None
+-) -> str:
++async def put_document(who: Client, name: str, data: bytes, account: str | None = None) -> str:
+     body: dict[str, Any] = {"name": name, "size_bytes": len(data)}
+     if account:
+         body["account_id"] = account
+-    if audience:
+-        body["audience"] = audience
+     started = await who.browser.call("POST", "/v1/documents/uploads", json=body)
+     assert started.status_code == 201, started.text
+     up = started.json()
+@@ -166,8 +162,7 @@ async def test_an_upload_bound_to_an_account_is_analysed_by_the_model_by_itself(
+     """Owner's rule 2026-11-03: a model reads every upload and the account page shows what it
+     found. An indexed document bound to an account starts its own file-mode run (keyed by the
+     document, so a re-index replays it), which extracts facts, writes the summary sections and
+-    completes; the account page then has key findings and a one-minute version. An owner-only
+-    upload starts nothing."""
++    completes; the account page then has key findings and a one-minute version."""
+     from account_intelligence.app.auto_analysis import idempotency_key
+ 
+     monkeypatch.setenv("RESEARCH_AUTOMATIC_STARTS", "on")
+@@ -175,9 +170,6 @@ async def test_an_upload_bound_to_an_account_is_analysed_by_the_model_by_itself(
+     a = await stack.client("docs-auto")
+     _, account = await indexed_documents(stack, a)
+     doc = await put_document(a, "plan.docx", fixtures.notes_docx(), account=account)
+-    private = await put_document(
+-        a, "board.pdf", fixtures.meeting_pdf(), account=account, audience="owner_only"
+-    )
+     await process(stack)
+     found = admin(
+         "SELECT id, status, run_input FROM account_runs WHERE idempotency_key = %s",
+@@ -187,10 +179,6 @@ async def test_an_upload_bound_to_an_account_is_analysed_by_the_model_by_itself(
+     run = str(found[0][0])
+     assert found[0][2]["input_mode"] == "file" and found[0][2]["started_by"] == "upload"
+     assert found[0][2]["document_ids"] == [doc]
+-    assert admin(
+-        "SELECT count(*) FROM account_runs WHERE idempotency_key = %s",
+-        idempotency_key(UUID(private)),
+-    ) == [(0,)]
+     await stack.drain(a, run)
+     assert run_row(run)["status"] == "COMPLETED", run_row(run)
+     assert admin("SELECT count(*) FROM facts WHERE run_id = %s", run)[0][0] > 0
+diff --git a/tests/documents/test_workspace_roles.py b/tests/documents/test_workspace_roles.py
+index 4b200bbd..6e07dcb3 100644
+--- a/tests/documents/test_workspace_roles.py
++++ b/tests/documents/test_workspace_roles.py
+@@ -1,6 +1,6 @@
+ """Member roles of a workspace zip from its paths alone (``documents.workspace``): the package
+-layout decides what is a deliverable, a note, a captured page, a raw pull, a build file or an
+-owner-only file; a zip without a root marker is a loose upload with no roles. No database."""
++layout decides what is a deliverable, a note, a captured page, a raw pull or a build file; a zip
++without a root marker is a loose upload with no roles. No database."""
+ 
+ from __future__ import annotations
+ 
+@@ -38,13 +38,13 @@ PACKAGE = [
+ 
+ def test_workspace_member_roles_follow_the_package_layout() -> None:
+     """Every member of a package gets the role its folder and name say; the root is the folder
+-    holding RESTORE.md; the build and owner-only members are the ones the read skips; only the
++    holding RESTORE.md; the build members are the ones the read skips; only the
+     deliverable workbooks feed the import."""
+     assert workspace_root(PACKAGE) == "ws/"
+     roles = member_roles(PACKAGE)
+     assert "ws/" not in roles  # folders are not members
+     assert roles["ws/RESTORE.md"] is MemberRole.RESTORE
+-    assert roles["ws/BD_Owner_Only.docx"] is MemberRole.OWNER_ONLY
++    assert roles["ws/BD_Owner_Only.docx"] is MemberRole.OTHER  # read like any file
+     assert roles["ws/deliverables/BD_Account_Summary.docx"] is MemberRole.DELIVERABLE_SUMMARY
+     assert roles["ws/deliverables/BD_Sources_and_Evidence.docx"] is MemberRole.DELIVERABLE_EVIDENCE
+     assert roles["ws/deliverables/BD_People_List.xlsx"] is MemberRole.DELIVERABLE_PEOPLE
+@@ -60,7 +60,7 @@ def test_workspace_member_roles_follow_the_package_layout() -> None:
+     assert roles["ws/README.txt"] is MemberRole.OTHER
+     # what the read skips, and what the import may read
+     assert skip_check(roles, "ws/build/jobs_all.json") == "build_skipped"
+-    assert skip_check(roles, "ws/BD_Owner_Only.docx") == "owner_only_skipped"
++    assert skip_check(roles, "ws/BD_Owner_Only.docx") is None
+     assert skip_check(roles, "ws/data/jobs_12mo.json") is None
+     assert skip_check(roles, None) is None
+     importable = {m for m in roles if may_import(roles, m)}
+@@ -83,10 +83,12 @@ def test_a_zip_without_a_root_marker_has_no_roles_and_imports_everything() -> No
+     assert roles["build/y.py"] is MemberRole.BUILD
+     assert roles["a/build/x.py"] is MemberRole.OTHER  # not under the root's build folder
+     assert roles["MANIFEST.json"] is MemberRole.RESTORE
+-    # an internal folder and the product's own Internal Only file are owner-only too
++    # an internal folder and an Internal Only file are read like any other file (the owner-only
++    # role was removed 2026-11-08)
+     inner = member_roles(["ws/RESTORE.md", "ws/internal/notes.docx", "ws/Acme_Internal_Only.docx"])
+-    assert inner["ws/internal/notes.docx"] is MemberRole.OWNER_ONLY
+-    assert inner["ws/Acme_Internal_Only.docx"] is MemberRole.OWNER_ONLY
++    assert inner["ws/internal/notes.docx"] is MemberRole.OTHER
++    assert inner["ws/Acme_Internal_Only.docx"] is MemberRole.OTHER
++    assert skip_check(inner, "ws/internal/notes.docx") is None
+ 
+ 
+ FALLBACK_ROOT = [
+diff --git a/tests/documents/test_workspace_zip_import_db.py b/tests/documents/test_workspace_zip_import_db.py
+index 2b3b6ff8..cc95fa65 100644
+--- a/tests/documents/test_workspace_zip_import_db.py
++++ b/tests/documents/test_workspace_zip_import_db.py
+@@ -1,9 +1,10 @@
+ """A workspace zip through the production path with the members a hand-built package carries
+ besides its deliverables (``documents.workspace``, 2026-11-03): a ``build/`` intermediate and a
+-``data/`` raw pull whose column names look like the Jobs and People sheets, a build script and an
+-owner-only Word file. Each deliverable row imports once (the twins never do), the raw pull is
+-still a table the tools can query, and the build script and the owner-only file are listed as
+-skipped with their reasons, never stored as passages. SYNTHETIC files only."""
++``data/`` raw pull whose column names look like the Jobs and People sheets, a build script and a
++Word file named ``_Owner_Only`` (read like any file since the owner-only role was removed,
++2026-11-08). Each deliverable row imports once (the twins never do), the raw pull is still a table
++the tools can query, and the build members are listed as skipped with their reasons, never stored
++as passages. SYNTHETIC files only."""
+ 
+ from __future__ import annotations
+ 
+@@ -390,7 +391,7 @@ def _facts_by_member(account: UUID) -> dict[str, int]:
+     return {str(member): int(n) for member, n in rows}
+ 
+ 
+-async def test_a_workspace_zip_imports_each_deliverable_row_once_and_skips_build_and_owner_files(
++async def test_a_workspace_zip_imports_each_deliverable_row_once_and_skips_build_files(
+     tenant_a: UUID, tmp_path: Path
+ ) -> None:
+     """See the module docstring."""
+@@ -474,8 +475,8 @@ async def test_a_workspace_zip_imports_each_deliverable_row_once_and_skips_build
+         "SELECT count(*) FROM facts WHERE account_id = %s AND value_text LIKE 'Twin %%'", account
+     ) == [(0,)]
+ 
+-    # the raw pull is still a table the tools can query; the build members and the owner-only
+-    # file are not stored at all
++    # the raw pull is still a table the tools can query; the build members are not stored at all,
++    # the _Owner_Only file is read like any other
+     async with tenant_txn(tenant_a, user="user-1") as s:
+         found = await T.list_tables(s, [account])
+         cover = await coverage(s, [account])
+@@ -491,8 +492,8 @@ async def test_a_workspace_zip_imports_each_deliverable_row_once_and_skips_build
+         )
+         if m
+     }
+-    assert DATA_TWIN in members and jobs_member in members
+-    assert not members & {BUILD_TWIN, SCRIPT, OWNER_ONLY}
++    assert DATA_TWIN in members and jobs_member in members and OWNER_ONLY in members
++    assert not members & {BUILD_TWIN, SCRIPT}
+ 
+     # the coverage report names what was skipped and why, once per member
+     entry = next(e for e in cover if e.get("document") == workspace_zip.ZIP_NAME)
+@@ -500,9 +501,8 @@ async def test_a_workspace_zip_imports_each_deliverable_row_once_and_skips_build
+     assert skipped == {
+         BUILD_TWIN: "a build script or intermediate, not research data",
+         SCRIPT: "a build script or intermediate, not research data",
+-        OWNER_ONLY: "an owner-only file; upload it on its own",
+     }
+-    assert entry["members_skipped_total"] == 3
++    assert entry["members_skipped_total"] == 2
+     assert entry["members_read"] == len(members)
+ 
+     # the Account Summary feeds the register, the findings, the sections, the tracker and the
+@@ -635,7 +635,7 @@ async def test_a_workspace_zip_imports_each_deliverable_row_once_and_skips_build
+     by_path = {m["member"]: m for m in listed["members"]}
+     assert len(by_path) == len(zipfile.ZipFile(io.BytesIO(_zip_with_twins())).namelist())
+     assert listed["read"] + listed["skipped"] + listed["failed"] == len(by_path)
+-    assert (listed["skipped"], listed["failed"]) == (3, 0)
++    assert (listed["skipped"], listed["failed"]) == (2, 0)
+     assert listed["read"] == entry["members_read"]
+     jobs_row = by_path[jobs_member]
+     assert jobs_row["role"] == "deliverable_jobs" and jobs_row["status"] == "read"
+@@ -658,9 +658,8 @@ async def test_a_workspace_zip_imports_each_deliverable_row_once_and_skips_build
+         "tables": 1,
+         "audience": "client",
+     }
+-    assert by_path[OWNER_ONLY]["status"] == "skipped"
+-    assert by_path[OWNER_ONLY]["reason"] == "an owner-only file; upload it on its own"
+-    assert by_path[OWNER_ONLY]["audience"] == "owner_only" and by_path[OWNER_ONLY]["passages"] == 0
++    assert by_path[OWNER_ONLY]["role"] == "other" and by_path[OWNER_ONLY]["status"] == "read"
++    assert by_path[OWNER_ONLY]["audience"] == "client"  # its few words share a passage
+     assert by_path[SCRIPT]["role"] == "build" and by_path[SCRIPT]["status"] == "skipped"
+     assert by_path[BUILD_TWIN]["role"] == "build" and by_path[BUILD_TWIN]["status"] == "skipped"
+     assert by_path[f"{F}/RESTORE.md"]["role"] == "restore"
+@@ -710,8 +709,7 @@ async def test_a_workspace_zip_imports_each_deliverable_row_once_and_skips_build
+     assert counts["files"] == len(by_path)
+     assert shown[jobs_member]["role"] == "job postings" and shown[jobs_member]["status"] == "read"
+     assert shown[jobs_member]["reason"] == "" and shown[jobs_member]["document"].endswith(".zip")
+-    assert shown[OWNER_ONLY]["role"] == "owner-only file"
+-    assert shown[OWNER_ONLY]["reason"] == "an owner-only file; upload it on its own"
++    assert shown[OWNER_ONLY]["role"] == "other file" and shown[OWNER_ONLY]["reason"] == ""
+     assert shown[SCRIPT]["reason"] == "a build script or intermediate, not research data"
+     assert shown[DATA_TWIN]["role"] == "raw pull" and shown[DATA_TWIN]["tables"] == 1
+ 
+@@ -774,40 +772,6 @@ async def test_a_workspace_zip_imports_each_deliverable_row_once_and_skips_build
+     assert register["https://news.holdings.example/cio"]["supports"] == "The CIO appointment"
+ 
+ 
+-async def test_an_owner_only_upload_is_marked_and_feeds_no_fact(
+-    tenant_a: UUID, tmp_path: Path
+-) -> None:
+-    """A file uploaded with audience owner_only shows that audience on its status and never
+-    reaches the account's facts, although its sheet would import."""
+-    from tests.documents.test_deliverables_import import people_book
+-
+-    account = _make_account(tenant_a, f"holdings-{uuid4().hex[:6]}.example")
+-    svc = service(tmp_path)
+-    started = await svc.start_upload(
+-        tenant_a, "user-1", "Private_People_List.xlsx", len(people_book()), None, account,
+-        audience="owner_only",
+-    )  # fmt: skip
+-    doc = UUID(started["document_id"])
+-    from urllib.parse import parse_qs, urlparse
+-
+-    token = parse_qs(urlparse(started["upload_url"]).query)["token"][0]
+-    data = people_book()
+-
+-    async def body() -> Any:
+-        yield data
+-
+-    await svc.receive(tenant_a, doc, token, body())
+-    await svc.complete(tenant_a, doc)
+-    assert await svc.process(tenant_a, doc) == "indexed"
+-    assert (await svc.status(tenant_a, doc))["audience"] == "owner_only"
+-    assert admin(
+-        "SELECT count(*) FROM facts WHERE account_id = %s AND flags ? 'workspace_import'", account
+-    ) == [(0,)]
+-    assert admin("SELECT imported_at IS NOT NULL FROM documents WHERE id = %s", doc) == [(True,)]
+-    with pytest.raises(Exception, match="audience"):
+-        await svc.start_upload(tenant_a, "user-1", "x.xlsx", 10, None, account, audience="staff")
+-
+-
+ async def test_the_retry_of_a_failed_import_reads_the_zip_again_for_its_raw_pulls(
+     tenant_a: UUID, tmp_path: Path
+ ) -> None:
+diff --git a/tests/isolation/test_sheet_isolation.py b/tests/isolation/test_sheet_isolation.py
+index b8a01e56..d34d0631 100644
+--- a/tests/isolation/test_sheet_isolation.py
++++ b/tests/isolation/test_sheet_isolation.py
+@@ -14,11 +14,11 @@ tenants, so every sheet has rows on both sides. Then, for every sheet:
+   predicates the sheets carry hold on their own (``sheets.params``);
+ * the account-page counts follow the same two rules.
+ 
+-An ``Internal/`` member of the zip (owner-only within the client) is listed only to the uploader
+-and never becomes a passage, a table, a fact or an imported row.
++An ``Internal/`` member of the zip is read like any other file (the owner-only role was removed
++2026-11-08) and, like every member, is listed only to the uploader.
+ 
+ GUARANTEE(test_every_sheet_and_count_is_isolated_between_two_clients_with_the_same_workspace)
+-GUARANTEE(test_an_internal_member_is_listed_only_to_its_uploader_and_never_read)
++GUARANTEE(test_an_internal_member_is_read_and_listed_only_to_its_uploader)
+ """
+ 
+ from __future__ import annotations
+@@ -286,7 +286,7 @@ async def test_every_sheet_and_count_is_isolated_between_two_clients_with_the_sa
+         await engine.dispose()
+ 
+ 
+-async def test_an_internal_member_is_listed_only_to_its_uploader_and_never_read(
++async def test_an_internal_member_is_read_and_listed_only_to_its_uploader(
+     sides: tuple[Side, Side],
+ ) -> None:
+     """See the module docstring."""
+@@ -297,38 +297,16 @@ async def test_an_internal_member_is_listed_only_to_its_uploader_and_never_read(
+         a.document,
+         INTERNAL,
+     )
+-    assert (role, status, audience, owner) == ("owner_only", "skipped", "owner_only", UPLOADER)
++    assert (role, status, audience, owner) == ("other", "read", "client", UPLOADER)
+ 
+-    # never read: no passage, index row, table or imported row carries it
++    # read like any file: its text is a passage of the document
+     assert _admin(
+-        "SELECT count(*) FROM document_passages WHERE document_id = %s"
+-        " AND (location->>'member' = %s OR content LIKE %s)",
++        "SELECT count(*) > 0 FROM document_passages WHERE document_id = %s"
++        " AND location->>'member' = %s AND content LIKE %s",
+         a.document,
+         INTERNAL,
+         "%INTERNAL-ONLY-CANARY%",
+-    ) == [(0,)]
+-    assert _admin(
+-        "SELECT count(*) FROM chunks WHERE content LIKE %s", "%INTERNAL-ONLY-CANARY%"
+-    ) == [(0,)]
+-    assert _admin(
+-        "SELECT count(*) FROM document_tables WHERE document_id = %s AND member = %s",
+-        a.document,
+-        INTERNAL,
+-    ) == [(0,)]
+-    assert _admin(
+-        "SELECT count(*) FROM facts WHERE value_text LIKE %s OR CAST(value_json AS text) LIKE %s",
+-        "%INTERNAL-ONLY-CANARY%",
+-        "%INTERNAL-ONLY-CANARY%",
+-    ) == [(0,)]
+-    for table, column in (
+-        ("research_notes", "text"),
+-        ("report_sections", "text"),
+-        ("news_events", "headline"),
+-    ):
+-        assert _admin(
+-            f"SELECT count(*) FROM {table} WHERE {column} LIKE %s",  # noqa: S608 fixed names
+-            "%INTERNAL-ONLY-CANARY%",
+-        ) == [(0,)], table
++    ) == [(True,)]
+ 
+     # listed only to the uploader: the account's owner and another user of the client see no row
+     async def listed(user: str) -> set[str]:
+diff --git a/tests/replica/test_sheet_match.py b/tests/replica/test_sheet_match.py
+index b6eb1b42..f6dd348c 100644
+--- a/tests/replica/test_sheet_match.py
++++ b/tests/replica/test_sheet_match.py
+@@ -168,7 +168,7 @@ def test_a_tables_sheet_comes_from_its_zip_role_or_its_research_kind() -> None:
+     tech = "Holdings/Deliverables/x/Holdings_Tech_Stack_and_Teams.xlsx"
+     assert A.table_sheet(_jobs_table(acct, people)) == "people"
+     assert A.table_sheet(_jobs_table(acct, tech)) == "technology"
+-    # a raw pull, a build twin, an owner-only file and a loose upload are not sheets
++    # a raw pull, a build twin, a non-deliverable Word file and a loose upload are not sheets
+     for member in (
+         "holdings/data/jobs.json",
+         "holdings/build/jobs_twin.json",
+diff --git a/web/components/accounts/DocumentView.tsx b/web/components/accounts/DocumentView.tsx
+index 35dd21ee..6ce44547 100644
+--- a/web/components/accounts/DocumentView.tsx
++++ b/web/components/accounts/DocumentView.tsx
+@@ -85,7 +85,6 @@ export function DocumentView({ doc, members, passages }: { doc: DocumentStatus;
+   const status = STAGE_TEXT[stageOf(doc)];
+   const sub = [
+     status,
+-    doc.audience === "owner_only" ? "Owner only" : null,
+     doc.passages ? `${doc.passages.toLocaleString()} sections` : null,
+     zip ? `${members.length.toLocaleString()} file${members.length === 1 ? "" : "s"} inside` : null,
+   ].filter(Boolean).join(" · ");
+@@ -105,7 +104,7 @@ export function DocumentView({ doc, members, passages }: { doc: DocumentStatus;
+               <h2>{s.path ? cellText(s.path) : "Other sections"}</h2>
+               {s.member ? (
+                 <span className="sub">
+-                  {ROLE_TEXT[s.member.role] ?? "File"}{s.member.audience === "owner_only" ? " · owner only" : ""} · {memberLine(s.member)}
++                  {ROLE_TEXT[s.member.role] ?? "File"} · {memberLine(s.member)}
+                 </span>
+               ) : null}
+             </div>
+diff --git a/web/components/accounts/UploadedFilesCard.tsx b/web/components/accounts/UploadedFilesCard.tsx
+index e85efd3b..238023e8 100644
+--- a/web/components/accounts/UploadedFilesCard.tsx
++++ b/web/components/accounts/UploadedFilesCard.tsx
+@@ -45,7 +45,6 @@ export function UploadedFilesCard({ docs, domain = null, account = null }: { doc
+                       <ul>{d.members_skipped.map((m) => <li key={m.member}>{cellText(m.member)}: {m.reason}</li>)}</ul>
+                     </details>
+                   ) : null}
+-                  {d.audience === "owner_only" ? <span className="sub">Owner only: visible to you and admins</span> : null}
+                   {(d.members_read ?? 0) + (d.members_skipped?.length ?? 0) > 0 ? <ZipMembers documentId={d.document_id} name={d.name} page={page} /> : null}
+                   {d.passages ? <WhatWasRead documentId={d.document_id} name={d.name} /> : null}
+                   {stage === "needs_account" ? (workspaceOf(d) ? <WorkspaceCompanyPrompt doc={d} ws={workspaceOf(d)!} /> : <AccountPicker doc={d} />) : null}
+diff --git a/web/components/accounts/ZipMembers.tsx b/web/components/accounts/ZipMembers.tsx
+index d166dda5..e752e055 100644
+--- a/web/components/accounts/ZipMembers.tsx
++++ b/web/components/accounts/ZipMembers.tsx
+@@ -54,7 +54,7 @@ export function ZipMembers({ documentId, name, page = null }: { documentId: stri
+                 {data.members.map((m, i) => (
+                   <li key={m.member}>
+                     <div>
+-                      <span className="sub">{ROLE_TEXT[m.role] ?? "File"}{m.audience === "owner_only" ? " · owner only" : ""}</span>
++                      <span className="sub">{ROLE_TEXT[m.role] ?? "File"}</span>
+                       <p className="small">{page ? <Link href={`${page}#m-${i}`} prefetch={false}>{cellText(m.member)}</Link> : cellText(m.member)}</p>
+                       <span className="sub">{memberLine(m)}</span>
+                       <span className="sub"> · <a href={`/v1/documents/${encodeURIComponent(documentId)}/members/${encodeURIComponent(m.id)}`} download>Download this file</a></span>
+diff --git a/web/components/ws/DocumentDrop.tsx b/web/components/ws/DocumentDrop.tsx
+index d2ade886..b5af1867 100644
+--- a/web/components/ws/DocumentDrop.tsx
++++ b/web/components/ws/DocumentDrop.tsx
+@@ -10,7 +10,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
+ import { api, ApiError, errorText } from "@/lib/api";
+ import { m } from "@/lib/messages";
+ import { ACCEPT, STAGE_TEXT, fileSize, folderFiles, isWorking, progressLine, refuseReason, stageOf, stageTone, type Stage } from "@/lib/documents";
+-import { uploadDocument, type Audience } from "@/lib/upload";
++import { uploadDocument } from "@/lib/upload";
+ import { forgetPaused, pausedUploads, type Saved } from "@/lib/upload-store";
+ import { ConfirmDialog } from "@/ui/Modal";
+ import { announce } from "@/ui/Toaster";
+@@ -40,8 +40,6 @@ export function DocumentDrop({ accountId = null, onChange, onSending, disabled =
+   const [items, setItems] = useState<DropItem[]>([]);
+   const [paused, setPaused] = useState<Saved[]>([]);
+   const [over, setOver] = useState(false);
+-  // owner-only files are stored for the owner and admins and never read into findings
+-  const [ownerOnly, setOwnerOnly] = useState(false);
+   const input = useRef<HTMLInputElement | null>(null);
+   const folder = useRef<HTMLInputElement | null>(null);
+   const [skipped, setSkipped] = useState<string[]>([]);
+@@ -119,8 +117,7 @@ export function DocumentDrop({ accountId = null, onChange, onSending, disabled =
+       const controller = new AbortController();
+       aborts.current.set(key, controller);
+       try {
+-        const audience: Audience = ownerOnly ? "owner_only" : "client";
+-        const id = await uploadDocument(file, accountId, (sent) => update(key, { sent }), controller.signal, audience);
++        const id = await uploadDocument(file, accountId, (sent) => update(key, { sent }), controller.signal);
+         const doc = await api<DocumentStatus>("GET", `/v1/documents/${id}/status`);
+         update(key, { doc, stage: stageOf(doc), message: doc.message ?? null });
+       } catch (error) {
+@@ -134,7 +131,7 @@ export function DocumentDrop({ accountId = null, onChange, onSending, disabled =
+         aborts.current.delete(key);
+       }
+     }
+-  }, [accountId, ownerOnly, update]);
++  }, [accountId, update]);
+ 
+   // remove one row: a file the server holds is deleted there after a yes (the pop-up below); a
+   // file still going up, or one that never got saved, only stops
+@@ -226,10 +223,6 @@ export function DocumentDrop({ accountId = null, onChange, onSending, disabled =
+           }}
+         />
+       </div>
+-      <label className="check small">
+-        <input type="checkbox" checked={ownerOnly} disabled={disabled} onChange={(e) => setOwnerOnly(e.target.checked)} />
+-        Owner only: visible to you and admins, never read into findings
+-      </label>
+       {skipped.length ? (
+         <p className="small muted" role="status">
+           {skipped.length} file{skipped.length === 1 ? " was" : "s were"} left out of the folder because their type is not supported: {skipped.slice(0, 5).join(", ")}{skipped.length > 5 ? ` and ${skipped.length - 5} more` : ""}.
+@@ -261,7 +254,6 @@ export function DocumentDrop({ accountId = null, onChange, onSending, disabled =
+                       {it.stage === "uploading" ? `${fileSize(it.sent)} of ${fileSize(it.size)} sent` : fileSize(it.size)}
+                       {reading ? `. ${reading}` : ""}
+                       {it.doc?.passages ? `. ${it.doc.passages.toLocaleString()} sections read` : ""}
+-                      {it.doc?.audience === "owner_only" ? ". Owner only" : ""}
+                       {it.message ? `. ${it.message}` : ""}
+                     </span>
+                   </div>
+diff --git a/web/lib/documents.ts b/web/lib/documents.ts
+index 856d3c4c..c7d3bc95 100644
+--- a/web/lib/documents.ts
++++ b/web/lib/documents.ts
+@@ -161,7 +161,6 @@ export const ROLE_TEXT: Record<string, string> = {
+   deliverable_jobs: "Job postings",
+   deliverable_tech: "Tech stack and teams",
+   deliverable_other: "Deliverable",
+-  owner_only: "Owner-only file",
+   note: "Note",
+   restore: "Contents list",
+   captured_page: "Captured page",
+diff --git a/web/lib/gen/api.gen.ts b/web/lib/gen/api.gen.ts
+index a1dde2d0..fe521946 100644
+--- a/web/lib/gen/api.gen.ts
++++ b/web/lib/gen/api.gen.ts
+@@ -3059,7 +3059,6 @@ export type UploadIntent = z.infer<typeof UploadIntent>;
+ 
+ export const UploadStart = z.object({
+   "account_id": z.string().nullable().optional(),
+-  "audience": z.string().optional(),
+   "mime": z.string().nullable().optional(),
+   "name": z.string(),
+   "size_bytes": z.number().int(),
+@@ -3398,7 +3397,6 @@ export const KNOWN_VALUES = {
+   ],
+   "DocumentMember.audience": [
+     "client",
+-    "owner_only",
+     "internal"
+   ],
+   "DocumentMember.status": [
+@@ -3408,7 +3406,6 @@ export const KNOWN_VALUES = {
+   ],
+   "DocumentStatus.audience": [
+     "client",
+-    "owner_only",
+     "internal"
+   ],
+   "DocumentUploadStarted.protocol": [
+@@ -3591,10 +3588,6 @@ export const KNOWN_VALUES = {
+     "waiting_for_approval",
+     "stopped_at_limit"
+   ],
+-  "UploadStart.audience": [
+-    "client",
+-    "owner_only"
+-  ],
+   "UsefulBody.kind": [
+     "first_call_question_used",
+     "confirmed_fact_referenced"
+diff --git a/web/lib/upload.ts b/web/lib/upload.ts
+index d6b73255..070509a2 100644
+--- a/web/lib/upload.ts
++++ b/web/lib/upload.ts
+@@ -84,12 +84,8 @@ async function sendChunks(saved: Saved, file: File, onProgress: Progress, signal
+   }
+ }
+ 
+-export type Audience = "client" | "owner_only";
+-
+-/** Send one file and complete it; resumes an upload this browser started for the same file.
+- * An owner-only file is visible to the owner and admins and never read into findings; the
+- * default audience is the server's own, so the start request is unchanged for client files. */
+-export async function uploadDocument(file: File, accountId: string | null, onProgress: Progress, signal: AbortSignal, audience: Audience = "client"): Promise<string> {
++/** Send one file and complete it; resumes an upload this browser started for the same file. */
++export async function uploadDocument(file: File, accountId: string | null, onProgress: Progress, signal: AbortSignal): Promise<string> {
+   const key = uploadKey(file);
+   let saved = readSaved(key);
+   if (saved && new Date(saved.expires).getTime() <= Date.now()) saved = null;
+@@ -100,7 +96,6 @@ export async function uploadDocument(file: File, accountId: string | null, onPro
+     } else {
+       const started = await api<DocumentUploadStarted>("POST", "/v1/documents/uploads", {
+         name: file.name, size_bytes: file.size, mime: file.type || null, account_id: accountId,
+-        ...(audience === "owner_only" ? { audience } : {}),
+       });
+       current = {
+         documentId: started.document_id, name: file.name, size: file.size, url: started.upload_url,
+diff --git a/web/tests/unit/document-view.test.tsx b/web/tests/unit/document-view.test.tsx
+index c4f727bf..8314b7d2 100644
+--- a/web/tests/unit/document-view.test.tsx
++++ b/web/tests/unit/document-view.test.tsx
+@@ -1,8 +1,8 @@
+ // @vitest-environment jsdom
+ // The document page's view: a zip groups its passages under each file inside it in the member
+ // list's order (files with nothing read are listed with their reason), a heading line appears
+-// when the heading changes, table rows keep their text in a mono block, an owner-only file says
+-// so in its sub line, and a plain file with nothing read says that.
++// when the heading changes, table rows keep their text in a mono block, and a plain file with
++// nothing read says that.
+ import { cleanup, render, screen, within } from "@testing-library/react";
+ import { afterEach, expect, test } from "vitest";
+ import { DocumentView, memberOf, paragraphs, sectionsOf } from "@/components/accounts/DocumentView";
+@@ -26,7 +26,7 @@ const member = (over: Partial<DocumentMember>): DocumentMember => ({
+ const MEMBERS: DocumentMember[] = [
+   member({ member: "ws/deliverables/BD_Job_Postings.xlsx", role: "deliverable_jobs", passages: 1, tables: 1 }),
+   member({ member: "ws/notes/plan.md", role: "note", passages: 2 }),
+-  member({ member: "ws/BD_Owner_Only.docx", role: "owner_only", status: "skipped", reason: "an owner-only file; upload it on its own", passages: 0, audience: "owner_only" }),
++  member({ member: "ws/build/make_jobs.py", role: "build", status: "skipped", reason: "a build script or intermediate, not research data", passages: 0 }),
+ ];
+ 
+ const PASSAGES: DocumentPassage[] = [
+@@ -40,7 +40,7 @@ test("passages are grouped under their file inside the zip, in the member list's
+   expect(memberOf("ws/notes/plan.md", ["ws/notes/plan.md"])).toBe("ws/notes/plan.md");
+   expect(memberOf("page 3", ["ws/notes/plan.md"])).toBeNull();
+   const sections = sectionsOf(MEMBERS, PASSAGES);
+-  expect(sections.map((s) => s.path)).toEqual(["ws/deliverables/BD_Job_Postings.xlsx", "ws/notes/plan.md", "ws/BD_Owner_Only.docx"]);
++  expect(sections.map((s) => s.path)).toEqual(["ws/deliverables/BD_Job_Postings.xlsx", "ws/notes/plan.md", "ws/build/make_jobs.py"]);
+   expect(sections[1]!.passages.map((p) => p.seq)).toEqual([1, 2]); // seq order inside a section
+   expect(sections[2]!.passages).toEqual([]); // a skipped member is listed with nothing read
+   // a plain file: one section with every passage in seq order
+@@ -65,20 +65,20 @@ test("a zip renders one section per file with headings, paragraphs, table text a
+   expect(pre.tagName).toBe("PRE");
+   expect(pre.className).toBe("mono");
+   expect(pre.textContent).toBe("Title | Location\nData engineer | Boston");
+-  const skipped = within(screen.getByRole("region", { name: "ws/BD_Owner_Only.docx" }));
+-  expect(skipped.getByText("Owner-only file · owner only · Skipped: an owner-only file; upload it on its own")).toBeTruthy();
++  const skipped = within(screen.getByRole("region", { name: "ws/build/make_jobs.py" }));
++  expect(skipped.getByText("Working file · Skipped: a build script or intermediate, not research data")).toBeTruthy();
+   expect(skipped.getByText("This file was not read.")).toBeTruthy();
+   // member sections carry anchors in the member list's order, for links from the files card
+-  expect(screen.getByRole("region", { name: "ws/BD_Owner_Only.docx" }).id).toBe("m-2");
++  expect(screen.getByRole("region", { name: "ws/build/make_jobs.py" }).id).toBe("m-2");
+ });
+ 
+-test("an owner-only plain file says so in its sub line and shows one section", () => {
++test("a plain file shows its status in its sub line and one section", () => {
+   const passages: DocumentPassage[] = [
+     { seq: 0, kind: "section", where: "page 1", heading: null, content: "Private notes." },
+     { seq: 1, kind: "section", where: "page 2", heading: "Next steps", content: "Call Dana." },
+   ];
+-  render(<DocumentView doc={doc({ name: "private.pdf", audience: "owner_only", passages: 2 })} members={[]} passages={passages} />);
+-  expect(screen.getByText("Ready · Owner only · 2 sections")).toBeTruthy();
++  render(<DocumentView doc={doc({ name: "private.pdf", passages: 2 })} members={[]} passages={passages} />);
++  expect(screen.getByText("Ready · 2 sections")).toBeTruthy();
+   expect(screen.getAllByRole("region")).toHaveLength(1);
+   expect(screen.getByText("page 1")).toBeTruthy();
+   expect(screen.getByRole("heading", { level: 3, name: "Next steps" })).toBeTruthy();
+diff --git a/web/tests/unit/documents.test.tsx b/web/tests/unit/documents.test.tsx
+index 3c13f173..7f7cd278 100644
+--- a/web/tests/unit/documents.test.tsx
++++ b/web/tests/unit/documents.test.tsx
+@@ -143,30 +143,7 @@ test("the drop zone offers a folder button and accepts zip files", () => {
+   expect(folder.hasAttribute("webkitdirectory")).toBe(true);
+ });
+ 
+-test("Owner only ticked: the upload starts with audience owner_only and the row says so", async () => {
+-  apiMock.mockImplementation(async (method: string, path: string) => {
+-    if (method === "POST" && path === "/v1/documents/uploads") {
+-      return { document_id: "d5", upload_url: "/v1/documents/d5/content?token=t", method: "PUT", headers: {}, expires_at: "x", max_bytes: 5, direct: false };
+-    }
+-    if (method === "PUT") return { document_id: "d5", received_bytes: 5 };
+-    if (path.endsWith("/complete")) return doc({ document_id: "d5", stage: "scanning", status: "quarantined", audience: "owner_only" });
+-    if (path.endsWith("/status")) return doc({ document_id: "d5", stage: "indexed", status: "indexed", needs_company: false, audience: "owner_only" });
+-    throw new Error(`unexpected ${method} ${path}`);
+-  });
+-  render(<DocumentDrop accountId="acc-1" onChange={() => undefined} />);
+-  const box = screen.getByRole("checkbox", { name: /Owner only: visible to you and admins/ }) as HTMLInputElement;
+-  expect(box.checked).toBe(false);
+-  fireEvent.click(box);
+-  expect(box.checked).toBe(true);
+-  fireEvent.change(screen.getByLabelText("Add files"), { target: { files: [new File(["hello"], "private.pdf")] } });
+-  await waitFor(() => expect(screen.getByText("Ready")).toBeTruthy(), { timeout: 5000 });
+-  const started = apiMock.mock.calls.filter((c) => c[1] === "/v1/documents/uploads");
+-  expect(started).toHaveLength(1);
+-  expect(started[0]![2]).toMatchObject({ name: "private.pdf", account_id: "acc-1", audience: "owner_only" });
+-  expect(screen.getByText(/Owner only$/)).toBeTruthy();
+-});
+-
+-test("Owner only unticked: the start request carries no audience field", async () => {
++test("the upload offers no Owner only box and the start request carries no audience field", async () => {
+   apiMock.mockImplementation(async (method: string, path: string) => {
+     if (method === "POST" && path === "/v1/documents/uploads") {
+       return { document_id: "d6", upload_url: "/v1/documents/d6/content?token=t", method: "PUT", headers: {}, expires_at: "x", max_bytes: 5, direct: false };
+@@ -177,6 +154,7 @@ test("Owner only unticked: the start request carries no audience field", async (
+     throw new Error(`unexpected ${method} ${path}`);
+   });
+   render(<DocumentDrop accountId="acc-1" onChange={() => undefined} />);
++  expect(screen.queryByRole("checkbox", { name: /Owner only/ })).toBeNull();
+   fireEvent.change(screen.getByLabelText("Add files"), { target: { files: [new File(["hello"], "plain.pdf")] } });
+   await waitFor(() => expect(screen.getByText("Ready")).toBeTruthy(), { timeout: 5000 });
+   const started = apiMock.mock.calls.filter((c) => c[1] === "/v1/documents/uploads");
+diff --git a/web/tests/unit/uploaded-files.test.tsx b/web/tests/unit/uploaded-files.test.tsx
+index 1db64bd0..8fceb4e3 100644
+--- a/web/tests/unit/uploaded-files.test.tsx
++++ b/web/tests/unit/uploaded-files.test.tsx
+@@ -44,23 +44,18 @@ test("a zip lists the files inside it, each with its role, status and reason, wh
+     members: [
+       { member: "ws/deliverables/BD_Job_Postings.xlsx", role: "deliverable_jobs", declared_type: "xlsx", bytes: 3051060, status: "read", reason: null, passages: 1898, tables: 2, audience: "client" },
+       { member: "ws/notes/pull_log_phase1.md", role: "note", declared_type: "md", bytes: 20303, status: "read", reason: null, passages: 9, tables: 0, audience: "client" },
+-      { member: "ws/BD_Owner_Only.docx", role: "owner_only", declared_type: "docx", bytes: 12159, status: "skipped", reason: "an owner-only file; upload it on its own", passages: 0, tables: 0, audience: "owner_only" },
++      { member: "ws/build/make_jobs.py", role: "build", declared_type: "py", bytes: 12159, status: "skipped", reason: "a build script or intermediate, not research data", passages: 0, tables: 0, audience: "client" },
+     ],
+   });
+-  render(<UploadedFilesCard docs={[doc({ document_id: "d3", name: "BD_workspace.zip", members_read: 2, members_skipped: [{ member: "ws/BD_Owner_Only.docx", reason: "an owner-only file; upload it on its own" }] })]} />);
++  render(<UploadedFilesCard docs={[doc({ document_id: "d3", name: "BD_workspace.zip", members_read: 2, members_skipped: [{ member: "ws/build/make_jobs.py", reason: "a build script or intermediate, not research data" }] })]} />);
+   fireEvent.click(screen.getByRole("button", { name: "View the files inside" }));
+   expect(await screen.findByText(/3 files: 2 read, 1 skipped, 0 failed/)).toBeTruthy();
+   expect(apiMock).toHaveBeenCalledWith("GET", "/v1/documents/d3/members");
+   expect(screen.getByText("ws/deliverables/BD_Job_Postings.xlsx")).toBeTruthy();
+   expect(screen.getByText("Job postings")).toBeTruthy();
+   expect(screen.getByText("Read: 1,898 sections, 2 tables")).toBeTruthy();
+-  expect(screen.getByText("Owner-only file · owner only")).toBeTruthy();
+-  expect(screen.getByText("Skipped: an owner-only file; upload it on its own")).toBeTruthy();
+-});
+-
+-test("an owner-only upload says so on its line", () => {
+-  render(<UploadedFilesCard docs={[doc({ audience: "owner_only" })]} />);
+-  expect(screen.getByText("Owner only: visible to you and admins")).toBeTruthy();
++  expect(screen.getByText("Working file")).toBeTruthy();
++  expect(screen.getByText("Skipped: a build script or intermediate, not research data")).toBeTruthy();
+ });
+ 
+ test("with the account's domain each file's name opens its page, and the files inside link to their section", async () => {
+diff --git a/migrations/0115_remove_owner_only.sql b/migrations/0115_remove_owner_only.sql
+new file mode 100644
+index 00000000..13114dfb
+--- /dev/null
++++ b/migrations/0115_remove_owner_only.sql
+@@ -0,0 +1,33 @@
++-- The "Owner only" upload option and the owner-only role of workspace zip members are removed
++-- (owner 2026-11-08). Every owner-only document, zip member and note becomes a client one, and
++-- the audience checks stop accepting 'owner_only'. A zip member the old rule skipped keeps its
++-- skipped status (it was never read) with a reason that says to upload the zip again; a new
++-- upload reads it like any other file. Nothing is re-read here and no run starts.
++-- The three tables force row level security with policies for app_rw only, so the migrating
++-- owner sees no row (staging migrate 2026-11-08 failed on the check); the force is lifted for
++-- the updates and put back in the same transaction.
++ALTER TABLE documents NO FORCE ROW LEVEL SECURITY;
++ALTER TABLE document_members NO FORCE ROW LEVEL SECURITY;
++ALTER TABLE research_notes NO FORCE ROW LEVEL SECURITY;
++UPDATE documents SET audience = 'client', updated_at = now() WHERE audience = 'owner_only';
++UPDATE document_members
++   SET role = 'other',
++       failure = CASE WHEN failure = 'owner_only_skipped' THEN 'not_read_upload_again'
++                      ELSE failure END,
++       audience = 'client',
++       updated_at = now()
++ WHERE role = 'owner_only' OR audience = 'owner_only' OR failure = 'owner_only_skipped';
++UPDATE research_notes SET audience = 'client' WHERE audience = 'owner_only';
++ALTER TABLE documents FORCE ROW LEVEL SECURITY;
++ALTER TABLE document_members FORCE ROW LEVEL SECURITY;
++ALTER TABLE research_notes FORCE ROW LEVEL SECURITY;
++
++ALTER TABLE documents DROP CONSTRAINT ck_documents_audience;
++ALTER TABLE documents
++   ADD CONSTRAINT ck_documents_audience CHECK (audience IN ('client', 'internal'));
++ALTER TABLE document_members DROP CONSTRAINT ck_document_members_audience;
++ALTER TABLE document_members
++   ADD CONSTRAINT ck_document_members_audience CHECK (audience IN ('client', 'internal'));
++ALTER TABLE research_notes DROP CONSTRAINT ck_research_notes_audience;
++ALTER TABLE research_notes
++   ADD CONSTRAINT ck_research_notes_audience CHECK (audience IN ('client', 'internal'));
+diff --git a/migrations/0115_remove_owner_only.down.sql b/migrations/0115_remove_owner_only.down.sql
+new file mode 100644
+index 00000000..974109f0
+--- /dev/null
++++ b/migrations/0115_remove_owner_only.down.sql
+@@ -0,0 +1,13 @@
++-- Undo migration 0115: the audience checks accept 'owner_only' again. The rows 0115 turned into
++-- client ones stay client (which were owner-only is not recorded).
++ALTER TABLE documents DROP CONSTRAINT ck_documents_audience;
++ALTER TABLE documents
++   ADD CONSTRAINT ck_documents_audience CHECK (audience IN ('client', 'owner_only', 'internal'));
++ALTER TABLE document_members DROP CONSTRAINT ck_document_members_audience;
++ALTER TABLE document_members
++   ADD CONSTRAINT ck_document_members_audience
++      CHECK (audience IN ('client', 'owner_only', 'internal'));
++ALTER TABLE research_notes DROP CONSTRAINT ck_research_notes_audience;
++ALTER TABLE research_notes
++   ADD CONSTRAINT ck_research_notes_audience
++      CHECK (audience IN ('client', 'owner_only', 'internal'));
+diff --git a/migrations/versions/0115_remove_owner_only.py b/migrations/versions/0115_remove_owner_only.py
+new file mode 100644
+index 00000000..05342b2e
+--- /dev/null
++++ b/migrations/versions/0115_remove_owner_only.py
+@@ -0,0 +1,26 @@
++"""Remove the owner-only audience: rows become client, checks drop 'owner_only' (2026-11-08).
++
++Revision ID: 0115
++Revises: 0114
++"""
++
++from pathlib import Path
++
++from alembic import op
++
++revision = "0115"
++down_revision = "0114"
++branch_labels = None
++depends_on = None
++
++
++def upgrade() -> None:
++    """Owner-only documents, members and notes become client ones; the checks drop the value."""
++    sql = Path(__file__).resolve().parents[1] / "0115_remove_owner_only.sql"
++    op.execute(sql.read_text())
++
++
++def downgrade() -> None:
++    """The audience checks accept 'owner_only' again (the rows stay client)."""
++    sql = Path(__file__).resolve().parents[1] / "0115_remove_owner_only.down.sql"
++    op.execute(sql.read_text())

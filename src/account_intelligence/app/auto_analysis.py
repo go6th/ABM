@@ -7,9 +7,8 @@ every passage, the tracker, the written summary, the Internal Only file) and enq
 slice, exactly as ``POST /v1/runs`` in input mode "file" would, minus the request: the same
 lifecycle, settings pin, run-mode columns, document link and usage event. The run is keyed
 ``auto-file:<document id>``, so indexing the same document again replays it instead of paying
-twice. An owner-only file starts nothing (it feeds no fact); a tenant whose run limit is reached
-gets a log line, not an error. The document service never fails over this: a start that cannot
-happen is logged and the document stays indexed.
+twice. A tenant whose run limit is reached gets a log line, not an error. The document service
+never fails over this: a start that cannot happen is logged and the document stays indexed.
 
 Off since 2026-11-05 (``runs.start_guard``): an upload cost the owner about 100 USD by starting
 this run unasked. The upload is indexed and imported as before; the model reads it only when a
@@ -105,8 +104,6 @@ async def _start(container: Any, tenant_id: UUID, document_id: UUID) -> UUID | N
     async with tenant_txn(tenant_id) as s:
         doc = await repo.get(s, document_id)
     if doc is None or doc.status != "indexed" or doc.account_id is None:
-        return None
-    if getattr(doc, "audience", "client") == "owner_only":
         return None
     actor = str(getattr(doc, "uploaded_by", None) or "system")
     account_id = UUID(str(doc.account_id))

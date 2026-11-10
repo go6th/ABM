@@ -28,7 +28,7 @@ The planning is pure (``plan``); ``write`` stores the plan in the caller's trans
 model is called. Private unless the file is authoritative (an admin's mark, or the product's
 own package with ``MANIFEST.json``), when the grades may be stated.
 
-GUARANTEE(test_a_workspace_zip_imports_each_deliverable_row_once_and_skips_build_and_owner_files)
+GUARANTEE(test_a_workspace_zip_imports_each_deliverable_row_once_and_skips_build_files)
 """
 
 from __future__ import annotations

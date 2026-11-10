@@ -3,7 +3,6 @@
 // last activity and status; each row opens Client detail. Add client asks for the name and the
 // first user's email and shows an invite link to copy; nothing is sent automatically.
 import Link from "next/link";
-import * as Dialog from "@radix-ui/react-dialog";
 import { useState } from "react";
 import { ApiError } from "@/lib/api";
 import { operatorRequest } from "@/lib/operator-api";
@@ -11,6 +10,8 @@ import type { ClientInvite } from "@/lib/gen/api.gen";
 import { useOperatorApi } from "../useOperatorApi";
 import { ConsoleLoad } from "../ConsoleLoad";
 import { Bar, Pill } from "@/ui/design";
+import { Modal } from "@/ui/Modal";
+import { announce } from "@/ui/Toaster";
 import { clientTone, lastActive, num } from "@/lib/console";
 
 function AddClient({ onAdded }: { onAdded: () => void }) {
@@ -22,9 +23,13 @@ function AddClient({ onAdded }: { onAdded: () => void }) {
   const [invite, setInvite] = useState<ClientInvite | null>(null);
   const [copied, setCopied] = useState(false);
 
-  const reset = (next: boolean) => {
-    setOpen(next);
-    if (!next) { setName(""); setEmail(""); setError(null); setInvite(null); setCopied(false); }
+  const reset = () => {
+    setOpen(false);
+    setName("");
+    setEmail("");
+    setError(null);
+    setInvite(null);
+    setCopied(false);
   };
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -33,6 +38,7 @@ function AddClient({ onAdded }: { onAdded: () => void }) {
     try {
       const made = await operatorRequest("POST /operator/v1/console/clients", { body: { name: name.trim(), admin_email: email.trim() } });
       setInvite(made);
+      announce("Client added");
       onAdded();
     } catch (cause) {
       setError(cause instanceof ApiError && cause.status === 422 ? "Enter a client name and a valid email address." : cause instanceof ApiError && cause.detail ? cause.detail : "The client could not be added. Try again.");
@@ -42,42 +48,52 @@ function AddClient({ onAdded }: { onAdded: () => void }) {
   };
   const copy = async () => {
     if (!invite) return;
-    try { await navigator.clipboard.writeText(invite.invite_url); setCopied(true); } catch { setCopied(false); }
+    try {
+      await navigator.clipboard.writeText(invite.invite_url);
+      setCopied(true);
+      announce("Invite link copied");
+    } catch {
+      setCopied(false);
+    }
   };
 
   return (
-    <Dialog.Root open={open} onOpenChange={reset}>
-      <Dialog.Trigger className="btn primary">Add client</Dialog.Trigger>
-      <Dialog.Portal>
-        <Dialog.Overlay className="overlay" />
-        <Dialog.Content className="dialog">
-          <Dialog.Title>{invite ? "Client added" : "Add client"}</Dialog.Title>
+    <>
+      <button type="button" className="btn primary" onClick={() => setOpen(true)}>Add client</button>
+      {open ? (
+        <Modal
+          title={invite ? "Client added" : "Add client"}
+          onClose={reset}
+          busy={busy}
+        >
           {invite ? (
             <>
-              <Dialog.Description>{invite.emailed
-                ? `The invite was emailed to ${invite.email}. You can also copy the link below and send it yourself.`
-                : `Copy this invite link and send it to ${invite.email}. No email was sent.`} The link works once and expires in 24 hours; you can make a new one from the client&apos;s page.</Dialog.Description>
+              <p className="sm-text">
+                {invite.emailed
+                  ? `The invite was emailed to ${invite.email}. You can also copy the link below and send it yourself.`
+                  : `Copy this invite link and send it to ${invite.email}. No email was sent.`} The link works once and expires in 24 hours; you can make a new one from the client&apos;s page.
+              </p>
               <div className="invite-link">{invite.invite_url}</div>
-              <div className="row-12 wrap">
+              <div className="modal-actions">
                 <button type="button" className="btn primary" onClick={() => void copy()}>{copied ? "Copied" : "Copy invite link"}</button>
-                <Link className="btn" href={`/operator/clients/${invite.tenant_id}`}>Open client</Link>
+                <Link className="btn" href={`/operator/clients/${invite.tenant_id}`} onClick={reset}>Open client</Link>
               </div>
             </>
           ) : (
             <form className="stack-14" onSubmit={(e) => void submit(e)}>
-              <Dialog.Description>The client gets its own sealed workspace with the platform defaults. Their first user joins as a member; admin rights come through the client&apos;s own sign-in provider with multi-factor sign-in.</Dialog.Description>
+              <p className="sm-text">The client gets its own sealed workspace with the platform defaults. Their first user joins as a member; admin rights come through the client&apos;s own sign-in provider with multi-factor sign-in.</p>
               <div className="field"><label htmlFor="client-name">Client name</label><input id="client-name" className="input" required maxLength={120} value={name} onChange={(e) => setName(e.target.value)} /></div>
               <div className="field"><label htmlFor="client-email">First user&apos;s email</label><input id="client-email" className="input" type="email" required maxLength={320} value={email} onChange={(e) => setEmail(e.target.value)} /></div>
-              {error ? <p className="sm-text bad-text" role="alert">{error}</p> : null}
-              <div className="row-12 wrap">
-                <button type="submit" className="btn primary" disabled={busy}>{busy ? "Adding" : "Add client"}</button>
-                <Dialog.Close className="btn">Cancel</Dialog.Close>
+              {error ? <p className="notice error" role="alert">{error}</p> : null}
+              <div className="modal-actions">
+                <button type="button" className="btn" disabled={busy} onClick={reset}>Cancel</button>
+                <button type="submit" className="btn primary" disabled={busy} aria-busy={busy || undefined}>{busy ? "Adding…" : "Add client"}</button>
               </div>
             </form>
           )}
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
+        </Modal>
+      ) : null}
+    </>
   );
 }
 

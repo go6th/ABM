@@ -1100,15 +1100,6 @@ async def import_pull_calls(
     return written
 
 
-async def set_audience(s: AsyncSession, document_id: UUID, audience: str) -> bool:
-    """Who may see a document: client, owner_only or internal (0102)."""
-    res = await s.execute(
-        text("UPDATE documents SET audience = :v, updated_at = now() WHERE id = :d"),
-        {"d": document_id, "v": audience},
-    )
-    return bool(res.rowcount)  # type: ignore[attr-defined]
-
-
 async def parts(s: AsyncSession, document_id: UUID) -> list[Any]:
     """A document's parts in order."""
     rows = await s.execute(

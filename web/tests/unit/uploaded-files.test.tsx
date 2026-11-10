@@ -44,23 +44,18 @@ test("a zip lists the files inside it, each with its role, status and reason, wh
     members: [
       { member: "ws/deliverables/BD_Job_Postings.xlsx", role: "deliverable_jobs", declared_type: "xlsx", bytes: 3051060, status: "read", reason: null, passages: 1898, tables: 2, audience: "client" },
       { member: "ws/notes/pull_log_phase1.md", role: "note", declared_type: "md", bytes: 20303, status: "read", reason: null, passages: 9, tables: 0, audience: "client" },
-      { member: "ws/BD_Owner_Only.docx", role: "owner_only", declared_type: "docx", bytes: 12159, status: "skipped", reason: "an owner-only file; upload it on its own", passages: 0, tables: 0, audience: "owner_only" },
+      { member: "ws/build/make_jobs.py", role: "build", declared_type: "py", bytes: 12159, status: "skipped", reason: "a build script or intermediate, not research data", passages: 0, tables: 0, audience: "client" },
     ],
   });
-  render(<UploadedFilesCard docs={[doc({ document_id: "d3", name: "BD_workspace.zip", members_read: 2, members_skipped: [{ member: "ws/BD_Owner_Only.docx", reason: "an owner-only file; upload it on its own" }] })]} />);
+  render(<UploadedFilesCard docs={[doc({ document_id: "d3", name: "BD_workspace.zip", members_read: 2, members_skipped: [{ member: "ws/build/make_jobs.py", reason: "a build script or intermediate, not research data" }] })]} />);
   fireEvent.click(screen.getByRole("button", { name: "View the files inside" }));
   expect(await screen.findByText(/3 files: 2 read, 1 skipped, 0 failed/)).toBeTruthy();
   expect(apiMock).toHaveBeenCalledWith("GET", "/v1/documents/d3/members");
   expect(screen.getByText("ws/deliverables/BD_Job_Postings.xlsx")).toBeTruthy();
   expect(screen.getByText("Job postings")).toBeTruthy();
   expect(screen.getByText("Read: 1,898 sections, 2 tables")).toBeTruthy();
-  expect(screen.getByText("Owner-only file · owner only")).toBeTruthy();
-  expect(screen.getByText("Skipped: an owner-only file; upload it on its own")).toBeTruthy();
-});
-
-test("an owner-only upload says so on its line", () => {
-  render(<UploadedFilesCard docs={[doc({ audience: "owner_only" })]} />);
-  expect(screen.getByText("Owner only: visible to you and admins")).toBeTruthy();
+  expect(screen.getByText("Working file")).toBeTruthy();
+  expect(screen.getByText("Skipped: a build script or intermediate, not research data")).toBeTruthy();
 });
 
 test("with the account's domain each file's name opens its page, and the files inside link to their section", async () => {

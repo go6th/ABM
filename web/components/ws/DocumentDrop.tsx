@@ -10,7 +10,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError, errorText } from "@/lib/api";
 import { m } from "@/lib/messages";
 import { ACCEPT, STAGE_TEXT, fileSize, folderFiles, isWorking, progressLine, refuseReason, stageOf, stageTone, type Stage } from "@/lib/documents";
-import { uploadDocument, type Audience } from "@/lib/upload";
+import { uploadDocument } from "@/lib/upload";
 import { forgetPaused, pausedUploads, type Saved } from "@/lib/upload-store";
 import { ConfirmDialog } from "@/ui/Modal";
 import { announce } from "@/ui/Toaster";
@@ -40,8 +40,6 @@ export function DocumentDrop({ accountId = null, onChange, onSending, disabled =
   const [items, setItems] = useState<DropItem[]>([]);
   const [paused, setPaused] = useState<Saved[]>([]);
   const [over, setOver] = useState(false);
-  // owner-only files are stored for the owner and admins and never read into findings
-  const [ownerOnly, setOwnerOnly] = useState(false);
   const input = useRef<HTMLInputElement | null>(null);
   const folder = useRef<HTMLInputElement | null>(null);
   const [skipped, setSkipped] = useState<string[]>([]);
@@ -119,8 +117,7 @@ export function DocumentDrop({ accountId = null, onChange, onSending, disabled =
       const controller = new AbortController();
       aborts.current.set(key, controller);
       try {
-        const audience: Audience = ownerOnly ? "owner_only" : "client";
-        const id = await uploadDocument(file, accountId, (sent) => update(key, { sent }), controller.signal, audience);
+        const id = await uploadDocument(file, accountId, (sent) => update(key, { sent }), controller.signal);
         const doc = await api<DocumentStatus>("GET", `/v1/documents/${id}/status`);
         update(key, { doc, stage: stageOf(doc), message: doc.message ?? null });
       } catch (error) {
@@ -134,7 +131,7 @@ export function DocumentDrop({ accountId = null, onChange, onSending, disabled =
         aborts.current.delete(key);
       }
     }
-  }, [accountId, ownerOnly, update]);
+  }, [accountId, update]);
 
   // remove one row: a file the server holds is deleted there after a yes (the pop-up below); a
   // file still going up, or one that never got saved, only stops
@@ -226,10 +223,6 @@ export function DocumentDrop({ accountId = null, onChange, onSending, disabled =
           }}
         />
       </div>
-      <label className="check small">
-        <input type="checkbox" checked={ownerOnly} disabled={disabled} onChange={(e) => setOwnerOnly(e.target.checked)} />
-        Owner only: visible to you and admins, never read into findings
-      </label>
       {skipped.length ? (
         <p className="small muted" role="status">
           {skipped.length} file{skipped.length === 1 ? " was" : "s were"} left out of the folder because their type is not supported: {skipped.slice(0, 5).join(", ")}{skipped.length > 5 ? ` and ${skipped.length - 5} more` : ""}.
@@ -261,7 +254,6 @@ export function DocumentDrop({ accountId = null, onChange, onSending, disabled =
                       {it.stage === "uploading" ? `${fileSize(it.sent)} of ${fileSize(it.size)} sent` : fileSize(it.size)}
                       {reading ? `. ${reading}` : ""}
                       {it.doc?.passages ? `. ${it.doc.passages.toLocaleString()} sections read` : ""}
-                      {it.doc?.audience === "owner_only" ? ". Owner only" : ""}
                       {it.message ? `. ${it.message}` : ""}
                     </span>
                   </div>

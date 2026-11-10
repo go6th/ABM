@@ -6,13 +6,11 @@ files, ``notes/``, ``data/`` (the raw pulls, ``data/releases/`` the captured pag
 ``build/`` (the scripts and intermediates that turned data into deliverables). Until now every
 member was read the same way and the deliverables import matched every table by its column
 names, so a ``build/jobs_all.json`` intermediate imported the same postings a second and third
-time, the build scripts became searchable prose, and an owner-only note shipped by mistake was
-indexed like a client file.
+time and the build scripts became searchable prose.
 
 This module decides, from the member paths alone, what each member is (``MemberRole``) and
 what the read does with it: a build script or intermediate is listed but not read
-(``build_skipped``); an owner-only file is listed but not read (``owner_only_skipped``: upload it
-on its own); a raw pull is read into the table store and the passages but never into the
+(``build_skipped``); a raw pull is read into the table store and the passages but never into the
 deliverables import; only the deliverable workbooks feed that import. A zip without a workspace
 root (a loose bundle of files) keeps the old behaviour: every member is read and every table
 may import. Only names are inspected; no member is opened here.
@@ -25,7 +23,7 @@ of two kinds sit side by side (a package zipped without its folders). A workbook
 known way is registered by what its sheets hold (``workspace_import.sniff_kind``).
 
 GUARANTEE(test_workspace_member_roles_follow_the_package_layout)
-GUARANTEE(test_a_workspace_zip_imports_each_deliverable_row_once_and_skips_build_and_owner_files)
+GUARANTEE(test_a_workspace_zip_imports_each_deliverable_row_once_and_skips_build_files)
 """
 
 from __future__ import annotations
@@ -47,7 +45,6 @@ class MemberRole(StrEnum):
     DELIVERABLE_JOBS = "deliverable_jobs"
     DELIVERABLE_TECH = "deliverable_tech"
     DELIVERABLE_OTHER = "deliverable_other"
-    OWNER_ONLY = "owner_only"
     NOTE = "note"
     RESTORE = "restore"
     CAPTURED_PAGE = "captured_page"
@@ -69,7 +66,6 @@ DELIVERABLE_ROLES = frozenset(
 # roles the read lists but never parses, with the skip check the coverage report names
 SKIPPED_ROLES: Mapping[MemberRole, str] = {
     MemberRole.BUILD: "build_skipped",
-    MemberRole.OWNER_ONLY: "owner_only_skipped",
 }
 # what each role is called where members are listed (the file map, the uploads card)
 ROLE_LABELS: Mapping[str, str] = {
@@ -79,7 +75,6 @@ ROLE_LABELS: Mapping[str, str] = {
     MemberRole.DELIVERABLE_JOBS: "job postings",
     MemberRole.DELIVERABLE_TECH: "tech stack and teams",
     MemberRole.DELIVERABLE_OTHER: "other deliverable",
-    MemberRole.OWNER_ONLY: "owner-only file",
     MemberRole.NOTE: "note",
     MemberRole.RESTORE: "package manifest",
     MemberRole.CAPTURED_PAGE: "captured page",
@@ -89,7 +84,6 @@ ROLE_LABELS: Mapping[str, str] = {
 }
 SKIP_LABELS = {
     "build_skipped": "a build script or intermediate, not research data",
-    "owner_only_skipped": "an owner-only file; upload it on its own",
 }
 
 _DELIVERABLE_SUFFIXES = (
@@ -99,7 +93,6 @@ _DELIVERABLE_SUFFIXES = (
     ("_job_postings.xlsx", MemberRole.DELIVERABLE_JOBS),
     ("_tech_stack_and_teams.xlsx", MemberRole.DELIVERABLE_TECH),
 )
-_OWNER_ONLY = re.compile(r"(_only|_internal_only)\.docx$", re.IGNORECASE)
 
 # The words that name each deliverable when a package names its files in its own way (owner
 # 2026-11-05: later packages are "90 to 95 percent the same": "UCB People List.xlsx",
@@ -132,8 +125,6 @@ def deliverable_role(name: str) -> MemberRole | None:
     for suffix, role in _DELIVERABLE_SUFFIXES:
         if lower.endswith(suffix):
             return role
-    if _OWNER_ONLY.search(lower):
-        return None
     words = _words(posixpath.splitext(lower)[0])
     for ext, phrases, role in _DELIVERABLE_WORDS:
         if lower.endswith(ext) and any(f" {p} " in words for p in phrases):
@@ -214,10 +205,7 @@ def classify_member(path: str, root: str) -> MemberRole:
     if not rel:
         return MemberRole.OTHER
     name = rel[-1]
-    lower = name.lower()
     folder = rel[0].lower() if len(rel) > 1 else ""
-    if _OWNER_ONLY.search(lower) or folder in ("internal", "owner"):
-        return MemberRole.OWNER_ONLY
     if len(rel) == 1:
         if name in ROOT_MARKERS:
             return MemberRole.RESTORE

@@ -63,7 +63,7 @@ Retry (PR3): each part runs in its own transaction with its status in ``import_r
 failed part is tried again by the sweep at most three times with a growing wait, and only the
 failed part (``documents.import_status``, ``documents.deliverables.retry_import_parts``).
 
-GUARANTEE(test_a_workspace_zip_imports_each_deliverable_row_once_and_skips_build_and_owner_files)
+GUARANTEE(test_a_workspace_zip_imports_each_deliverable_row_once_and_skips_build_files)
 GUARANTEE(test_workspace_rows_map_to_native_records_and_merge_duplicates)
 """
 

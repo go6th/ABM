@@ -10,6 +10,8 @@ import { useOperatorApi } from "../useOperatorApi";
 import { RequestsList } from "../RequestsList";
 import { ConsoleLoad } from "../ConsoleLoad";
 import { Pill } from "@/ui/design";
+import { ConfirmDialog } from "@/ui/Modal";
+import { announce } from "@/ui/Toaster";
 import { expiresIn, lastActive, num } from "@/lib/console";
 
 function access(u: ConsoleUser): { text: string; tone: "ok" | "warn" | "neutral" } {
@@ -21,27 +23,33 @@ function access(u: ConsoleUser): { text: string; tone: "ok" | "warn" | "neutral"
 export default function Users() {
   const data = useOperatorApi("GET /operator/v1/console/users");
   const [busy, setBusy] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
+  const [message, setMessage] = useState<{ text: string; error?: boolean } | null>(null);
+  const [pendingEnd, setPendingEnd] = useState<ConsoleUser | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const [form, setForm] = useState<{ researches: string; chats: string }>({ researches: "", chats: "" });
   if (!data.data) return <ConsoleLoad title="Users" state={data} />;
   const rows = data.data.users;
 
-  const change = async (u: ConsoleUser) => {
-    const end = u.access === "active";
-    if (end && !window.confirm(`End access for ${u.email}? Their history is kept and they are signed out everywhere.`)) return;
+  const performAccessChange = async (u: ConsoleUser, end: boolean) => {
     const key = `${u.tenant_id}/${u.user_id}`;
     setBusy(key);
     setMessage(null);
     try {
       await operatorRequest(end ? "POST /operator/v1/console/users/{tenant_id}/terminate" : "POST /operator/v1/console/users/{tenant_id}/re-enable", { params: { tenant_id: u.tenant_id }, body: { user_id: u.user_id } });
-      setMessage(end ? `Access ended for ${u.email}.` : `Access restored for ${u.email}.`);
+      announce(end ? `Access ended for ${u.email}` : `Access restored for ${u.email}`);
+      setMessage({ text: end ? `Access ended for ${u.email}.` : `Access restored for ${u.email}.` });
       data.reload();
     } catch {
-      setMessage("The change was not saved. Try again.");
+      if (end) throw new Error("Access could not be ended. Try again.");
+      setMessage({ text: "Access could not be restored. Try again.", error: true });
     } finally {
       setBusy(null);
     }
+  };
+
+  const change = (u: ConsoleUser) => {
+    if (u.access === "active") setPendingEnd(u);
+    else void performAccessChange(u, false);
   };
 
   const saveLimits = async (u: ConsoleUser) => {
@@ -53,11 +61,11 @@ export default function Users() {
         params: { tenant_id: u.tenant_id },
         body: { user_id: u.user_id, research_limit: Math.max(0, Math.floor(Number(form.researches) || 0)), chat_limit: Math.max(0, Math.floor(Number(form.chats) || 0)) },
       });
-      setMessage(`Limits changed for ${u.email}.`);
+      setMessage({ text: `Limits changed for ${u.email}.` });
       setEditing(null);
       data.reload();
     } catch {
-      setMessage("The limits were not saved. Try again.");
+      setMessage({ text: "The limits were not saved. Try again.", error: true });
     } finally {
       setBusy(null);
     }
@@ -66,7 +74,7 @@ export default function Users() {
   return (
     <div className="pg admin">
       <div className="head"><div className="ttl"><h1>Users</h1><div className="sub">Usage and access across all clients. Usage is counts only, never question text.</div></div></div>
-      {message ? <p className="sm-text" role="status">{message}</p> : null}
+      {message ? <p className="sm-text" role={message.error ? "alert" : "status"}>{message.text}</p> : null}
       <div className="card tscroll">
         <div className="trow th cols-users-limits"><span>User</span><span>Client</span><span>Researches</span><span>Chats</span><span>Last active</span><span>Access</span></div>
         {rows.map((u) => {
@@ -111,6 +119,16 @@ export default function Users() {
       </div>
       <p className="mut xs-text">Terminating or letting access expire keeps the user&apos;s history. Re-enable restores access in one click.</p>
       <RequestsList />
+      {pendingEnd ? (
+        <ConfirmDialog
+          title={`End access for ${pendingEnd.email}?`}
+          body="Their history is kept, and they are signed out everywhere. You can re-enable access later."
+          confirm="End access"
+          working="Ending access…"
+          onConfirm={() => performAccessChange(pendingEnd, true)}
+          onClose={() => setPendingEnd(null)}
+        />
+      ) : null}
     </div>
   );
 }

@@ -45,7 +45,6 @@ export function UploadedFilesCard({ docs, domain = null, account = null }: { doc
                       <ul>{d.members_skipped.map((m) => <li key={m.member}>{cellText(m.member)}: {m.reason}</li>)}</ul>
                     </details>
                   ) : null}
-                  {d.audience === "owner_only" ? <span className="sub">Owner only: visible to you and admins</span> : null}
                   {(d.members_read ?? 0) + (d.members_skipped?.length ?? 0) > 0 ? <ZipMembers documentId={d.document_id} name={d.name} page={page} /> : null}
                   {d.passages ? <WhatWasRead documentId={d.document_id} name={d.name} /> : null}
                   {stage === "needs_account" ? (workspaceOf(d) ? <WorkspaceCompanyPrompt doc={d} ws={workspaceOf(d)!} /> : <AccountPicker doc={d} />) : null}

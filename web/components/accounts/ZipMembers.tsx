@@ -54,7 +54,7 @@ export function ZipMembers({ documentId, name, page = null }: { documentId: stri
                 {data.members.map((m, i) => (
                   <li key={m.member}>
                     <div>
-                      <span className="sub">{ROLE_TEXT[m.role] ?? "File"}{m.audience === "owner_only" ? " · owner only" : ""}</span>
+                      <span className="sub">{ROLE_TEXT[m.role] ?? "File"}</span>
                       <p className="small">{page ? <Link href={`${page}#m-${i}`} prefetch={false}>{cellText(m.member)}</Link> : cellText(m.member)}</p>
                       <span className="sub">{memberLine(m)}</span>
                       <span className="sub"> · <a href={`/v1/documents/${encodeURIComponent(documentId)}/members/${encodeURIComponent(m.id)}`} download>Download this file</a></span>

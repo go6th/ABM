@@ -1,8 +1,8 @@
 {
-  "tag": "rel-f06c5361-11081352",
-  "commit": "f06c5361a1d2245144fbd5d0c3bb3935eda5ff10",
+  "tag": "rel-2ccee878-11081754",
+  "commit": "2ccee8781bbe046d77e58e972fad9e3d9b894bb6",
   "patches": [
-    "ask-files-ui.patch"
+    "remove-owner-only.patch"
   ],
   "migrations": [
     "0001_core.sql",
@@ -228,14 +228,16 @@
     "0113_delete_erases_account.down.sql",
     "0113_delete_erases_account.sql",
     "0114_service_roles_sync_iam_names.down.sql",
-    "0114_service_roles_sync_iam_names.sql"
+    "0114_service_roles_sync_iam_names.sql",
+    "0115_remove_owner_only.down.sql",
+    "0115_remove_owner_only.sql"
   ],
   "digests": {
-    "worker": "sha256:32cad5eb3bce96a91f922b7217b4c39c81d67021ced791ccd3e7b5b2a6aabf8a",
-    "api": "sha256:816cd7bdadf70917627bb61f74085d47460b846ffd2aef21759906462727f7c7",
-    "web": "sha256:76a415eba14ef0961388d6600c6dd62b804b0661d2b8e148444c26cc785e57d1"
+    "worker": "sha256:bf699fa49cb5a5ab36eaf6605ff274116032659b05f5cf580eb768a1472b71f9",
+    "api": "sha256:22c386ffec9e64c2b54671ced71fdcbd7a8488845767bbd3883cf3ac0098bd26",
+    "web": "sha256:296b4e4f1155f2b65f31ad402a17ad1fd9c9718b8a954620a8c318f3e32bb237"
   },
-  "adopted_at": "2026-11-08T12:58:20+00:00",
-  "build": "f27345d4-3599-4c19-bbaa-4582e0ddbae7",
-  "built_at": "2026-11-08T13:55:37+00:00"
+  "adopted_at": "2026-11-08T18:20:03+00:00",
+  "build": "a943cdb3-fa81-4b1f-9f06-c6af3bfa3644",
+  "built_at": "2026-11-08T18:01:38+00:00"
 }

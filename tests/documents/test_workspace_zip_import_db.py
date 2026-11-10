@@ -1,9 +1,10 @@
 """A workspace zip through the production path with the members a hand-built package carries
 besides its deliverables (``documents.workspace``, 2026-11-03): a ``build/`` intermediate and a
-``data/`` raw pull whose column names look like the Jobs and People sheets, a build script and an
-owner-only Word file. Each deliverable row imports once (the twins never do), the raw pull is
-still a table the tools can query, and the build script and the owner-only file are listed as
-skipped with their reasons, never stored as passages. SYNTHETIC files only."""
+``data/`` raw pull whose column names look like the Jobs and People sheets, a build script and a
+Word file named ``_Owner_Only`` (read like any file since the owner-only role was removed,
+2026-11-08). Each deliverable row imports once (the twins never do), the raw pull is still a table
+the tools can query, and the build members are listed as skipped with their reasons, never stored
+as passages. SYNTHETIC files only."""
 
 from __future__ import annotations
 
@@ -390,7 +391,7 @@ def _facts_by_member(account: UUID) -> dict[str, int]:
     return {str(member): int(n) for member, n in rows}
 
 
-async def test_a_workspace_zip_imports_each_deliverable_row_once_and_skips_build_and_owner_files(
+async def test_a_workspace_zip_imports_each_deliverable_row_once_and_skips_build_files(
     tenant_a: UUID, tmp_path: Path
 ) -> None:
     """See the module docstring."""
@@ -474,8 +475,8 @@ async def test_a_workspace_zip_imports_each_deliverable_row_once_and_skips_build
         "SELECT count(*) FROM facts WHERE account_id = %s AND value_text LIKE 'Twin %%'", account
     ) == [(0,)]
 
-    # the raw pull is still a table the tools can query; the build members and the owner-only
-    # file are not stored at all
+    # the raw pull is still a table the tools can query; the build members are not stored at all,
+    # the _Owner_Only file is read like any other
     async with tenant_txn(tenant_a, user="user-1") as s:
         found = await T.list_tables(s, [account])
         cover = await coverage(s, [account])
@@ -491,8 +492,8 @@ async def test_a_workspace_zip_imports_each_deliverable_row_once_and_skips_build
         )
         if m
     }
-    assert DATA_TWIN in members and jobs_member in members
-    assert not members & {BUILD_TWIN, SCRIPT, OWNER_ONLY}
+    assert DATA_TWIN in members and jobs_member in members and OWNER_ONLY in members
+    assert not members & {BUILD_TWIN, SCRIPT}
 
     # the coverage report names what was skipped and why, once per member
     entry = next(e for e in cover if e.get("document") == workspace_zip.ZIP_NAME)
@@ -500,9 +501,8 @@ async def test_a_workspace_zip_imports_each_deliverable_row_once_and_skips_build
     assert skipped == {
         BUILD_TWIN: "a build script or intermediate, not research data",
         SCRIPT: "a build script or intermediate, not research data",
-        OWNER_ONLY: "an owner-only file; upload it on its own",
     }
-    assert entry["members_skipped_total"] == 3
+    assert entry["members_skipped_total"] == 2
     assert entry["members_read"] == len(members)
 
     # the Account Summary feeds the register, the findings, the sections, the tracker and the
@@ -635,7 +635,7 @@ async def test_a_workspace_zip_imports_each_deliverable_row_once_and_skips_build
     by_path = {m["member"]: m for m in listed["members"]}
     assert len(by_path) == len(zipfile.ZipFile(io.BytesIO(_zip_with_twins())).namelist())
     assert listed["read"] + listed["skipped"] + listed["failed"] == len(by_path)
-    assert (listed["skipped"], listed["failed"]) == (3, 0)
+    assert (listed["skipped"], listed["failed"]) == (2, 0)
     assert listed["read"] == entry["members_read"]
     jobs_row = by_path[jobs_member]
     assert jobs_row["role"] == "deliverable_jobs" and jobs_row["status"] == "read"
@@ -658,9 +658,8 @@ async def test_a_workspace_zip_imports_each_deliverable_row_once_and_skips_build
         "tables": 1,
         "audience": "client",
     }
-    assert by_path[OWNER_ONLY]["status"] == "skipped"
-    assert by_path[OWNER_ONLY]["reason"] == "an owner-only file; upload it on its own"
-    assert by_path[OWNER_ONLY]["audience"] == "owner_only" and by_path[OWNER_ONLY]["passages"] == 0
+    assert by_path[OWNER_ONLY]["role"] == "other" and by_path[OWNER_ONLY]["status"] == "read"
+    assert by_path[OWNER_ONLY]["audience"] == "client"  # its few words share a passage
     assert by_path[SCRIPT]["role"] == "build" and by_path[SCRIPT]["status"] == "skipped"
     assert by_path[BUILD_TWIN]["role"] == "build" and by_path[BUILD_TWIN]["status"] == "skipped"
     assert by_path[f"{F}/RESTORE.md"]["role"] == "restore"
@@ -710,8 +709,7 @@ async def test_a_workspace_zip_imports_each_deliverable_row_once_and_skips_build
     assert counts["files"] == len(by_path)
     assert shown[jobs_member]["role"] == "job postings" and shown[jobs_member]["status"] == "read"
     assert shown[jobs_member]["reason"] == "" and shown[jobs_member]["document"].endswith(".zip")
-    assert shown[OWNER_ONLY]["role"] == "owner-only file"
-    assert shown[OWNER_ONLY]["reason"] == "an owner-only file; upload it on its own"
+    assert shown[OWNER_ONLY]["role"] == "other file" and shown[OWNER_ONLY]["reason"] == ""
     assert shown[SCRIPT]["reason"] == "a build script or intermediate, not research data"
     assert shown[DATA_TWIN]["role"] == "raw pull" and shown[DATA_TWIN]["tables"] == 1
 
@@ -772,40 +770,6 @@ async def test_a_workspace_zip_imports_each_deliverable_row_once_and_skips_build
     assert len(signal_rows) == shown and all(r["_private"] for r in signal_rows)
     assert register["https://news.holdings.example/cio"]["how_retrieved"] == "Read in full"
     assert register["https://news.holdings.example/cio"]["supports"] == "The CIO appointment"
-
-
-async def test_an_owner_only_upload_is_marked_and_feeds_no_fact(
-    tenant_a: UUID, tmp_path: Path
-) -> None:
-    """A file uploaded with audience owner_only shows that audience on its status and never
-    reaches the account's facts, although its sheet would import."""
-    from tests.documents.test_deliverables_import import people_book
-
-    account = _make_account(tenant_a, f"holdings-{uuid4().hex[:6]}.example")
-    svc = service(tmp_path)
-    started = await svc.start_upload(
-        tenant_a, "user-1", "Private_People_List.xlsx", len(people_book()), None, account,
-        audience="owner_only",
-    )  # fmt: skip
-    doc = UUID(started["document_id"])
-    from urllib.parse import parse_qs, urlparse
-
-    token = parse_qs(urlparse(started["upload_url"]).query)["token"][0]
-    data = people_book()
-
-    async def body() -> Any:
-        yield data
-
-    await svc.receive(tenant_a, doc, token, body())
-    await svc.complete(tenant_a, doc)
-    assert await svc.process(tenant_a, doc) == "indexed"
-    assert (await svc.status(tenant_a, doc))["audience"] == "owner_only"
-    assert admin(
-        "SELECT count(*) FROM facts WHERE account_id = %s AND flags ? 'workspace_import'", account
-    ) == [(0,)]
-    assert admin("SELECT imported_at IS NOT NULL FROM documents WHERE id = %s", doc) == [(True,)]
-    with pytest.raises(Exception, match="audience"):
-        await svc.start_upload(tenant_a, "user-1", "x.xlsx", 10, None, account, audience="staff")
 
 
 async def test_the_retry_of_a_failed_import_reads_the_zip_again_for_its_raw_pulls(

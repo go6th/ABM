@@ -4,8 +4,10 @@
 // Below 760px the sidebar is an overlay menu: Escape or the scrim closes it, focus stays inside
 // while open and returns to the Menu button, and the page behind is inert.
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { LogoMark } from "@/ui/design";
+import { NavProgress } from "@/ui/NavProgress";
+import { Toaster } from "@/ui/Toaster";
 import { OperatorNav } from "./OperatorNav";
 import { OperatorSignOut } from "./OperatorSignOut";
 import { useOperatorViewer } from "./OperatorSessionGate";
@@ -39,16 +41,19 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
   }, [open, close]);
 
   return (
-    <div className="app">
+    <div className="app ui-pastel">
+      <Suspense fallback={null}>
+        <NavProgress />
+      </Suspense>
       <a className="skip-link" href="#main">Skip to content</a>
-      <div className="topbar dark" inert={open || undefined}>
+      <div className="topbar" inert={open || undefined}>
         <b>6th Admin</b>
         <button ref={menuButton} type="button" className="btn sm" aria-expanded={open} aria-controls="admin-sidebar" onClick={() => setOpen(true)}>Menu</button>
       </div>
       <button type="button" className="scrim" data-open={open} aria-label="Close menu" tabIndex={-1} onClick={close} />
       <aside ref={side} className="aside-admin" id="admin-sidebar" data-open={open} aria-label="Admin console">
         <Link className="logo" href="/operator" onClick={() => setOpen(false)}>
-          <LogoMark inverse />
+          <LogoMark />
           <span className="name">6th Admin<span className="by">Account Intelligence</span></span>
         </Link>
         <OperatorNav onNavigate={() => setOpen(false)} />
@@ -62,6 +67,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
         </div>
       </aside>
       <main className="main" id="main" tabIndex={-1} inert={open || undefined}>{children}</main>
+      <Toaster />
     </div>
   );
 }

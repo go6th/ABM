@@ -11,6 +11,7 @@ import type { ConsoleDefaults } from "@/lib/gen/api.gen";
 import { useOperatorApi } from "../useOperatorApi";
 import { ConsoleLoad } from "../ConsoleLoad";
 import { Pill } from "@/ui/design";
+import { announce } from "@/ui/Toaster";
 
 type Editable = Pick<ConsoleDefaults, "research_limit_default" | "chat_limit_default" | "limit_reset" | "idle_expiry_days" | "fastest_schedule" | "credit_cap_per_pull" | "default_research_model" | "default_analysis_model" | "max_file_bytes" | "run_dollar_cap_usd" | "repeat_call_limit" | "stall_after_s" | "schedule_tick_max_starts" | "schedule_tick_max_per_tenant"> & { enabled_models: string[] };
 const GB = 1024 ** 3;
@@ -51,6 +52,7 @@ function Editor({ d, reload }: { d: ConsoleDefaults; reload: () => void }) {
     try {
       await operatorRequest("PUT /operator/v1/console/defaults", { body: v });
       setMessage({ ok: true, text: "Defaults saved. New clients start from them." });
+      announce("Defaults saved");
       reload();
     } catch (cause) {
       setMessage({ ok: false, text: cause instanceof ApiError && cause.status === 422 ? (cause.detail || "Check the values and save again.") : "The defaults were not saved. Try again." });
@@ -156,7 +158,7 @@ function Editor({ d, reload }: { d: ConsoleDefaults; reload: () => void }) {
       </section>
       {message ? <p className={`sm-text ${message.ok ? "mut" : "bad-text"}`} role={message.ok ? "status" : "alert"}>{message.text}</p> : null}
       <div className="row-12 wrap">
-        <button type="button" className="btn primary" disabled={busy} onClick={() => void save()}>{busy ? "Saving" : "Save defaults"}</button>
+        <button type="button" className="btn primary" disabled={busy} aria-busy={busy || undefined} onClick={() => void save()}>{busy ? "Saving…" : "Save defaults"}</button>
         <span className="mut xs-text">Last changed by {d.updated_by}.</span>
       </div>
     </div>

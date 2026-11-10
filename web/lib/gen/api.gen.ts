@@ -3059,7 +3059,6 @@ export type UploadIntent = z.infer<typeof UploadIntent>;
 
 export const UploadStart = z.object({
   "account_id": z.string().nullable().optional(),
-  "audience": z.string().optional(),
   "mime": z.string().nullable().optional(),
   "name": z.string(),
   "size_bytes": z.number().int(),
@@ -3398,7 +3397,6 @@ export const KNOWN_VALUES = {
   ],
   "DocumentMember.audience": [
     "client",
-    "owner_only",
     "internal"
   ],
   "DocumentMember.status": [
@@ -3408,7 +3406,6 @@ export const KNOWN_VALUES = {
   ],
   "DocumentStatus.audience": [
     "client",
-    "owner_only",
     "internal"
   ],
   "DocumentUploadStarted.protocol": [
@@ -3590,10 +3587,6 @@ export const KNOWN_VALUES = {
     "near_limit",
     "waiting_for_approval",
     "stopped_at_limit"
-  ],
-  "UploadStart.audience": [
-    "client",
-    "owner_only"
   ],
   "UsefulBody.kind": [
     "first_call_question_used",

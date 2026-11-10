@@ -143,30 +143,7 @@ test("the drop zone offers a folder button and accepts zip files", () => {
   expect(folder.hasAttribute("webkitdirectory")).toBe(true);
 });
 
-test("Owner only ticked: the upload starts with audience owner_only and the row says so", async () => {
-  apiMock.mockImplementation(async (method: string, path: string) => {
-    if (method === "POST" && path === "/v1/documents/uploads") {
-      return { document_id: "d5", upload_url: "/v1/documents/d5/content?token=t", method: "PUT", headers: {}, expires_at: "x", max_bytes: 5, direct: false };
-    }
-    if (method === "PUT") return { document_id: "d5", received_bytes: 5 };
-    if (path.endsWith("/complete")) return doc({ document_id: "d5", stage: "scanning", status: "quarantined", audience: "owner_only" });
-    if (path.endsWith("/status")) return doc({ document_id: "d5", stage: "indexed", status: "indexed", needs_company: false, audience: "owner_only" });
-    throw new Error(`unexpected ${method} ${path}`);
-  });
-  render(<DocumentDrop accountId="acc-1" onChange={() => undefined} />);
-  const box = screen.getByRole("checkbox", { name: /Owner only: visible to you and admins/ }) as HTMLInputElement;
-  expect(box.checked).toBe(false);
-  fireEvent.click(box);
-  expect(box.checked).toBe(true);
-  fireEvent.change(screen.getByLabelText("Add files"), { target: { files: [new File(["hello"], "private.pdf")] } });
-  await waitFor(() => expect(screen.getByText("Ready")).toBeTruthy(), { timeout: 5000 });
-  const started = apiMock.mock.calls.filter((c) => c[1] === "/v1/documents/uploads");
-  expect(started).toHaveLength(1);
-  expect(started[0]![2]).toMatchObject({ name: "private.pdf", account_id: "acc-1", audience: "owner_only" });
-  expect(screen.getByText(/Owner only$/)).toBeTruthy();
-});
-
-test("Owner only unticked: the start request carries no audience field", async () => {
+test("the upload offers no Owner only box and the start request carries no audience field", async () => {
   apiMock.mockImplementation(async (method: string, path: string) => {
     if (method === "POST" && path === "/v1/documents/uploads") {
       return { document_id: "d6", upload_url: "/v1/documents/d6/content?token=t", method: "PUT", headers: {}, expires_at: "x", max_bytes: 5, direct: false };
@@ -177,6 +154,7 @@ test("Owner only unticked: the start request carries no audience field", async (
     throw new Error(`unexpected ${method} ${path}`);
   });
   render(<DocumentDrop accountId="acc-1" onChange={() => undefined} />);
+  expect(screen.queryByRole("checkbox", { name: /Owner only/ })).toBeNull();
   fireEvent.change(screen.getByLabelText("Add files"), { target: { files: [new File(["hello"], "plain.pdf")] } });
   await waitFor(() => expect(screen.getByText("Ready")).toBeTruthy(), { timeout: 5000 });
   const started = apiMock.mock.calls.filter((c) => c[1] === "/v1/documents/uploads");

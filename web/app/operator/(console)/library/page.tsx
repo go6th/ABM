@@ -4,13 +4,14 @@
 // (the pre-delivery gate's checks). Each account shows what was found, the check and how many
 // clients have it; failing accounts list their issues. Publish sends every passed account to the
 // clients chosen here (or per client on Client detail).
-import * as Dialog from "@radix-ui/react-dialog";
 import { useState } from "react";
 import { ApiError } from "@/lib/api";
 import { operatorRequest } from "@/lib/operator-api";
 import { useOperatorApi } from "../useOperatorApi";
 import { ConsoleLoad } from "../ConsoleLoad";
 import { Pill } from "@/ui/design";
+import { Modal } from "@/ui/Modal";
+import { announce } from "@/ui/Toaster";
 
 const DOMAIN = /^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
 
@@ -78,6 +79,7 @@ function PublishPassed({ ids, onDone }: { ids: string[]; onDone: () => void }) {
       }
       setOpen(false);
       setChosen(new Set());
+      announce(`Published to ${chosen.size} client${chosen.size === 1 ? "" : "s"}`);
       onDone();
     } catch {
       setError("Publishing did not finish. Try again.");
@@ -86,30 +88,30 @@ function PublishPassed({ ids, onDone }: { ids: string[]; onDone: () => void }) {
     }
   };
   return (
-    <Dialog.Root open={open} onOpenChange={setOpen}>
-      <Dialog.Trigger className="btn primary" disabled={!ids.length}>Publish {ids.length} passed account{ids.length === 1 ? "" : "s"}</Dialog.Trigger>
-      <Dialog.Portal>
-        <Dialog.Overlay className="overlay" />
-        <Dialog.Content className="dialog">
-          <Dialog.Title>Publish to clients</Dialog.Title>
-          <Dialog.Description>Each client sees only the accounts you assign to it.</Dialog.Description>
+    <>
+      <button type="button" className="btn primary" disabled={!ids.length} onClick={() => setOpen(true)}>
+        Publish {ids.length} passed account{ids.length === 1 ? "" : "s"}
+      </button>
+      {open ? (
+        <Modal title="Publish to clients" onClose={() => setOpen(false)} busy={busy}>
+          <p className="sm-text">Each client sees only the accounts you assign to it.</p>
           <fieldset className="stack-6">
             <legend className="sr-only">Clients</legend>
             {(clients.data?.clients ?? []).map((c) => (
               <label key={c.tenant_id} className="check">
                 <input type="checkbox" checked={chosen.has(c.tenant_id)} onChange={(e) => setChosen((prev) => { const next = new Set(prev); if (e.target.checked) next.add(c.tenant_id); else next.delete(c.tenant_id); return next; })} />
-                {c.name}
+                <span>{c.name}</span>
               </label>
             ))}
           </fieldset>
-          {error ? <p className="sm-text bad-text" role="alert">{error}</p> : null}
-          <div className="row-12 wrap">
-            <button type="button" className="btn primary" disabled={busy || !chosen.size} onClick={() => void publish()}>{busy ? "Publishing" : `Publish to ${chosen.size} client${chosen.size === 1 ? "" : "s"}`}</button>
-            <Dialog.Close className="btn">Cancel</Dialog.Close>
+          {error ? <p className="notice error" role="alert">{error}</p> : null}
+          <div className="modal-actions">
+            <button type="button" className="btn" disabled={busy} onClick={() => setOpen(false)}>Cancel</button>
+            <button type="button" className="btn primary" disabled={busy || !chosen.size} aria-busy={busy || undefined} onClick={() => void publish()}>{busy ? "Publishing…" : `Publish to ${chosen.size} client${chosen.size === 1 ? "" : "s"}`}</button>
           </div>
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
+        </Modal>
+      ) : null}
+    </>
   );
 }
 
@@ -127,6 +129,7 @@ function UnpublishOne({ id, name, onDone }: { id: string; name: string; onDone: 
       await operatorRequest("POST /operator/v1/library/{library_account_id}/unpublish", { params: { library_account_id: id }, body: { tenant_ids: [...chosen] } });
       setOpen(false);
       setChosen(new Set());
+      announce(`Unpublished from ${chosen.size} client${chosen.size === 1 ? "" : "s"}`);
       onDone();
     } catch {
       setError("Unpublishing did not finish. Try again.");
@@ -135,30 +138,30 @@ function UnpublishOne({ id, name, onDone }: { id: string; name: string; onDone: 
     }
   };
   return (
-    <Dialog.Root open={open} onOpenChange={setOpen}>
-      <Dialog.Trigger className="link-danger sm-text">Unpublish<span className="sr-only"> {name}</span></Dialog.Trigger>
-      <Dialog.Portal>
-        <Dialog.Overlay className="overlay" />
-        <Dialog.Content className="dialog">
-          <Dialog.Title>Unpublish {name}</Dialog.Title>
-          <Dialog.Description>The account disappears from the workspaces of the clients you choose.</Dialog.Description>
+    <>
+      <button type="button" className="link-danger sm-text" onClick={() => setOpen(true)}>
+        Unpublish<span className="sr-only"> {name}</span>
+      </button>
+      {open ? (
+        <Modal title={`Unpublish ${name}`} onClose={() => setOpen(false)} busy={busy}>
+          <p className="sm-text">The account disappears from the workspaces of the clients you choose.</p>
           <fieldset className="stack-6">
             <legend className="sr-only">Clients</legend>
             {(clients.data?.clients ?? []).map((c) => (
               <label key={c.tenant_id} className="check">
                 <input type="checkbox" checked={chosen.has(c.tenant_id)} onChange={(e) => setChosen((prev) => { const next = new Set(prev); if (e.target.checked) next.add(c.tenant_id); else next.delete(c.tenant_id); return next; })} />
-                {c.name}
+                <span>{c.name}</span>
               </label>
             ))}
           </fieldset>
-          {error ? <p className="sm-text bad-text" role="alert">{error}</p> : null}
-          <div className="row-12 wrap">
-            <button type="button" className="btn danger" disabled={busy || !chosen.size} onClick={() => void unpublish()}>{busy ? "Unpublishing" : `Unpublish from ${chosen.size} client${chosen.size === 1 ? "" : "s"}`}</button>
-            <Dialog.Close className="btn">Cancel</Dialog.Close>
+          {error ? <p className="notice error" role="alert">{error}</p> : null}
+          <div className="modal-actions">
+            <button type="button" className="btn" disabled={busy} onClick={() => setOpen(false)}>Cancel</button>
+            <button type="button" className="btn primary danger" disabled={busy || !chosen.size} aria-busy={busy || undefined} onClick={() => void unpublish()}>{busy ? "Unpublishing…" : `Unpublish from ${chosen.size} client${chosen.size === 1 ? "" : "s"}`}</button>
           </div>
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
+        </Modal>
+      ) : null}
+    </>
   );
 }
 

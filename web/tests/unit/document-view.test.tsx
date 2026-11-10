@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 // The document page's view: a zip groups its passages under each file inside it in the member
 // list's order (files with nothing read are listed with their reason), a heading line appears
-// when the heading changes, table rows keep their text in a mono block, an owner-only file says
-// so in its sub line, and a plain file with nothing read says that.
+// when the heading changes, table rows keep their text in a mono block, and a plain file with
+// nothing read says that.
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, expect, test } from "vitest";
 import { DocumentView, memberOf, paragraphs, sectionsOf } from "@/components/accounts/DocumentView";
@@ -26,7 +26,7 @@ const member = (over: Partial<DocumentMember>): DocumentMember => ({
 const MEMBERS: DocumentMember[] = [
   member({ member: "ws/deliverables/BD_Job_Postings.xlsx", role: "deliverable_jobs", passages: 1, tables: 1 }),
   member({ member: "ws/notes/plan.md", role: "note", passages: 2 }),
-  member({ member: "ws/BD_Owner_Only.docx", role: "owner_only", status: "skipped", reason: "an owner-only file; upload it on its own", passages: 0, audience: "owner_only" }),
+  member({ member: "ws/build/make_jobs.py", role: "build", status: "skipped", reason: "a build script or intermediate, not research data", passages: 0 }),
 ];
 
 const PASSAGES: DocumentPassage[] = [
@@ -40,7 +40,7 @@ test("passages are grouped under their file inside the zip, in the member list's
   expect(memberOf("ws/notes/plan.md", ["ws/notes/plan.md"])).toBe("ws/notes/plan.md");
   expect(memberOf("page 3", ["ws/notes/plan.md"])).toBeNull();
   const sections = sectionsOf(MEMBERS, PASSAGES);
-  expect(sections.map((s) => s.path)).toEqual(["ws/deliverables/BD_Job_Postings.xlsx", "ws/notes/plan.md", "ws/BD_Owner_Only.docx"]);
+  expect(sections.map((s) => s.path)).toEqual(["ws/deliverables/BD_Job_Postings.xlsx", "ws/notes/plan.md", "ws/build/make_jobs.py"]);
   expect(sections[1]!.passages.map((p) => p.seq)).toEqual([1, 2]); // seq order inside a section
   expect(sections[2]!.passages).toEqual([]); // a skipped member is listed with nothing read
   // a plain file: one section with every passage in seq order
@@ -65,20 +65,20 @@ test("a zip renders one section per file with headings, paragraphs, table text a
   expect(pre.tagName).toBe("PRE");
   expect(pre.className).toBe("mono");
   expect(pre.textContent).toBe("Title | Location\nData engineer | Boston");
-  const skipped = within(screen.getByRole("region", { name: "ws/BD_Owner_Only.docx" }));
-  expect(skipped.getByText("Owner-only file · owner only · Skipped: an owner-only file; upload it on its own")).toBeTruthy();
+  const skipped = within(screen.getByRole("region", { name: "ws/build/make_jobs.py" }));
+  expect(skipped.getByText("Working file · Skipped: a build script or intermediate, not research data")).toBeTruthy();
   expect(skipped.getByText("This file was not read.")).toBeTruthy();
   // member sections carry anchors in the member list's order, for links from the files card
-  expect(screen.getByRole("region", { name: "ws/BD_Owner_Only.docx" }).id).toBe("m-2");
+  expect(screen.getByRole("region", { name: "ws/build/make_jobs.py" }).id).toBe("m-2");
 });
 
-test("an owner-only plain file says so in its sub line and shows one section", () => {
+test("a plain file shows its status in its sub line and one section", () => {
   const passages: DocumentPassage[] = [
     { seq: 0, kind: "section", where: "page 1", heading: null, content: "Private notes." },
     { seq: 1, kind: "section", where: "page 2", heading: "Next steps", content: "Call Dana." },
   ];
-  render(<DocumentView doc={doc({ name: "private.pdf", audience: "owner_only", passages: 2 })} members={[]} passages={passages} />);
-  expect(screen.getByText("Ready · Owner only · 2 sections")).toBeTruthy();
+  render(<DocumentView doc={doc({ name: "private.pdf", passages: 2 })} members={[]} passages={passages} />);
+  expect(screen.getByText("Ready · 2 sections")).toBeTruthy();
   expect(screen.getAllByRole("region")).toHaveLength(1);
   expect(screen.getByText("page 1")).toBeTruthy();
   expect(screen.getByRole("heading", { level: 3, name: "Next steps" })).toBeTruthy();

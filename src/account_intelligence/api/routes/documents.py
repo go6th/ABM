@@ -63,8 +63,6 @@ class UploadStart(BaseModel):
     size_bytes: int = Field(ge=0)
     mime: str | None = Field(default=None, max_length=200)
     account_id: UUID | None = None
-    # who may see it: everyone on the account (the default), or the uploader and admins only
-    audience: Literal["client", "owner_only"] = "client"
 
 
 class DocumentCompleteBody(BaseModel):
@@ -156,7 +154,6 @@ async def start_upload(
             body.mime,
             body.account_id,
             origin=_origin(),
-            audience=body.audience,
         )
     except DocumentError as error:
         raise _problem(error) from None

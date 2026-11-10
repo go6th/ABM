@@ -29,14 +29,10 @@ def build(harness: Harness, scenario: str = "happy") -> Stack:
     return stack
 
 
-async def put_document(
-    who: Client, name: str, data: bytes, account: str | None = None, audience: str | None = None
-) -> str:
+async def put_document(who: Client, name: str, data: bytes, account: str | None = None) -> str:
     body: dict[str, Any] = {"name": name, "size_bytes": len(data)}
     if account:
         body["account_id"] = account
-    if audience:
-        body["audience"] = audience
     started = await who.browser.call("POST", "/v1/documents/uploads", json=body)
     assert started.status_code == 201, started.text
     up = started.json()
@@ -166,8 +162,7 @@ async def test_an_upload_bound_to_an_account_is_analysed_by_the_model_by_itself(
     """Owner's rule 2026-11-03: a model reads every upload and the account page shows what it
     found. An indexed document bound to an account starts its own file-mode run (keyed by the
     document, so a re-index replays it), which extracts facts, writes the summary sections and
-    completes; the account page then has key findings and a one-minute version. An owner-only
-    upload starts nothing."""
+    completes; the account page then has key findings and a one-minute version."""
     from account_intelligence.app.auto_analysis import idempotency_key
 
     monkeypatch.setenv("RESEARCH_AUTOMATIC_STARTS", "on")
@@ -175,9 +170,6 @@ async def test_an_upload_bound_to_an_account_is_analysed_by_the_model_by_itself(
     a = await stack.client("docs-auto")
     _, account = await indexed_documents(stack, a)
     doc = await put_document(a, "plan.docx", fixtures.notes_docx(), account=account)
-    private = await put_document(
-        a, "board.pdf", fixtures.meeting_pdf(), account=account, audience="owner_only"
-    )
     await process(stack)
     found = admin(
         "SELECT id, status, run_input FROM account_runs WHERE idempotency_key = %s",
@@ -187,10 +179,6 @@ async def test_an_upload_bound_to_an_account_is_analysed_by_the_model_by_itself(
     run = str(found[0][0])
     assert found[0][2]["input_mode"] == "file" and found[0][2]["started_by"] == "upload"
     assert found[0][2]["document_ids"] == [doc]
-    assert admin(
-        "SELECT count(*) FROM account_runs WHERE idempotency_key = %s",
-        idempotency_key(UUID(private)),
-    ) == [(0,)]
     await stack.drain(a, run)
     assert run_row(run)["status"] == "COMPLETED", run_row(run)
     assert admin("SELECT count(*) FROM facts WHERE run_id = %s", run)[0][0] > 0

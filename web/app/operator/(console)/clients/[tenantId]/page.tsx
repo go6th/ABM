@@ -13,6 +13,8 @@ import type { ClientInvite, ConsoleClientDetail, ConsoleClientSettings, TeamInvi
 import { useOperatorApi } from "../../useOperatorApi";
 import { ConsoleLoad } from "../../ConsoleLoad";
 import { Pill } from "@/ui/design";
+import { ConfirmDialog } from "@/ui/Modal";
+import { announce } from "@/ui/Toaster";
 import { isolationPill, lastActive, num } from "@/lib/console";
 
 const IDLE = [7, 10, 14, 30] as const;
@@ -44,6 +46,7 @@ function InviteUser({ tenantId, onDone }: { tenantId: string; onDone: () => void
     try {
       setMade(await operatorRequest("POST /operator/v1/console/clients/{tenant_id}/users", { params: { tenant_id: tenantId }, body: { email: email.trim().toLowerCase(), role } }));
       setEmail("");
+      announce("User invited");
       onDone();
     } catch (cause) {
       setError(cause instanceof ApiError && cause.status === 409
@@ -85,32 +88,44 @@ const SUSPEND_REASONS = [
 function SuspendClient({ tenantId, name, suspended, onDone }: { tenantId: string; name: string; suspended: boolean; onDone: () => void }) {
   const [reason, setReason] = useState<string>(SUSPEND_REASONS[0][0]);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
   const act = async () => {
-    const ask = suspended
-      ? `Reactivate ${name}? Its users can sign in and research again.`
-      : `Suspend ${name}? Its users are signed out and its research stops until you reactivate it.`;
-    if (!window.confirm(ask)) return;
     setBusy(true);
-    setError(null);
+    setMessage(null);
     try {
       if (suspended) await operatorRequest("POST /operator/v1/tenants/{tenant_id}/reactivate", { params: { tenant_id: tenantId }, body: { reason_code: reason } });
       else await operatorRequest("POST /operator/v1/tenants/{tenant_id}/suspend", { params: { tenant_id: tenantId }, body: { reason_code: reason } });
+      announce(suspended ? "Client reactivated" : "Client suspended");
+      setMessage(suspended ? `${name} can sign in and research again.` : `${name} is suspended.`);
       onDone();
-    } catch (cause) {
-      setError(cause instanceof ApiError && cause.detail ? cause.detail : "That did not work. Try again.");
+    } catch {
+      throw new Error(suspended ? "The client could not be reactivated. Try again." : "The client could not be suspended. Try again.");
     } finally {
       setBusy(false);
     }
   };
   return (
-    <section className="card pad stack-14" aria-labelledby="suspend-title">
-      <h2 id="suspend-title" className="lbl">{suspended ? "SUSPENDED" : "SUSPEND CLIENT"}</h2>
-      <p className="sm-text mut">{suspended ? "This client cannot sign in or research." : "Stops every user's sign-in and research for this client."}</p>
-      <div className="field"><label htmlFor="suspend-reason">Reason</label><select id="suspend-reason" className="input" value={reason} onChange={(e) => setReason(e.target.value)}>{SUSPEND_REASONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
-      {error ? <p className="sm-text bad-text" role="alert">{error}</p> : null}
-      <button type="button" className={suspended ? "btn block" : "btn danger block"} disabled={busy} onClick={() => void act()}>{busy ? "Working" : suspended ? "Reactivate client" : "Suspend client"}</button>
-    </section>
+    <>
+      <section className="card pad stack-14" aria-labelledby="suspend-title">
+        <h2 id="suspend-title" className="lbl">{suspended ? "SUSPENDED" : "SUSPEND CLIENT"}</h2>
+        <p className="sm-text mut">{suspended ? "This client cannot sign in or research." : "Stops every user's sign-in and research for this client."}</p>
+        <div className="field"><label htmlFor="suspend-reason">Reason</label><select id="suspend-reason" className="input" value={reason} onChange={(e) => setReason(e.target.value)}>{SUSPEND_REASONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
+        {message ? <p className="sm-text" role="status">{message}</p> : null}
+        <button type="button" className={suspended ? "btn block" : "btn danger block"} disabled={busy} aria-busy={busy || undefined} onClick={() => setConfirmOpen(true)}>{busy ? "Working" : suspended ? "Reactivate client" : "Suspend client"}</button>
+      </section>
+      {confirmOpen ? (
+        <ConfirmDialog
+          title={suspended ? `Reactivate ${name}?` : `Suspend ${name}?`}
+          body={suspended ? "Its users can sign in and research again." : "Its users will be signed out, and research will stop until you reactivate the client."}
+          confirm={suspended ? "Reactivate client" : "Suspend client"}
+          working={suspended ? "Reactivating…" : "Suspending…"}
+          danger={!suspended}
+          onConfirm={act}
+          onClose={() => setConfirmOpen(false)}
+        />
+      ) : null}
+    </>
   );
 }
 
@@ -119,36 +134,43 @@ function SuspendClient({ tenantId, name, suspended, onDone }: { tenantId: string
  *  can sign in, so an operator records it here at the client's request (named in the record). */
 function PeopleConsent({ tenantId, name }: { tenantId: string; name: string }) {
   const state = useOperatorApi("GET /operator/v1/console/clients/{tenant_id}/people-consent", { params: { tenant_id: tenantId } });
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [pendingConsent, setPendingConsent] = useState<boolean | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
   const consent = state.data;
   const set = async (accept: boolean) => {
-    const ask = accept
-      ? `Record people data consent for ${name}? Only do this when the client has agreed to the consent text. Their next research finds people.`
-      : `Withdraw people data consent for ${name}? No new people research runs after this.`;
-    if (!window.confirm(ask)) return;
-    setBusy(true);
-    setError(null);
     try {
       await operatorRequest("POST /operator/v1/console/clients/{tenant_id}/people-consent", { params: { tenant_id: tenantId }, body: { accept } });
+      announce(accept ? "People consent recorded" : "People consent withdrawn");
+      setMessage(accept ? `People data consent recorded for ${name}.` : `People data consent withdrawn for ${name}.`);
       state.reload();
-    } catch (cause) {
-      setError(cause instanceof ApiError && cause.detail ? cause.detail : "That did not work. Try again.");
-    } finally {
-      setBusy(false);
+    } catch {
+      throw new Error(accept ? "Consent could not be recorded. Try again." : "Consent could not be withdrawn. Try again.");
     }
   };
   return (
-    <section className="card pad stack-14" aria-labelledby="consent-title">
-      <h2 id="consent-title" className="lbl">PEOPLE DATA CONSENT</h2>
-      {!consent ? <p className="sm-text mut">{state.error ? "Could not load the consent." : "Loading"}</p> : <>
-        <p className="sm-text">{consent.current ? "Granted" : consent.granted ? "Granted for an older text: ask again" : "Not granted: research finds no people"}</p>
-        {consent.granted_at ? <p className="xs-text mut">{consent.revoked_at ? "Withdrawn" : "Recorded"} {new Date(consent.revoked_at ?? consent.granted_at).toLocaleString()} by {consent.granted_by}</p> : null}
-        <details><summary className="xs-text">Consent text ({consent.text_version})</summary><p className="xs-text mut">{consent.text}</p></details>
-        {error ? <p className="sm-text bad-text" role="alert">{error}</p> : null}
-        <button type="button" className={consent.current ? "btn block" : "btn primary block"} disabled={busy} onClick={() => void set(!consent.current)}>{busy ? "Working" : consent.current ? "Withdraw consent" : "Record consent"}</button>
-      </>}
-    </section>
+    <>
+      <section className="card pad stack-14" aria-labelledby="consent-title">
+        <h2 id="consent-title" className="lbl">PEOPLE DATA CONSENT</h2>
+        {!consent ? <p className="sm-text mut">{state.error ? "Could not load the consent." : "Loading"}</p> : <>
+          <p className="sm-text">{consent.current ? "Granted" : consent.granted ? "Granted for an older text: ask again" : "Not granted: research finds no people"}</p>
+          {consent.granted_at ? <p className="xs-text mut">{consent.revoked_at ? "Withdrawn" : "Recorded"} {new Date(consent.revoked_at ?? consent.granted_at).toLocaleString()} by {consent.granted_by}</p> : null}
+          <details><summary className="xs-text">Consent text ({consent.text_version})</summary><p className="xs-text mut">{consent.text}</p></details>
+          {message ? <p className="sm-text" role="status">{message}</p> : null}
+          <button type="button" className={consent.current ? "btn block" : "btn primary block"} disabled={pendingConsent !== null} onClick={() => setPendingConsent(!consent.current)}>{consent.current ? "Withdraw consent" : "Record consent"}</button>
+        </>}
+      </section>
+      {pendingConsent !== null ? (
+        <ConfirmDialog
+          title={pendingConsent ? `Record people data consent for ${name}?` : `Withdraw people data consent for ${name}?`}
+          body={pendingConsent ? "Only do this when the client has agreed to the consent text. Their next research can include people." : "No new people research will run after this."}
+          confirm={pendingConsent ? "Record consent" : "Withdraw consent"}
+          working={pendingConsent ? "Recording consent…" : "Withdrawing consent…"}
+          danger={false}
+          onConfirm={() => set(pendingConsent)}
+          onClose={() => setPendingConsent(null)}
+        />
+      ) : null}
+    </>
   );
 }
 
@@ -206,6 +228,7 @@ function Editor({ detail, reload }: { detail: ConsoleClientDetail; reload: () =>
     try {
       await operatorRequest("PUT /operator/v1/console/clients/{tenant_id}", { params: { tenant_id: c.tenant_id }, body: { ...s, library_account_ids: [...lib], allowed_models: allowed } });
       setMessage({ ok: true, text: "Changes saved." });
+      announce("Changes saved");
       reload();
     } catch (cause) {
       setMessage({ ok: false, text: cause instanceof ApiError && cause.detail ? cause.detail : "The changes were not saved. Try again." });
@@ -217,6 +240,7 @@ function Editor({ detail, reload }: { detail: ConsoleClientDetail; reload: () =>
     setBusy(true);
     try {
       setInvite(await operatorRequest("POST /operator/v1/console/clients/{tenant_id}/invite", { params: { tenant_id: c.tenant_id } }));
+      announce("New invite link created");
     } catch {
       setMessage({ ok: false, text: "A new invite link could not be made. Try again." });
     } finally {

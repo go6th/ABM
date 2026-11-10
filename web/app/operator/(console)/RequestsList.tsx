@@ -7,6 +7,7 @@ import { operatorRequest } from "@/lib/operator-api";
 import type { ConsoleLimitRequest } from "@/lib/gen/api.gen";
 import { useOperatorApi } from "./useOperatorApi";
 import { Pill } from "@/ui/design";
+import { announce } from "@/ui/Toaster";
 import { lastActive, num } from "@/lib/console";
 
 function RequestRow({ r, onDone }: { r: ConsoleLimitRequest; onDone: (text: string) => void }) {
@@ -71,7 +72,7 @@ export function RequestsList({ pendingOnly = false }: { pendingOnly?: boolean })
       {message ? <p className="sm-text lrow" role="status">{message}</p> : null}
       {data.data === null && !data.error ? <div className="lrow"><div className="skel line" /></div> : null}
       {data.error ? <p className="sm-text bad-text lrow" role="alert">Requests could not be loaded. Reload the page.</p> : null}
-      {rows.map((r) => <RequestRow key={r.request_id} r={r} onDone={(text) => { setMessage(text); data.reload(); }} />)}
+      {rows.map((r) => <RequestRow key={r.request_id} r={r} onDone={(text) => { announce(text); setMessage(text); data.reload(); }} />)}
       {data.data && !rows.length ? <p className="mut sm-text lrow">No requests for more researches or chats.</p> : null}
     </section>
   );

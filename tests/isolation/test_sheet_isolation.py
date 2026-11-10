@@ -14,11 +14,11 @@ tenants, so every sheet has rows on both sides. Then, for every sheet:
   predicates the sheets carry hold on their own (``sheets.params``);
 * the account-page counts follow the same two rules.
 
-An ``Internal/`` member of the zip (owner-only within the client) is listed only to the uploader
-and never becomes a passage, a table, a fact or an imported row.
+An ``Internal/`` member of the zip is read like any other file (the owner-only role was removed
+2026-11-08) and, like every member, is listed only to the uploader.
 
 GUARANTEE(test_every_sheet_and_count_is_isolated_between_two_clients_with_the_same_workspace)
-GUARANTEE(test_an_internal_member_is_listed_only_to_its_uploader_and_never_read)
+GUARANTEE(test_an_internal_member_is_read_and_listed_only_to_its_uploader)
 """
 
 from __future__ import annotations
@@ -286,7 +286,7 @@ async def test_every_sheet_and_count_is_isolated_between_two_clients_with_the_sa
         await engine.dispose()
 
 
-async def test_an_internal_member_is_listed_only_to_its_uploader_and_never_read(
+async def test_an_internal_member_is_read_and_listed_only_to_its_uploader(
     sides: tuple[Side, Side],
 ) -> None:
     """See the module docstring."""
@@ -297,38 +297,16 @@ async def test_an_internal_member_is_listed_only_to_its_uploader_and_never_read(
         a.document,
         INTERNAL,
     )
-    assert (role, status, audience, owner) == ("owner_only", "skipped", "owner_only", UPLOADER)
+    assert (role, status, audience, owner) == ("other", "read", "client", UPLOADER)
 
-    # never read: no passage, index row, table or imported row carries it
+    # read like any file: its text is a passage of the document
     assert _admin(
-        "SELECT count(*) FROM document_passages WHERE document_id = %s"
-        " AND (location->>'member' = %s OR content LIKE %s)",
+        "SELECT count(*) > 0 FROM document_passages WHERE document_id = %s"
+        " AND location->>'member' = %s AND content LIKE %s",
         a.document,
         INTERNAL,
         "%INTERNAL-ONLY-CANARY%",
-    ) == [(0,)]
-    assert _admin(
-        "SELECT count(*) FROM chunks WHERE content LIKE %s", "%INTERNAL-ONLY-CANARY%"
-    ) == [(0,)]
-    assert _admin(
-        "SELECT count(*) FROM document_tables WHERE document_id = %s AND member = %s",
-        a.document,
-        INTERNAL,
-    ) == [(0,)]
-    assert _admin(
-        "SELECT count(*) FROM facts WHERE value_text LIKE %s OR CAST(value_json AS text) LIKE %s",
-        "%INTERNAL-ONLY-CANARY%",
-        "%INTERNAL-ONLY-CANARY%",
-    ) == [(0,)]
-    for table, column in (
-        ("research_notes", "text"),
-        ("report_sections", "text"),
-        ("news_events", "headline"),
-    ):
-        assert _admin(
-            f"SELECT count(*) FROM {table} WHERE {column} LIKE %s",  # noqa: S608 fixed names
-            "%INTERNAL-ONLY-CANARY%",
-        ) == [(0,)], table
+    ) == [(True,)]
 
     # listed only to the uploader: the account's owner and another user of the client see no row
     async def listed(user: str) -> set[str]:

@@ -2512,7 +2512,7 @@ class DocumentStatus(Out):
     indexed_passages: int
     members_read: int
     members_skipped: list[SkippedMember]
-    audience: Literal["client", "owner_only", "internal"]
+    audience: Literal["client", "internal"]
 
 
 class DocumentMember(Out):
@@ -2533,7 +2533,7 @@ class DocumentMember(Out):
     rows_imported: int = 0
     rows_merged: int = 0
     rows_skipped: int = 0
-    audience: Literal["client", "owner_only", "internal"]
+    audience: Literal["client", "internal"]
 
 
 class DocumentMembers(Out):

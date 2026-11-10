@@ -5980,7 +5980,6 @@
           "audience": {
             "enum": [
               "client",
-              "owner_only",
               "internal"
             ],
             "title": "Audience",
@@ -6274,7 +6273,6 @@
           "audience": {
             "enum": [
               "client",
-              "owner_only",
               "internal"
             ],
             "title": "Audience",
@@ -15192,15 +15190,6 @@
               }
             ],
             "title": "Account Id"
-          },
-          "audience": {
-            "default": "client",
-            "enum": [
-              "client",
-              "owner_only"
-            ],
-            "title": "Audience",
-            "type": "string"
           },
           "mime": {
             "anyOf": [

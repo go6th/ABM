@@ -161,7 +161,6 @@ export const ROLE_TEXT: Record<string, string> = {
   deliverable_jobs: "Job postings",
   deliverable_tech: "Tech stack and teams",
   deliverable_other: "Deliverable",
-  owner_only: "Owner-only file",
   note: "Note",
   restore: "Contents list",
   captured_page: "Captured page",

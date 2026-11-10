@@ -85,7 +85,6 @@ export function DocumentView({ doc, members, passages }: { doc: DocumentStatus; 
   const status = STAGE_TEXT[stageOf(doc)];
   const sub = [
     status,
-    doc.audience === "owner_only" ? "Owner only" : null,
     doc.passages ? `${doc.passages.toLocaleString()} sections` : null,
     zip ? `${members.length.toLocaleString()} file${members.length === 1 ? "" : "s"} inside` : null,
   ].filter(Boolean).join(" · ");
@@ -105,7 +104,7 @@ export function DocumentView({ doc, members, passages }: { doc: DocumentStatus; 
               <h2>{s.path ? cellText(s.path) : "Other sections"}</h2>
               {s.member ? (
                 <span className="sub">
-                  {ROLE_TEXT[s.member.role] ?? "File"}{s.member.audience === "owner_only" ? " · owner only" : ""} · {memberLine(s.member)}
+                  {ROLE_TEXT[s.member.role] ?? "File"} · {memberLine(s.member)}
                 </span>
               ) : null}
             </div>

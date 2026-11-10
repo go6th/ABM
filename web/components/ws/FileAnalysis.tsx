@@ -9,13 +9,14 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { api } from "@/lib/api";
+import { api, ApiError } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { backoff, isGone } from "@/lib/useRunStream";
 import { useVisible } from "@/lib/useVisible";
 import { cellText } from "@/lib/render";
 import type { FileAnalysisRun, InternalView } from "@/lib/gen/api.gen";
 import { StateCard } from "@/ui/design";
+import { ConfirmDialog } from "@/ui/Modal";
 import { announce } from "@/ui/Toaster";
 
 const SECTION: Record<string, string> = {
@@ -103,8 +104,8 @@ function useAnalysisWatch(domain: string, run: FileAnalysisRun, settled: boolean
 export function FileAnalysis({ domain, run }: { domain: string; run: FileAnalysisRun }) {
   const router = useRouter();
   const view = useApi<InternalView>(run.done ? `/v1/runs/${encodeURIComponent(run.run_id)}/internal` : null);
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const deletedIds = useRef(new Set<string>());
   const status = run.status.toUpperCase();
   useAnalysisWatch(domain, run, run.done || status === "AWAITING_APPROVAL" || STOPPED.has(status));
 
@@ -150,21 +151,27 @@ export function FileAnalysis({ domain, run }: { domain: string; run: FileAnalysi
   const counts = new Map([...grouped.entries()].map(([k, v]) => [k, v.length]));
   const sections = [...ORDER.filter((g) => grouped.has(g)), ...[...grouped.keys()].filter((g) => !ORDER.includes(g))];
   const docs = data.documents.map((d) => ({ id: String(d.document_id ?? ""), name: cellText(String(d.name ?? "")), passages: Number(d.passages ?? 0) }));
+  const deletableDocs = docs.filter((d) => d.id);
 
   const deleteFiles = async () => {
-    if (!window.confirm("Delete these files? Their findings are removed from your workspace. This cannot be undone.")) return;
-    setBusy(true);
-    setMessage(null);
-    try {
-      for (const d of docs) if (d.id) await api("DELETE", `/v1/documents/${encodeURIComponent(d.id)}`);
-      setMessage("The files and their findings were deleted.");
-      announce("Files deleted");
-      router.refresh();
-    } catch {
-      setMessage("Some files could not be deleted. Try again.");
-    } finally {
-      setBusy(false);
+    for (const d of deletableDocs) {
+      if (deletedIds.current.has(d.id)) continue;
+      try {
+        await api("DELETE", `/v1/documents/${encodeURIComponent(d.id)}`);
+        deletedIds.current.add(d.id);
+      } catch (cause) {
+        if (cause instanceof ApiError && cause.status === 404) {
+          deletedIds.current.add(d.id);
+          continue;
+        }
+        // A prior request in this batch may already have succeeded. Keep its id so retry only
+        // sends deletes for files that have not yet been confirmed removed.
+        throw new Error("Some files may already have been removed. Try again to delete the remaining files.");
+      }
     }
+    announce("Files and their findings deleted");
+    view.reload();
+    router.refresh();
   };
 
   return (
@@ -199,7 +206,6 @@ export function FileAnalysis({ domain, run }: { domain: string; run: FileAnalysi
             Hiring signals, news, technology detections and executive speaking were not searched. Nothing here says they do not exist. Check public sources to fill these in.
           </p>
         </section>
-        {message ? <p className="sm-text" role="status">{message}</p> : null}
         <div className="row-12 wrap">
           <Link className="btn" href={`/?account=${encodeURIComponent(domain)}`}>Ask about these files</Link>
           <Link className="btn" href={`/accounts/${encodeURIComponent(domain)}/refresh`}>Also check public sources</Link>
@@ -221,8 +227,17 @@ export function FileAnalysis({ domain, run }: { domain: string; run: FileAnalysi
         <div className="line-top" />
         <div className="lbl">Privacy</div>
         <p className="mut sm-text">Kept in your workspace only. Never included in the research files you share with a prospect. Delete any file and its findings are removed.</p>
-        <button type="button" className="link-danger" disabled={busy || !docs.length} aria-busy={busy || undefined} onClick={() => void deleteFiles()}>Delete these files</button>
+        <button type="button" className="link-danger" disabled={!deletableDocs.length} onClick={() => setConfirmDelete(true)}>Delete these files</button>
       </aside>
+      {confirmDelete ? (
+        <ConfirmDialog
+          title={`Delete ${deletableDocs.length} file${deletableDocs.length === 1 ? "" : "s"}?`}
+          body="Their findings will also be removed from your workspace. This cannot be undone."
+          confirm="Delete files"
+          onConfirm={deleteFiles}
+          onClose={() => setConfirmDelete(false)}
+        />
+      ) : null}
     </div>
   );
 }

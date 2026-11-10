@@ -164,6 +164,8 @@ SKIP_CHECKS = {
     "archive_too_many_members": "past the member limit",
     "archive_too_deep": "an archive nested too deep",
     "archive_too_large": "past the uncompressed size limit",
+    # members skipped by the owner-only rule removed in 0115: they are read on a new upload
+    "not_read_upload_again": "not read; upload the zip again to read it",
     **ws.SKIP_LABELS,
 }
 PART_MESSAGES = {
@@ -257,7 +259,6 @@ def _member_rows(
                 "failure": skip_of.get(name),
                 "passages": int(per_member.get(name, 0)),
                 "tables": int(tables_of.get(name, 0)),
-                "audience": "owner_only" if role is ws.MemberRole.OWNER_ONLY else "client",
             }
         )
     return rows
@@ -354,14 +355,9 @@ class DocumentService:
         mime: str | None,
         account_id: UUID | None,
         origin: str | None = None,
-        audience: str = "client",
     ) -> dict[str, Any]:
         """A document row and where to send its bytes (checked before any byte arrives): a
-        resumable session straight to object storage, in ``chunk_bytes`` chunks. ``audience``
-        says who may see the document: ``client`` (everyone on the account) or ``owner_only``
-        (the uploader and admins; the deliverables import never reads it)."""
-        if audience not in ("client", "owner_only"):
-            raise DocumentError("bad_audience", "The audience is client or owner_only.")
+        resumable session straight to object storage, in ``chunk_bytes`` chunks."""
         display = clean_name(name)
         kind = self.declared_type(display)
         if size <= 0:
@@ -396,8 +392,6 @@ class DocumentService:
                 uploaded_by=user,
                 expires_at=expires,
             )
-            if audience != "client":
-                await repo.set_audience(s, doc_id, audience)
         content_type = mime or "application/octet-stream"
         session = await self._incoming.resumable_upload(qkey, size, content_type, origin)
         url = session or f"/v1/documents/{doc_id}/content?token={token}"
@@ -917,7 +911,7 @@ class DocumentService:
                         raise SandboxFailed("page_limit")
                     member = unit.location.get("member")
                     if member and (role_skip := ws.skip_check(roles, str(member))):
-                        # a build script or an owner-only file of a workspace package: listed,
+                        # a build script or intermediate of a workspace package: listed,
                         # counted once, never parsed into passages (documents.workspace)
                         if member not in unread:
                             unread.add(str(member))
@@ -1332,10 +1326,8 @@ class DocumentService:
     @_doc_logged
     async def _analyse(self, tenant_id: UUID, row: Any) -> None:
         """Start the model analysis of an indexed document bound to an account (owner's rule
-        2026-11-03); never fails the document, an owner-only file starts nothing."""
+        2026-11-03); never fails the document."""
         if self.analysis is None or row.account_id is None:
-            return
-        if getattr(row, "audience", "client") == "owner_only":
             return
         try:
             await self.analysis(tenant_id, row.id)
@@ -1357,10 +1349,6 @@ class DocumentService:
         from documents.deliverables import import_document
 
         now = self.clock.now()
-        if str(getattr(row, "audience", None) or "client") == "owner_only":
-            async with self.txn(tenant_id) as s:
-                await repo.mark_imported(s, row.id, now)  # an owner-only file feeds no fact
-            return
         try:
             counts = await import_document(
                 self.txn, tenant_id, row, now=now, payloads=self.payloads, blobs=self.blobs
@@ -1633,7 +1621,6 @@ class DocumentService:
                         "bytes": size,
                         "status": "failed",
                         "failure": str(p.failure or "parse:failed"),
-                        "audience": "owner_only" if role is ws.MemberRole.OWNER_ONLY else "client",
                     }
                 )
         if rows:

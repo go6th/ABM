@@ -168,7 +168,7 @@ def test_a_tables_sheet_comes_from_its_zip_role_or_its_research_kind() -> None:
     tech = "Holdings/Deliverables/x/Holdings_Tech_Stack_and_Teams.xlsx"
     assert A.table_sheet(_jobs_table(acct, people)) == "people"
     assert A.table_sheet(_jobs_table(acct, tech)) == "technology"
-    # a raw pull, a build twin, an owner-only file and a loose upload are not sheets
+    # a raw pull, a build twin, a non-deliverable Word file and a loose upload are not sheets
     for member in (
         "holdings/data/jobs.json",
         "holdings/build/jobs_twin.json",

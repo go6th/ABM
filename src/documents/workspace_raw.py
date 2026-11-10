@@ -22,7 +22,7 @@ Each member's row on the Uploaded files sheet shows records in the file = import
 skipped. No model is called. The search files, the live board listing and the people grid are
 left as tables for Ask (their rows are not records of the account).
 
-GUARANTEE(test_a_workspace_zip_imports_each_deliverable_row_once_and_skips_build_and_owner_files)
+GUARANTEE(test_a_workspace_zip_imports_each_deliverable_row_once_and_skips_build_files)
 """
 
 from __future__ import annotations

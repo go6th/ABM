@@ -552,8 +552,7 @@ SHEETS: dict[str, Sheet] = {
         file="Uploaded files.xlsx",
         scope=(
             "Every file inside the zips you uploaded for this account: which package file it is,"
-            " whether it was read, skipped or failed and why, and what it produced. An owner-only"
-            " file is listed but never read."
+            " whether it was read, skipped or failed and why, and what it produced."
         ),
         base=(
             "SELECT m.id AS _id, d.name AS document, m.member_path AS member,"  # nosec B608 -- labels from fixed mappings, no input.
@@ -600,8 +599,7 @@ SHEETS: dict[str, Sheet] = {
         ),
         default_sort="member",
         footnote=(
-            "Files inside the zips you uploaded. A build script or an owner-only file is listed"
-            " and not read; upload an owner-only file on its own to keep it private. For a"
+            "Files inside the zips you uploaded. A build script is listed and not read. For a"
             " workbook, rows imported plus rows merged (duplicates folded into one) plus rows"
             " not imported (no title or name) is the sheet's row count."
         ),
@@ -784,7 +782,6 @@ SHEETS: dict[str, Sheet] = {
         base=(
             "SELECT n.id AS _id, n.title, replace(initcap(replace(n.kind, '_', ' ')), 'Ai ',"
             " 'AI ') AS kind, n.text, coalesce(n.member_path, '') AS member,"
-            " CASE n.audience WHEN 'owner_only' THEN 'Owner only' ELSE 'Client' END AS audience,"
             " n.created_at AS added FROM research_notes n WHERE n.tenant_id = :t AND n.account_id ="
             " :a"
         ),
@@ -793,21 +790,13 @@ SHEETS: dict[str, Sheet] = {
             Col("kind", "Kind", "s.kind"),
             Col("text", "Text", "s.text", "long"),
             Col("member", "File", "s.member", "code"),
-            Col("audience", "Who sees it", "s.audience"),
             Col("added", "Added", "s.added", "date"),
         ),
-        filters=(
-            Filter("all", "All", "true"),
-            Filter("owner", "Owner only", "s.audience = 'Owner only'"),
-        ),
+        filters=(Filter("all", "All", "true"),),
         default_sort="added",
         default_dir="desc",
         private=True,
-        export_where="s.audience <> 'Owner only'",
-        footnote=(
-            "Notes are internal: they are never part of a client file. An owner-only note leaves"
-            " no workbook."
-        ),
+        footnote="Notes are internal: they are never part of a client file.",
     ),
     "coverage": Sheet(
         key="coverage",
