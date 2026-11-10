@@ -126,7 +126,7 @@ unannotated (the generator's check fails otherwise).
 | orphan sweep | `src/account_intelligence/runs/sweeper.py:107` | max_pages * batch_size runs per pass | rows exhausted |
 | orphan sweep loop | `src/account_intelligence/api/main.py:391` | none, one pass per interval for the life of the worker | task cancelled at shutdown |
 | outbox relay | `src/alerts/outbox.py:87` | limit | end |
-| pacing | `src/account_intelligence/connectors/ratelimit.py:169` | max_iterations and max_wait_s | token granted, RateLimited (the node RetryPolicy owns the retry) |
+| pacing | `src/account_intelligence/connectors/ratelimit.py:235` | max_iterations and max_wait_s | token granted, RateLimited (the node RetryPolicy owns the retry) |
 | package part elements | `src/research_files/parsers/tabular.py:415` | `cap` bytes of the part | end of the part |
 | pagination | `src/account_intelligence/connectors/paginate.py:83` | max_pages, max_items, max_bytes, slice deadline | exhausted, max_pages, max_items, max_bytes, deadline, loop_detected |
 | part download | `src/account_intelligence/api/routes/downloads.py:165` | the range's bytes / 1 MiB | range sent |
