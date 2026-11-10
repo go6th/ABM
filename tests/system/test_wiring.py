@@ -90,9 +90,11 @@ def test_assert_gcp_runtime_refuses_hermetic_adapters_w4(monkeypatch: pytest.Mon
     assert prod.llm.client.api_key == "synthetic-anthropic-api-key"
     assert prod.verify_task_token is not None
     assert prod.connectors is not None and prod.extras["retry_policy"] is not None
-    from account_intelligence.connectors.ratelimit import RedisRateStore
+    from account_intelligence.connectors.ratelimit import FallbackRateStore, RedisRateStore
 
-    assert isinstance(prod.connectors.limiter._store, RedisRateStore)  # shared across instances
+    store = prod.connectors.limiter._store
+    # shared across instances through Redis, with the in-process fallback behind it (SD-07)
+    assert isinstance(store, FallbackRateStore) and isinstance(store._primary, RedisRateStore)
     with pytest.raises(RuntimeMisconfigured, match="connector"):
         assert_gcp_runtime(Container(**{**prod.__dict__, "connectors": None}))
     with pytest.raises(RuntimeMisconfigured, match="LLM_ACCESS"):

@@ -6,16 +6,19 @@ names the failed check, never a 200.
 ``components`` (informational, never a reason for 503) reports each external component by a
 status word only: each provider ``off``, ``configured`` or ``unconfigured`` (the request path's
 own rule), the model ``present``, ``fake (LLM_FAKE)`` or ``not configured (ANTHROPIC_API_KEY)``
-(the missing key's name, never a value), the payload, rate-limit and scanner adapters.
-No variable's value ever appears.
+(the missing key's name, never a value), the payload, rate-limit and scanner adapters, and
+``redis``: ``ok``, ``unreachable (paid calls pace in-process)`` or ``not used`` (SD-07; a ping
+with a short timeout, informational because ``/readyz`` is the startup probe and a Redis outage
+must not stop the service). No variable's value ever appears.
 
 GUARANTEE(test_readiness_reports_every_component_by_status_word_only)
 """
 
 from __future__ import annotations
 
+import asyncio
 import os
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from fastapi import APIRouter, Request
@@ -112,6 +115,37 @@ def components(container: Any, env: Mapping[str, str]) -> dict[str, str]:
     return out
 
 
+REDIS_DOWN = "unreachable (paid calls pace in-process)"
+_redis_client: Any = None
+
+
+def _redis_client_for(url: str, env: Mapping[str, str]) -> Any:
+    """One shared probe client per process (built lazily, short socket timeouts)."""
+    global _redis_client
+    if _redis_client is None:
+        from account_intelligence.platform.redis_url import redis_from_url
+
+        _redis_client = redis_from_url(url, env, socket_connect_timeout=1, socket_timeout=1)
+    return _redis_client
+
+
+async def redis_state(
+    env: Mapping[str, str],
+    client_for: Callable[[str, Mapping[str, str]], Any] = _redis_client_for,
+    *,
+    timeout_s: float = 1.0,
+) -> str:
+    """Whether Redis answers a ping (SD-07), as a status word; never raises."""
+    url = env.get("REDIS_URL")
+    if not url:
+        return "not used"
+    try:
+        await asyncio.wait_for(client_for(url, env).ping(), timeout_s)
+    except Exception:  # noqa: BLE001 - informational: any failure is "unreachable"
+        return REDIS_DOWN
+    return "ok"
+
+
 LLM_MISSING = "not configured (ANTHROPIC_API_KEY)"
 CLOUD_PROFILES = ("staging", "production")
 PEOPLE_DISABLED = (
@@ -174,4 +208,5 @@ async def readyz(request: Request) -> JSONResponse:
             body["components"] = components(container, os.environ)
         except Exception:  # noqa: BLE001 - informational only; never changes readiness
             body["components"] = {}
+        body["components"]["redis"] = await redis_state(os.environ)
     return JSONResponse(body, status_code=200 if ok else 503)

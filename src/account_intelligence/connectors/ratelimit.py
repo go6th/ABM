@@ -4,17 +4,23 @@ Pacing is the connector's job; the retry decision is the node's. ``acquire`` wai
 most ``max_wait_s`` (bounded loop) and otherwise raises ``RateLimited`` so the node
 policy owns the retry. A 429 or ``Retry-After`` sets the provider-wide cooldown, which
 every worker sharing the store honours. Stores are injected: in-memory for a single
-process and tests, Redis for workers on several pods. Redis holds no tenant data.
+process and tests, Redis for workers on several pods (behind ``FallbackRateStore``, so a Redis
+outage paces calls in-process instead of failing them, SD-07). Redis holds no tenant data.
 """
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Protocol
 
 from account_intelligence.connectors.base import Clock, ProviderCode, Sleep
 from account_intelligence.connectors.errors import RateLimited
+
+# the connectors' own logger (connectors/obs.py): jobs and people import the connectors and may
+# not import obs, so this module cannot use obs.logging
+_log = logging.getLogger("account_intelligence.connectors")
 
 
 @dataclass(frozen=True)
@@ -128,6 +134,66 @@ class RedisRateStore:
         """When the shared cooldown ends."""
         raw = await self._client.get(self._prefix + "cooldown:" + key)  # type: ignore[attr-defined]
         return float(raw) if raw is not None else 0.0
+
+
+# SD-07: while Redis is unreachable each instance paces on its own bucket at this share of the
+# provider's rate with a burst of one, so several instances falling back at once stay near the
+# shared limit instead of multiplying it.
+FALLBACK_RATE_SHARE = 0.25
+
+
+class FallbackRateStore:
+    """Redis while it answers; on any Redis error, this process's own conservative bucket
+    (SD-07: a Redis outage used to fail every paid call). Logs ``rate_limit_degraded`` once
+    when Redis is lost (the existing alert pages on it) and ``rate_limit_restored`` when it
+    answers again. Cooldowns are always kept locally too, so a 429 is honoured either way."""
+
+    def __init__(self, primary: RateStore, fallback: InMemoryRateStore | None = None) -> None:
+        self._primary = primary
+        self._fallback = fallback or InMemoryRateStore()
+        self._degraded = False
+
+    def _lost(self, error: Exception) -> None:
+        if not self._degraded:
+            self._degraded = True
+            _log.warning(
+                "rate_limit_degraded",
+                extra={"kind": "provider", "error_class": type(error).__name__},
+            )
+
+    def _back(self) -> None:
+        if self._degraded:
+            self._degraded = False
+            _log.info("rate_limit_restored", extra={"kind": "provider"})
+
+    async def take(self, key: str, limit: BucketLimit, now: float) -> float:
+        """Take from Redis; on an error, from the local bucket at the fallback share."""
+        try:
+            wait = await self._primary.take(key, limit, now)
+        except Exception as error:  # noqa: BLE001 - any Redis failure falls back, never fails
+            self._lost(error)
+            local = BucketLimit(rate_per_s=limit.rate_per_s * FALLBACK_RATE_SHARE, burst=1.0)
+            return await self._fallback.take(key, local, now)
+        self._back()
+        return wait
+
+    async def set_cooldown(self, key: str, until: float) -> None:
+        """Extend the cooldown locally and, when it answers, in Redis."""
+        await self._fallback.set_cooldown(key, until)
+        try:
+            await self._primary.set_cooldown(key, until)
+        except Exception as error:  # noqa: BLE001 - the local cooldown still holds
+            self._lost(error)
+
+    async def cooldown_until(self, key: str) -> float:
+        """The later of the shared and the local cooldown (the local one alone without Redis)."""
+        local = await self._fallback.cooldown_until(key)
+        try:
+            shared = await self._primary.cooldown_until(key)
+        except Exception as error:  # noqa: BLE001 - the local cooldown still holds
+            self._lost(error)
+            return local
+        return max(shared, local)
 
 
 MIN_SLEEP_S = 0.001

@@ -219,7 +219,7 @@ def build_connectors(
     encryption needs the instance's server CA; the TLS settings are checked against a real
     instance at bootstrap."""
     from account_intelligence.connectors.factory import build_runtime
-    from account_intelligence.connectors.ratelimit import RedisRateStore
+    from account_intelligence.connectors.ratelimit import FallbackRateStore, RedisRateStore
     from account_intelligence.connectors.service import retry_policy_for
     from account_intelligence.connectors.settings import load_providers_config, uncapped_config
 
@@ -232,7 +232,8 @@ def build_connectors(
     if redis_url:
         from account_intelligence.platform.redis_url import redis_from_url
 
-        rate_store = RedisRateStore(redis_from_url(redis_url, env))
+        # SD-07: a Redis outage paces paid calls in-process instead of failing every one
+        rate_store = FallbackRateStore(RedisRateStore(redis_from_url(redis_url, env)))
     runtime = build_runtime(
         config,
         txn=tenant_txn,
