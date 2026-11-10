@@ -22,7 +22,9 @@ from uuid import UUID, uuid4
 
 import psycopg
 import pytest
+import yaml
 
+from account_intelligence.config import CONFIG_DIR
 from account_intelligence.db.session import tenant_txn
 from tenancy import lifecycle
 from tenancy.storage import is_tenant_prefix, object_prefixes, tenant_of_key
@@ -42,12 +44,14 @@ def _db_tables() -> set[str]:
 def test_every_tenant_table_is_classified_for_deletion() -> None:
     plan = lifecycle.load_plan()
     erase, blocked, never = set(plan.erase), set(plan.blocked), set(plan.never)
+    scrub = set(plan.scrub)
     tables = _db_tables()
     assert tables, "no tenant tables found"
     # no table in two lists
     assert not erase & blocked and not erase & never and not blocked & never
+    assert not scrub & (erase | blocked | never)
     # `blocked` also holds the stored objects, which is not a table
-    names = erase | (blocked - {"raw_payload_objects"}) | never
+    names = erase | scrub | (blocked - {"raw_payload_objects"}) | never
     unclassified = sorted(tables - names)
     assert not unclassified, f"tables in none of erase, blocked, never: {unclassified}"
     stale = sorted(names - tables)
@@ -56,6 +60,9 @@ def test_every_tenant_table_is_classified_for_deletion() -> None:
     assert all(len(r.strip()) >= 12 for r in plan.blocked.values()), "a blocked item has no reason"
     assert set(plan.never_reasons) == never, "every `never` table needs its reason"
     assert all(len(r.strip()) >= 12 for r in plan.never_reasons.values())
+    scrub_reasons = yaml.safe_load((CONFIG_DIR / "deletion.yaml").read_text())["scrub_reasons"]
+    assert set(scrub_reasons) == scrub, "every `scrub` table needs its reason"
+    assert all(len(r.strip()) >= 12 for r in scrub_reasons.values())
 
 
 @pytest.mark.requires_postgres

@@ -59,14 +59,20 @@ class DeletionPlan:
     max_batches_per_pass: int
     # why each table of ``never`` is kept (empty for a plan written as a plain list)
     never_reasons: dict[str, str] = field(default_factory=dict)
+    # rows a never-deleted ledger points at: the content columns are emptied, the row stays (SD-01)
+    scrub: dict[str, tuple[str, ...]] = field(default_factory=dict)
 
     @property
     def digest(self) -> str:
         """SHA-256 of the plan, recorded with the dry run and checked at execution."""
-        body = json.dumps(
-            {"erase": list(self.erase), "blocked": self.blocked, "batch": self.batch_size},
-            sort_keys=True,
-        )
+        doc: dict[str, Any] = {
+            "erase": list(self.erase),
+            "blocked": self.blocked,
+            "batch": self.batch_size,
+        }
+        if self.scrub:
+            doc["scrub"] = {t: list(c) for t, c in self.scrub.items()}
+        body = json.dumps(doc, sort_keys=True)
         return hashlib.sha256(body.encode()).hexdigest()
 
 
@@ -85,6 +91,7 @@ def load_plan() -> DeletionPlan:
             if isinstance(raw["never"], dict)
             else {}
         ),
+        scrub={str(t): tuple(str(c) for c in cols) for t, cols in (raw.get("scrub") or {}).items()},
     )
     check_plan(plan)
     return plan
@@ -94,10 +101,48 @@ def check_plan(plan: DeletionPlan) -> None:
     """A plan may never erase a protected table, list a table twice, or erase a blocked one."""
     if overlap := (set(plan.erase) & plan.never) | (set(plan.erase) & set(plan.blocked)):
         raise LifecycleError(f"deletion plan erases protected tables: {sorted(overlap)}")
+    if both := set(plan.scrub) & (set(plan.erase) | plan.never | set(plan.blocked)):
+        raise LifecycleError(f"deletion plan scrubs a table listed elsewhere: {sorted(both)}")
+    if any(not cols for cols in plan.scrub.values()):
+        raise LifecycleError("a scrubbed table names no column")
     if len(set(plan.erase)) != len(plan.erase):
         raise LifecycleError("deletion plan lists a table twice")
     if plan.batch_size < 1 or plan.max_batches_per_pass < 1:
         raise LifecycleError("deletion batches must be positive")
+
+
+# one foreign key as (child table, parent table, pg_constraint.confdeltype)
+ForeignKey = tuple[str, str, str]
+
+
+def foreign_key_breaches(plan: DeletionPlan, fks: list[ForeignKey]) -> list[str]:
+    """Every foreign key through which erasing a plan table would delete or change rows of a table
+    the plan keeps (SD-01). Only the first hop matters: a cascade from an erased table into an
+    erased table is the plan's own work, and from there every next hop is checked the same way.
+    A ``RESTRICT``/``NO ACTION`` key into a kept table fails loudly at execution instead and is
+    checked by ``test_the_erase_order_never_breaks_a_foreign_key``."""
+    erased = set(plan.erase)
+    out = []
+    for child, parent, action in fks:
+        if parent in erased and child not in erased and child != parent and action in "cnd":
+            verb = "loses rows" if action == "c" else "has a column changed"
+            out.append(f"{child} (kept) {verb} when {parent} (erased) is deleted")
+    return sorted(out)
+
+
+async def cascade_breaches(session: AsyncSession, plan: DeletionPlan) -> list[str]:
+    """``foreign_key_breaches`` against the live schema (pg_catalog is readable by any role)."""
+    rows = await session.execute(
+        text(
+            "SELECT cl.relname, cf.relname, con.confdeltype::text"
+            "  FROM pg_constraint con"
+            "  JOIN pg_class cl ON cl.oid = con.conrelid"
+            "  JOIN pg_class cf ON cf.oid = con.confrelid"
+            "  JOIN pg_namespace n ON n.oid = cl.relnamespace"
+            " WHERE con.contype = 'f' AND n.nspname = 'public'"
+        )
+    )
+    return foreign_key_breaches(plan, [(str(c), str(p), str(a)) for c, p, a in rows.all()])
 
 
 @dataclass(frozen=True)
@@ -301,9 +346,11 @@ async def request_deletion(
 
 
 async def counts(session: AsyncSession, plan: DeletionPlan) -> dict[str, int]:
-    """Rows of the context tenant in every erasable and blocked table (as the runtime role)."""
+    """Rows of the context tenant in every erasable, scrubbed and blocked table (as the runtime
+    role)."""
     out: dict[str, int] = {}
-    for table in (*plan.erase, *[t for t in plan.blocked if not t.endswith("_objects")]):
+    blocked = [t for t in plan.blocked if not t.endswith("_objects")]
+    for table in (*plan.erase, *plan.scrub, *blocked):
         # the table names come from the validated plan, never from a request
         sql = text(f"SELECT count(*) FROM {table}")  # nosec B608 -- table comes from the validated deletion plan.
         n: int = (await session.execute(sql)).scalar_one()
@@ -324,11 +371,14 @@ async def dry_run(
     st = await state(session)
     if st.deletion_request != request_id or st.deletion_phase not in ("requested", "dry_run"):
         raise LifecycleError("no open deletion request awaiting a dry run")
+    if breaches := await cascade_breaches(session, plan):
+        raise LifecycleError(f"the deletion plan would reach kept tables: {breaches}")
     found = await counts(session, plan)
     report = {
         "request_id": request_id,
         "plan": plan.digest,
         "erase": {t: found[t] for t in plan.erase},
+        "scrub": {t: found[t] for t in plan.scrub},
         "blocked": {t: {"rows": found.get(t), "reason": why} for t, why in plan.blocked.items()},
     }
     await append(
@@ -376,6 +426,7 @@ class PassResult:
     """One execution pass: rows erased per table and why it stopped."""
 
     erased: dict[str, int] = field(default_factory=dict)
+    scrubbed: dict[str, int] = field(default_factory=dict)
     exit_reason: str = ""
 
 
@@ -542,6 +593,28 @@ async def execute(
             result.erased[table] = result.erased.get(table, 0) + n
             if n < plan.batch_size:
                 break
+    for table in plan.scrub:
+        # LOOP(deletion scrub): cap=max_batches_per_pass batches per pass, shared with the erase;
+        # exit=nothing left to scrub, batch_cap. scrub_rows only picks rows that still hold content.
+        while True:
+            if batches >= plan.max_batches_per_pass:
+                result.exit_reason = "batch_cap"
+                await _record_batches(session, request_id, result, actor, now)
+                return result
+            n = int(
+                (
+                    await session.execute(
+                        text("SELECT scrub_rows(CAST(:r AS uuid), :t, :n)"),
+                        {"r": request_id, "t": table, "n": plan.batch_size},
+                    )
+                ).scalar_one()
+            )
+            if n == 0:
+                break
+            batches += 1
+            result.scrubbed[table] = result.scrubbed.get(table, 0) + n
+            if n < plan.batch_size:
+                break
     objects_gone = False
     if objects is not None:
         try:
@@ -598,7 +671,7 @@ async def _record_batches(
         actor=actor,
         plane="operator",
         now=now,
-        detail={"request_id": request_id, "erased": result.erased},
+        detail={"request_id": request_id, "erased": result.erased, "scrubbed": result.scrubbed},
     )
 
 

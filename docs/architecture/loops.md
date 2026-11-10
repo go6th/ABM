@@ -7,9 +7,9 @@ unannotated (the generator's check fails otherwise).
 | Loop | Where | Cap | Exit reasons |
 | --- | --- | --- | --- |
 | CRM reconcile | `src/crm_writeback/service.py:299` | 100 writes per pass | end |
-| abandon clients | `src/documents/service.py:1804` | every client once per pass, `limit` documents each | last client |
-| abandon objects | `src/documents/service.py:1810` | `limit` per client | documents exhausted |
-| account object deletion | `src/tenancy/lifecycle.py:485` | OBJECT_BATCHES_PER_PASS batches per target | a batch shorter than the limit (the target is empty) or the cap |
+| abandon clients | `src/documents/service.py:1791` | every client once per pass, `limit` documents each | last client |
+| abandon objects | `src/documents/service.py:1797` | `limit` per client | documents exhausted |
+| account object deletion | `src/tenancy/lifecycle.py:536` | OBJECT_BATCHES_PER_PASS batches per target | a batch shorter than the limit (the target is empty) or the cap |
 | agent schema re-ask | `src/agents/production/wiring.py:130` | 2 attempts, then 2 on the Claude default when the chosen model is Kimi K3 | valid reply, SchemaInvalid |
 | alert fan-out | `src/alerts/engine.py:205` | len(recipients) | end |
 | archive copy | `src/account_intelligence/replica/downloads.py:680` | the file's size / 1 MiB | end of file |
@@ -42,14 +42,15 @@ unannotated (the generator's check fails otherwise).
 | connector token refresh | `src/connectors_client/oauth.py:244` | refresh_attempts attempts | refreshed, revoked, scope changed, attempts exhausted (transient: token_refresh_failed) |
 | continuation chain | `src/account_intelligence/replica/auto_resume.py:181` | MAX_AUTO_RESUMES + 8 hops | a run no continuation made |
 | converter re-run | `src/exports/verify.py:299` | 2 attempts | converted, None (not_run with reason) |
-| copy document for the sandbox | `src/documents/service.py:1238` | size / 1 MiB | end of object |
+| copy document for the sandbox | `src/documents/service.py:1232` | size / 1 MiB | end of object |
 | count cache trim | `src/account_intelligence/replica/file_tabs.py:661` | one entry over CACHE_COUNTS | within the cap |
 | crc32c read | `src/research_files/crc32c.py:69` | object size / 1 MiB reads | end of stream |
 | credit ledger pass | `src/account_intelligence/worker/nightly.py:87` | the tenants with credit activity in the window | end |
 | criterion characters | `src/account_intelligence/replica/workbook_formulas.py:194` | the pattern's characters | end of pattern |
 | crm fetch pass | `src/connectors_client/framework.py:239` | max_pages_per_pass pages per pass | last page, page_cap |
 | dash positions | `src/exports/verify.py:591` | the text length (each find starts after the last hit) | no further occurrence |
-| deletion cascade | `src/tenancy/lifecycle.py:526` | max_batches_per_pass erasing batches per pass, plus one empty probe per table | completed, blocked (blocked items remain), batch_cap |
+| deletion cascade | `src/tenancy/lifecycle.py:577` | max_batches_per_pass erasing batches per pass, plus one empty probe per table | completed, blocked (blocked items remain), batch_cap |
+| deletion scrub | `src/tenancy/lifecycle.py:599` | max_batches_per_pass batches per pass, shared with the erase | nothing left to scrub, batch_cap. scrub_rows only picks rows that still hold content. |
 | delimited lines | `src/research_files/parsers/tabular.py:144` | the file's lines | end of stream |
 | delimited unit rows | `src/research_files/parsers/tabular.py:207` | rows_per_unit rows | unit full, end of rows |
 | delimited units | `src/research_files/parsers/tabular.py:200` | rows / rows_per_unit units | end of rows, corrupt row |
@@ -58,7 +59,7 @@ unannotated (the generator's check fails otherwise).
 | devstore session lock | `src/devstore/server.py:98` | 1200 tries of 50 ms (one minute) | lock taken |
 | digest assembly | `src/alerts/digest.py:42` | len(items) | end |
 | distill re-ask | `src/agents/distill/agent.py:175` | 2 attempts | a narrative survived with every figure in place, or the second attempt (a narrative the guards dropped whole, or a claim cut for a figure the cited facts do not carry, is asked for once more with the reasons; the attempt that keeps a narrative and the most claims is the result, so a re-ask never leaves the Summary with less than the first answer gave; every attempt's drops are counted) |
-| document parts | `src/documents/service.py:786` | parts_total parts per worker, parts_per_request per call | no part left, client busy, request's share read (the next task continues) |
+| document parts | `src/documents/service.py:780` | parts_total parts per worker, parts_per_request per call | no part left, client busy, request's share read (the next task continues) |
 | drop read siblings | `src/research_files/parsers/tabular.py:423` | the elements already read | none left before |
 | drop trailing credentials | `src/exports/repair/names.py:318` | the words of the name | no credential word last |
 | erased account objects | `src/account_intelligence/api/routes/accounts.py:210` | ERASE_OBJECT_PASSES passes | clean |
@@ -84,7 +85,7 @@ unannotated (the generator's check fails otherwise).
 | grouped judge re-ask | `src/account_intelligence/grading/judge.py:150` | max_reasks (1) | verdicts for every sentence, unavailable (claim capped, G12) |
 | guarded name span | `src/agents/skill_context.py:163` | the word's length | the first non-letter |
 | hand-off recovery clients | `src/account_intelligence/runs/recovery.py:92` | every client once per pass, `limit` items per kind | last client |
-| hash uploaded document | `src/documents/service.py:506` | size / 1 MiB reads | end of object |
+| hash uploaded document | `src/documents/service.py:500` | size / 1 MiB reads | end of object |
 | headline repeats | `src/account_intelligence/archive_clean.py:372` | the lines after the headline | first other line |
 | hyperlink cells | `src/research_files/parsers/tabular.py:519` | MAX_LINK_CELLS per hyperlink, MAX_LINKS per workbook | range end, budget spent |
 | idle expiry | `src/account_intelligence/replica/access.py:100` | one pass over the clients | every client checked or failed |
@@ -95,7 +96,7 @@ unannotated (the generator's check fails otherwise).
 | import part retry documents | `src/documents/deliverables.py:805` | the parts claimed above | claims exhausted |
 | in-flight wait | `src/account_intelligence/connectors/service.py:296` | in_flight_wait_s (polls every in_flight_poll_s) | claimed, replayed, CallInFlight |
 | in-process slice drain, tests and dev | `src/account_intelligence/platform/hermetic.py:154` | limit (1000) | queue empty, limit |
-| index pages | `src/documents/service.py:1264` | passages / index_batch pages, or the request's time budget | no passage left, deleted, budget spent (the next task continues) |
+| index pages | `src/documents/service.py:1258` | passages / index_batch pages, or the request's time budget | no passage left, deleted, budget spent (the next task continues) |
 | isolation owner probe | `src/account_intelligence/replica/isolation.py:205` | every real client once | all probed |
 | isolation route probe | `src/account_intelligence/replica/isolation.py:251` | the read routes of the catalog | all probed |
 | job slices | `src/account_intelligence/worker/job.py:80` | max_slices | awaiting/done/canceled/noop, no next slice, busy cap |
@@ -110,7 +111,7 @@ unannotated (the generator's check fails otherwise).
 | leading punctuation | `src/parity/from_run.py:98` | len(short) characters | first character alphanumeric |
 | leading signs | `src/account_intelligence/replica/workbook_formulas.py:570` | the formula's tokens | no plus or minus |
 | lease heartbeat | `src/parallel/governor.py:224` | lifetime of the held slot (cancelled on release) | release, lost lease (the slot expires at its TTL and is reclaimed) |
-| lease heartbeat | `src/documents/service.py:654` | the step's duration / (lease_ttl_s / 3) renewals | step finished (cancelled), lease lost |
+| lease heartbeat | `src/documents/service.py:648` | the step's duration / (lease_ttl_s / 3) renewals | step finished (cancelled), lease lost |
 | lease wait | `src/parallel/governor.py:203` | lease_wait_s of polls every lease_poll_s plus jitter | granted, SlotUnavailable (the unit is re-queued with its age preserved; never a provider retry) |
 | mention resolution | `src/people/mentions.py:76` | mention_queries_per_person each and mention_run_cap in total | converged, cap_reached, budget, deadline |
 | merge fixpoint check | `src/people/merge.py:178` | merge_fixpoint_cap | identical plan, MergeError |
@@ -120,7 +121,7 @@ unannotated (the generator's check fails otherwise).
 | moonshot stream | `src/llm/adapters/moonshot_api.py:318` | the server's chunks until [DONE] | [DONE], end |
 | notification relay | `src/spend/notify.py:224` | 100 messages per pass, one attempt each, max_attempts per message over passes | delivered, failed (retried next pass), gave_up |
 | notification relay clients | `src/account_intelligence/api/routes/tasks.py:392` | every client once per pass | last client |
-| object deletion | `src/tenancy/lifecycle.py:405` | OBJECT_BATCHES_PER_PASS batches per prefix | a batch shorter than the limit (the prefix is empty) or the cap |
+| object deletion | `src/tenancy/lifecycle.py:456` | OBJECT_BATCHES_PER_PASS batches per prefix | a batch shorter than the limit (the prefix is empty) or the cap |
 | orphan listing pages | `src/account_intelligence/runs/sweeper.py:93` | max_pages pages of batch_size | short page |
 | orphan sweep | `src/account_intelligence/runs/sweeper.py:107` | max_pages * batch_size runs per pass | rows exhausted |
 | orphan sweep loop | `src/account_intelligence/api/main.py:391` | none, one pass per interval for the life of the worker | task cancelled at shutdown |
@@ -163,7 +164,7 @@ unannotated (the generator's check fails otherwise).
 | research passes | `src/account_intelligence/workflow/parallel_phase.py:250` | 2 passes (a pass that paused but whose request policy declined at once runs again with paid work stopped) | converged or another exit, pause marker |
 | run_python data fit | `src/documents/run_python.py:67` | DATA_MAX_CHARS | len(items)<=1 or the data fits |
 | sandbox unit lines | `src/documents/sandbox.py:180` | units the child prints within timeout_s and max_text_bytes | end of output, timeout, text cap |
-| scan retry clients | `src/documents/service.py:1773` | every client once per pass, `limit` documents each | last client |
+| scan retry clients | `src/documents/service.py:1760` | every client once per pass, `limit` documents each | last client |
 | scheduler loop | `src/parallel/executor.py:250` | 10 iterations per unit plus 100 (each launches, blocks, awaits a completion or waits a bounded stall) | converged, deadline, budget, paused, cancelled, retryable, no_progress (SchedulerDeadlock) |
 | section split | `src/research_files/parsers/documents.py:51` | len(text) / limit parts | text consumed |
 | simulation | `src/parallel/simulate.py:193` | sum of units over runs times 4 plus 1000 steps | all runs drained |

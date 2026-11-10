@@ -3,7 +3,7 @@
 # untouched; ledgers and the audit trail are never deleted. The operation is dry run first, needs
 # a second person to approve, runs in bounded batches and is resumable.
 #
-# EVERY table that carries a tenant_id is in exactly one of the three lists below, each with its
+# EVERY table that carries a tenant_id is in exactly one of the four lists below, each with its
 # reason (tests/system/test_erasure_classification.py fails on a new table that is in none of
 # them, on one in two, and on a stale name). That test is what keeps this file from drifting
 # (leakage review 2026-10-30, F3).
@@ -105,7 +105,6 @@ erase:
   - research_file_upload_parts
   - research_file_uploads
   - research_files
-  - research_jobs
   - review_samples
   - run_coverage_meta
   - run_documents
@@ -137,6 +136,14 @@ erase:
   - checkpoint_writes
   - checkpoint_blobs
   - checkpoints
+# `scrub` keeps the row and empties the client's words in it, because a ledger that is never
+# deleted points at the row (SD-01, migration 0116: credit_entries -> research_jobs is RESTRICT).
+# The database function scrub_rows holds the same table and columns; tests/system/
+# test_deletion_keeps_ledgers.py proves the ledger and its totals survive a deletion.
+scrub:
+  research_jobs: [goal, topic, failure_reason]
+scrub_reasons:
+  research_jobs: "goal, topic and failure reason are the client's words; the row stays because credit_entries (billing record, never deleted) references it"
 blocked:
   sources: "rows are never deleted (stable source codes, trigger sources_guard_identity); C23"
   people: "tombstone erasure only, not exposed until counsel decides (D-06, D-23); C23"
@@ -352,7 +359,7 @@ account_purge:
   scrub_reasons:
     account_runs: 'run_input holds the research goal and stop_detail free text; the run header, its status, credits and pins stay (ledgers refer to the run)'
     runs: 'error text of a failed run; the header stays'
-    research_jobs: "goal, topic and failure reason are the client's words; the row stays because credit_entries hangs on it by a cascading foreign key"
+    research_jobs: "goal, topic and failure reason are the client's words; the row stays because credit_entries references it (RESTRICT since 0116)"
     tool_calls: 'response and response_ref hold provider answers about the account; emptied so the research cache can never adopt a payload that is gone; cost columns stay'
     llm_calls: "output_json is the model's answer about the account; emptied; tokens and cost stay"
   tombstone: [accounts]
@@ -365,7 +372,7 @@ account_purge:
     spend_reports: "spend reports of the account's runs; billing record"
     tool_call_records: 'raw call records of the paid-call ledger: operation, argument hash, cost; no content'
     llm_call_attempts: 'model call attempts of the cost ledger: error class only'
-    credit_entries: 'credit reservations and settlements; billing record (it hangs on research_jobs by a cascading foreign key, which is why research_jobs is scrubbed, never deleted)'
+    credit_entries: 'credit reservations and settlements; billing record (it references research_jobs, RESTRICT since 0116, which is why research_jobs is scrubbed, never deleted)'
     balance_snapshots: 'provider balance snapshots taken at runs; billing record'
     unit_cost_rollups: 'cost rollups per run; billing record'
     ops_cost_rollups: 'cost rollups per run and account for Runs and spend; billing record'
