@@ -322,6 +322,7 @@ async def _deletion_step(
                 out = {
                     "request_id": request_id,
                     "erased": result.erased,
+                    "scrubbed": result.scrubbed,
                     "exit_reason": result.exit_reason,
                 }
             await _tenant_audit(s, request, who, f"deletion_{step}", request_id)

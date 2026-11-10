@@ -1944,9 +1944,12 @@ class DeletionStep(Out):
     request_id: str
     plan: str | None = None
     erase: dict[str, int | None] | None = None
+    # SD-01: rows kept and emptied of the client's words (ledgers point at them)
+    scrub: dict[str, int | None] | None = None
     blocked: JsonObject | None = None
     approved_by: str | None = None
     erased: JsonObject | int | None = None
+    scrubbed: JsonObject | None = None
     exit_reason: str | None = None
 
 

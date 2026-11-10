@@ -338,6 +338,9 @@ functions:
   erase_rows:
     returns: a row count; the caller's context tenant only, allow-listed tables, approved requests
     proof: tests/phase3/test_ws1_tenancy.py
+  scrub_rows:
+    returns: a row count; the caller's context tenant only, research_jobs content columns only, approved requests (SD-01)
+    proof: tests/system/test_deletion_keeps_ledgers.py
   erase_archive_urls:
     returns: a row count; the caller's context tenant and one account only, only while the account holds an erased person
     proof: tests/people/test_archive_erasure_db.py

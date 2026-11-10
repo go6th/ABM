@@ -1147,6 +1147,8 @@ export const DeletionStep = z.object({
   "exit_reason": z.string().nullable().optional(),
   "plan": z.string().nullable().optional(),
   "request_id": z.string(),
+  "scrub": z.record(z.string(), z.number().int().nullable()).nullable().optional(),
+  "scrubbed": z.record(z.string(), z.unknown()).nullable().optional(),
 }).strict();
 export type DeletionStep = z.infer<typeof DeletionStep>;
 
